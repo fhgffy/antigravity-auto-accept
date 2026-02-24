@@ -24,12 +24,24 @@ VS Code and the Electron framework are notoriously difficult to automate due to 
 ### 🔁 Bonus: Never Stop Generating
 If Antigravity gets interrupted due to network timeouts and throws the dreaded red/blue **"Retry / 重试"** button, this extension's UIAutomation scanner will violently click it the exact millisecond it appears. Your AI agent essentially becomes immortal.
 
-## ⚡ Setup & Activation
-- **Zero Configuration:** Just install the `.vsix` file.
-- **Always On:** It activates on the `*` startup event. The moment VS Code breathes, this extension is already hunting.
-- **Manual Overrides:** Use the Command Palette to pause its wrath if needed:
-  - `> Start Antigravity Auto Accept`
-  - `> Stop Antigravity Auto Accept`
+## ⚡ Installation & Usage
+
+**1. Download the Extension:**
+   - Head over to the [Releases page](../../releases) of this repository.
+   - Download the latest `antigravity-auto-accept-X.X.X.vsix` file to your computer.
+
+**2. Install in Antigravity / VS Code:**
+   - Open your IDE and go to the **Extensions** view (`Ctrl+Shift+X` or `Cmd+Shift+X`).
+   - Click the `...` (Views and More Actions) icon at the top right of the Extensions panel.
+   - Select **"Install from VSIX..."** from the dropdown menu.
+   - Locate and select the `.vsix` file you just downloaded.
+   - **Important:** Restart your IDE after installation.
+
+**3. How to Use:**
+   - **Zero Configuration:** The extension is fully automatic. It activates entirely on its own the moment your IDE breathes. You don't need to do anything.
+   - **Manual Toggle:** If you ever need to pause the auto-clicker, press `F1` (or `Ctrl+Shift+P`) to open the Command Palette, and type:
+     - `Antigravity Auto Accept: Start Auto-Clicker`
+     - `Antigravity Auto Accept: Stop Auto-Clicker`ccept`
 
 ---
 *Built with pure rage against permission popups.*
