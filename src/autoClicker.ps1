@@ -44,10 +44,22 @@ public class Keyboard {
 
 Write-Host "Starting AutoClicker for VS Code (PID $vscodePid)..."
 
+# Dynamically resolve the IDE's process name from the given PID (handles VS Code, Cursor, VSCodium, etc.)
+$ideProcessName = "Code"
+$parentProc = Get-Process -Id $vscodePid -ErrorAction SilentlyContinue
+if ($parentProc) {
+    # e.g., "Code", "Cursor", "VSCodium"
+    $ideProcessName = $parentProc.Name
+    Write-Host "Resolved IDE Process Name: $ideProcessName"
+}
+
 while ($true) {
     Start-Sleep -Seconds 1
     
-    $codePids = Get-Process -Name "Code", "Code - Insiders" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id
+    $codePids = @()
+    if ($ideProcessName) {
+        $codePids = Get-Process -Name $ideProcessName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id
+    }
 
     # Try to find target buttons across all descendants
     $btnCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
