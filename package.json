@@ -1,0 +1,45 @@
+{
+  "name": "antigravity-auto-accept",
+  "displayName": "Antigravity Auto Accept",
+  "description": "Automatically click Allow/Approve for Gemini Antigravity IDE permissions.",
+  "version": "1.0.0",
+  "publisher": "fhgffy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fhgffy/antigravity-auto-accept.git"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "antigravity-auto-accept.start",
+        "title": "Start Antigravity Auto Accept"
+      },
+      {
+        "command": "antigravity-auto-accept.stop",
+        "title": "Stop Antigravity Auto Accept"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.1.0"
+  }
+}
