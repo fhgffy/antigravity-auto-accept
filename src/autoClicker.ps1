@@ -8,6 +8,25 @@ Add-Type -AssemblyName System.Windows.Forms
 
 $automation = [System.Windows.Automation.AutomationElement]
 
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class Keyboard {
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+    public const byte VK_MENU = 0x12; // Alt key
+    public const byte VK_RETURN = 0x0D; // Enter key
+    public const uint KEYEVENTF_KEYUP = 0x0002;
+    
+    public static void SendAltEnter() {
+        keybd_event(VK_MENU, 0, 0, UIntPtr.Zero); // Alt Down
+        keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero); // Enter Down
+        keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero); // Enter Up
+        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero); // Alt Up
+    }
+}
+"@
+
 Write-Host "Starting AutoClicker for VS Code (PID $vscodePid)..."
 
 while ($true) {
@@ -38,11 +57,12 @@ while ($true) {
                     }
                 }
                 
-                # Fallback: Try setting focus and issuing Alt+Enter, as user mentioned it's a valid shortcut
+                # Fallback: Try setting focus and issuing Alt+Enter natively
                 try {
                     $btn.SetFocus()
-                    [System.Windows.Forms.SendKeys]::SendWait("%~") # % is Alt, ~ is Enter
-                    Write-Host "Sent Alt+Enter focus event to $($name)"
+                    Start-Sleep -Milliseconds 100
+                    [Keyboard]::SendAltEnter()
+                    Write-Host "Sent native Alt+Enter focus event to $($name)"
                 }
                 catch {
                     Write-Host "Failed to send keys to $($name): $_"
