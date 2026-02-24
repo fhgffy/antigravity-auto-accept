@@ -3,9 +3,11 @@ import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 
 let clickerProcess: ChildProcess | undefined;
+let outputChannel: vscode.OutputChannel;
 
 export function activate(context: vscode.ExtensionContext) {
-    console.log('Antigravity Auto Accept extension is now active!');
+    outputChannel = vscode.window.createOutputChannel('Antigravity Auto Accept');
+    outputChannel.appendLine('Antigravity Auto Accept extension is now active!');
 
     const startCommand = vscode.commands.registerCommand('antigravity-auto-accept.start', () => {
         startClicker(context);
@@ -40,15 +42,17 @@ function startClicker(context: vscode.ExtensionContext) {
     ]);
 
     clickerProcess.stdout?.on('data', (data) => {
-        console.log(`AutoClicker: ${data.toString()}`);
+        const msg = data.toString().trim();
+        if (msg) { outputChannel.appendLine(`[PS] ${msg}`); }
     });
 
     clickerProcess.stderr?.on('data', (data) => {
-        console.error(`AutoClicker Error: ${data.toString()}`);
+        const msg = data.toString().trim();
+        if (msg) { outputChannel.appendLine(`[ERR] ${msg}`); }
     });
 
     clickerProcess.on('close', (code) => {
-        console.log(`AutoClicker exited with code ${code}`);
+        outputChannel.appendLine(`AutoClicker exited with code ${code}`);
         clickerProcess = undefined;
     });
 
