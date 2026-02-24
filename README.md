@@ -63,8 +63,19 @@ If Antigravity gets interrupted due to network timeouts and throws the dreaded r
 - **⏸️ Manual Toggle / 手动启停开关:** 
   If you ever need to pause the auto-clicker, press `F1` (or `Ctrl+Shift+P`) to open the Command Palette, and type:
   > 如需特殊暂停操作，请按 `F1` 或 `Ctrl+Shift+P` 呼出命令面板，输入如下命令：
-  - `Antigravity Auto Accept: Start Auto-Clicker` (开启)
-  - `Antigravity Auto Accept: Stop Auto-Clicker` (关闭)
+   - `Antigravity Auto Accept: Start Auto-Clicker` (开启)
+   - `Antigravity Auto Accept: Stop Auto-Clicker` (关闭)
+
+---
+
+## ☕ Support / 赞赏支持
+
+**EN:** If this extension saved your sanity, your mouse, and your time, consider buying me a coffee! Your support fuels further development.
+> **中:** 如果这个强力插件拯救了你的鼠标、你的时间，甚至治好了你的精神内耗，欢迎给作者投喂一杯咖啡！您的支持是我持续更新与硬核破解的最大动力！
+
+<p align="center">
+  <img src="./sponsor.png" alt="赞赏码 / Sponsor QR Code" width="300" style="border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" />
+</p>
 
 ---
 *Built with pure rage against permission popups.* / *出于对权限弹窗的纯粹愤怒而开发。*
