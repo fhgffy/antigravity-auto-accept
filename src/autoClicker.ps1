@@ -56,6 +56,14 @@ if ($parentProc) {
 while ($true) {
     Start-Sleep -Seconds 1
     
+    # Nuclear Option: User explicitly requested raw Alt+Enter polling because VS Code Toasts 
+    # are completely immune to both UIAutomation API and internal vs code commands.
+    try {
+        [Keyboard]::SendAltEnter()
+        Write-Host "Sent nuclear Alt+Enter broadcast"
+    }
+    catch { }
+
     $codePids = @()
     if ($ideProcessName) {
         $codePids = Get-Process -Name $ideProcessName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id
