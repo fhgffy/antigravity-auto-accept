@@ -34,11 +34,12 @@ function startClicker(context: vscode.ExtensionContext) {
     const pid = process.pid.toString(); // VS Code main/extension process PID
 
     // We launch PowerShell to run the UIAutomation script in the background
+    // Using -Command and wrapping the path in single quotes prevents PowerShell from 
+    // corrupting Chinese characters (like '药酱') or choking on spaces in the path.
     clickerProcess = spawn('powershell.exe', [
         '-NoProfile',
         '-ExecutionPolicy', 'Bypass',
-        '-File', scriptPath,
-        '-vscodePid', pid
+        '-Command', `& '${scriptPath}' -vscodePid ${pid}`
     ]);
 
     clickerProcess.stdout?.on('data', (data) => {
