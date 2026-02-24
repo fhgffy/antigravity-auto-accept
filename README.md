@@ -14,8 +14,9 @@ VS Code and the Electron framework are notoriously difficult to automate due to 
 2. **The Diplomat (UI Automation API):** 
    A lightweight, invisible PowerShell background process tirelessly scans the Windows OS UI tree for explicit confirmation semantics (`Allow`, `Approve`, `Run`, `许可`, `确认`, etc.) on standard windows and invokes them using standard .NET Event Triggers.
    
-3. **The Hacker (user32.dll Keyboard Injection):**
+3. **The Hacker (user32.dll Keyboard Injection + RuntimeId Cache):**
    If Electron attempts to swallow or ignore the API trigger, the script instantly drops to the native Windows C++ API (`user32.dll`), focuses the target, and violently injects a physical `Alt + Enter` keystroke directly into the operating system's event queue. 
+   ***v1.2.0 Upgrade:*** To prevent the script from aggressively scrolling your window and stealing your focus whenever it detects an older, already-clicked button remaining in your chat history, we implemented a strict `RuntimeId` HashSet cache. The script extracts the memory fingerprint of every button it kills and permanently blacklists it. Perfect silence, zero scroll-stealing.
    
 4. **The Encoder (Base64 UTF-16LE Execution):**
    *(Crucial Fix)* Native Windows `CreateProcess` calls from Node.js notoriously mangle strings on non-English locales (e.g., Chinese usernames). To ensure the background script ALWAYS launches, the extension strictly compiles the launch parameters into a raw Base64 UTF-16LE binary payload and invokes PowerShell via `-EncodedCommand`. Path corruption is mathematically impossible.
