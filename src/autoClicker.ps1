@@ -47,12 +47,17 @@ Write-Host "Starting AutoClicker for VS Code (PID $vscodePid)..."
 while ($true) {
     Start-Sleep -Seconds 1
     
+    $codePids = Get-Process -Name "Code", "Code - Insiders" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id
+
     # Try to find target buttons across all descendants
     $btnCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
     $buttons = $automation::RootElement.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
     
     foreach ($btn in $buttons) {
         if ($null -ne $btn -and $null -ne $btn.Current) {
+            # Strictly ensure this button belongs to VS Code process to prevent clicking web browsers
+            if ($null -ne $codePids -and -not ($codePids -contains $btn.Current.ProcessId)) { continue }
+            
             $name = $btn.Current.Name
             $class = $btn.Current.ClassName
             $id = $btn.Current.AutomationId
