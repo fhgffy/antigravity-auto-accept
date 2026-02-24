@@ -33,12 +33,6 @@ public class Keyboard {
         keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero); // Enter Up
         keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero); // Alt Up
     }
-    
-    public static void ClickPosition(int x, int y) {
-        SetCursorPos(x, y);
-        mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-        mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-    }
 }
 "@
 
@@ -121,20 +115,6 @@ while ($true) {
                         Write-Host "Failed to send keys to $($name): $_"
                     }
 
-                    # Fallback 2: Physical Mouse Click Action
-                    try {
-                        $rect = $btn.Current.BoundingRectangle
-                        if ($rect.Width -gt 0 -and $rect.Height -gt 0) {
-                            $x = [int]($rect.Left + ($rect.Width / 2))
-                            $y = [int]($rect.Top + ($rect.Height / 2))
-                            [Keyboard]::ClickPosition($x, $y)
-                            Write-Host "Sent native Mouse Click to ($x, $y)"
-                        }
-                    }
-                    catch {
-                        Write-Host "Failed to send physical click to $($name): $_"
-                    }
-                
                     # Sleep a bit longer after an attempt to let UI process the click
                     Start-Sleep -Seconds 1
                 }
