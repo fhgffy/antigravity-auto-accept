@@ -51,6 +51,15 @@ function startClicker(context: vscode.ExtensionContext) {
         console.log(`AutoClicker exited with code ${code}`);
         clickerProcess = undefined;
     });
+
+    // Also start an internal VS Code interval to accept QuickPicks just in case
+    // it's an internal VS Code prompt that isn't exposed to Windows UIAutomation.
+    const interval = setInterval(() => {
+        // Try to accept any open input or quick pick automatically
+        vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem').then(undefined, () => { });
+    }, 1500);
+
+    context.subscriptions.push({ dispose: () => clearInterval(interval) });
 }
 
 function stopClicker() {
