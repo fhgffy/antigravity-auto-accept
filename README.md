@@ -43,6 +43,10 @@ If Antigravity gets interrupted due to network timeouts and throws the dreaded r
 
 ## ⚡ Installation & Usage | 安装与使用指南
 
+### 0. Prerequisites / 前置需求
+- **EN:** Only requires a **Windows OS** (Windows 10/11) because it uses the native `powershell.exe` shipped with Windows. **You DO NOT need to install the PowerShell VS Code extension.**
+- **中:** 仅需 **Windows 操作系统** (Win 10/11)，因为本插件调用的是系统自带的底层 `powershell.exe`。**您完全不需要在 IDE 中安装任何 PowerShell 相关的扩展。**
+
 ### 1. Download / 下载扩展
 - **EN:** Head over to the [Releases page](../../releases) and download the latest `antigravity-auto-accept-X.X.X.vsix`.
 - **中:** 前往本仓库的 [Releases (发布页)](../../releases)，下载最新版的 `.vsix` 文件。
