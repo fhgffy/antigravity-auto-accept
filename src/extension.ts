@@ -3,6 +3,7 @@ import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 
 let clickerProcess: ChildProcess | undefined;
+let notificationPoller: NodeJS.Timeout | undefined;
 let outputChannel: vscode.OutputChannel;
 
 export function activate(context: vscode.ExtensionContext) {
@@ -57,14 +58,26 @@ function startClicker(context: vscode.ExtensionContext) {
         clickerProcess = undefined;
     });
 
-    // Intentionally omitted the QuickPick accept interval because it was auto-rejecting 
-    // prompts that had "Reject" as their default focused item. We rely exclusively on the OS scraper.
+    // Strategy 2: VS Code Native Notification Poller
+    // UIAutomation cannot see inside VS Code's custom Toast Notifications. 
+    // We must use the internal command API to accept the primary action of any active toast.
+    if (!notificationPoller) {
+        notificationPoller = setInterval(() => {
+            vscode.commands.executeCommand('notifications.acceptPrimaryAction').then(undefined, () => { });
+        }, 500);
+        outputChannel.appendLine('[Extension] Started Internal Toast Notification Poller');
+    }
 }
 
 function stopClicker() {
     if (clickerProcess) {
         clickerProcess.kill();
         clickerProcess = undefined;
+    }
+
+    if (notificationPoller) {
+        clearInterval(notificationPoller);
+        notificationPoller = undefined;
     }
 }
 
