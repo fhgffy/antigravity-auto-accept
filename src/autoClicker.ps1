@@ -47,6 +47,9 @@ if ($parentProc) {
     Write-Host "Resolved IDE Process Name: $ideProcessName"
 }
 
+# Cache to prevent infinitely re-clicking the same historical buttons in the chat view
+$global:clickedIds = New-Object System.Collections.Generic.HashSet[string]
+
 while ($true) {
     Start-Sleep -Seconds 1
 
@@ -86,22 +89,48 @@ while ($true) {
                 
                 # DIAGNOSTIC: Print every button we scan in VS Code so the user can send me the log if it fails
                 if ($name.Length -gt 0 -and $name.Length -lt 50) {
-                    Write-Host "SCANNING BTN: '$name'"
+                    # Write-Host "SCANNING BTN: '$name'" # Too noisy
                 }
             
+                # Check if we have already processed this specific button instance in the UI tree
+                $runtimeIdArray = $btn.GetRuntimeId()
+                if ($null -ne $runtimeIdArray) {
+                    $runtimeId = $runtimeIdArray -join ','
+                    if ($global:clickedIds.Contains($runtimeId)) {
+                        continue
+                    }
+                }
+
                 # Strict check: Button text must explicitly match permission words or retry words.
                 # Avoid broadly catching ANY 'primary' class button, which causes random extension reloads to be clicked.
                 if ($name -match "(?i)^(allow|approve|yes|always allow.*|run alt\+.*|always run.*|run$|retry|许可|允许|批准|确认|确定|总是允许|同意|重试)$") {
-                    # Attempt to invoke
+                    
+                    Write-Host ">>> TARGET MATCHED: '$name' <<<"
+
+                    # Attempt to invoke (Silently fails on Electron shadow DOM elements)
                     $invokePattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) -as [System.Windows.Automation.InvokePattern]
                     if ($invokePattern) {
                         try {
                             $invokePattern.Invoke()
-                            Write-Host "Clicked $name (Class: $class, ID: $id)"
+                            Write-Host "Invoked $name"
                         }
-                        catch {
-                            Write-Host "Failed to click $($name): $_"
-                        }
+                        catch { }
+                    }
+                
+                    # Fallback: Native Focus and Alt+Enter
+                    # This is REQUIRED for Antigravity native prompts. Since we cache RuntimeIds, 
+                    # this will now ONLY happen EXACTLY ONCE per prompt, preventing infinite scroll snapping!
+                    try {
+                        $btn.SetFocus()
+                        Start-Sleep -Milliseconds 50
+                        [Keyboard]::SendAltEnter()
+                        Write-Host "Sent native Alt+Enter to $($name)"
+                    }
+                    catch { }
+
+                    # Mark element as clicked so we NEVER process it again, even if it stays in the DOM history forever.
+                    if ($null -ne $runtimeIdArray) {
+                        $null = $global:clickedIds.Add($runtimeId)
                     }
 
                     # Sleep a bit longer after an attempt to let UI process the click
