@@ -89,6 +89,11 @@ while ($true) {
                 $name = $btn.Current.Name
                 $class = $btn.Current.ClassName
                 $id = $btn.Current.AutomationId
+                
+                # DIAGNOSTIC: Print every button we scan in VS Code so the user can send me the log if it fails
+                if ($name.Length -gt 0 -and $name.Length -lt 50) {
+                    Write-Host "SCANNING BTN: '$name'"
+                }
             
                 # Strict check: Button text must explicitly match permission words.
                 # Avoid broadly catching ANY 'primary' class button, which causes random extension reloads to be clicked.
