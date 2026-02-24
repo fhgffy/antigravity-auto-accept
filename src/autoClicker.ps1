@@ -61,62 +61,75 @@ while ($true) {
         $codePids = Get-Process -Name $ideProcessName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id
     }
 
-    # Try to find target buttons across all descendants
+    if ($null -eq $codePids -or $codePids.Count -eq 0) {
+        continue
+    }
+
+    # Find ONLY top-level windows belonging to the IDE process to prevent global OS UI tree traversal freezes
+    $targetWindows = @()
+    $windows = $automation::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)
+    foreach ($win in $windows) {
+        if ($null -ne $win.Current -and $codePids -contains $win.Current.ProcessId) {
+            $targetWindows += $win
+        }
+    }
+
     $btnCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
-    $buttons = $automation::RootElement.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
     
-    foreach ($btn in $buttons) {
-        if ($null -ne $btn -and $null -ne $btn.Current) {
-            # Strictly ensure this button belongs to VS Code process to prevent clicking web browsers
-            if ($null -ne $codePids -and -not ($codePids -contains $btn.Current.ProcessId)) { continue }
+    # Only search for buttons inside actual VS Code windows!
+    foreach ($win in $targetWindows) {
+        $buttons = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
+        
+        foreach ($btn in $buttons) {
+            if ($null -ne $btn -and $null -ne $btn.Current) {
             
-            $name = $btn.Current.Name
-            $class = $btn.Current.ClassName
-            $id = $btn.Current.AutomationId
+                $name = $btn.Current.Name
+                $class = $btn.Current.ClassName
+                $id = $btn.Current.AutomationId
             
-            # Strict check: Button text must explicitly match permission words.
-            # Avoid broadly catching ANY 'primary' class button, which causes random extension reloads to be clicked.
-            if ($name -match "(?i)^(allow|approve|yes|always allow|run|许可|允许|批准|确认|确定|总是允许|同意)$") {
-                # Attempt to invoke
-                $invokePattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) -as [System.Windows.Automation.InvokePattern]
-                if ($invokePattern) {
+                # Strict check: Button text must explicitly match permission words.
+                # Avoid broadly catching ANY 'primary' class button, which causes random extension reloads to be clicked.
+                if ($name -match "(?i)^(allow|approve|yes|always allow|run|许可|允许|批准|确认|确定|总是允许|同意)$") {
+                    # Attempt to invoke
+                    $invokePattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) -as [System.Windows.Automation.InvokePattern]
+                    if ($invokePattern) {
+                        try {
+                            $invokePattern.Invoke()
+                            Write-Host "Clicked $name (Class: $class, ID: $id)"
+                        }
+                        catch {
+                            Write-Host "Failed to click $($name): $_"
+                        }
+                    }
+                
+                    # Fallback 1: Try setting focus and issuing Alt+Enter natively
                     try {
-                        $invokePattern.Invoke()
-                        Write-Host "Clicked $name (Class: $class, ID: $id)"
+                        $btn.SetFocus()
+                        Start-Sleep -Milliseconds 50
+                        [Keyboard]::SendAltEnter()
+                        Write-Host "Sent native Alt+Enter focus event to $($name)"
                     }
                     catch {
-                        Write-Host "Failed to click $($name): $_"
+                        Write-Host "Failed to send keys to $($name): $_"
                     }
-                }
-                
-                # Fallback 1: Try setting focus and issuing Alt+Enter natively
-                try {
-                    $btn.SetFocus()
-                    Start-Sleep -Milliseconds 50
-                    [Keyboard]::SendAltEnter()
-                    Write-Host "Sent native Alt+Enter focus event to $($name)"
-                }
-                catch {
-                    Write-Host "Failed to send keys to $($name): $_"
-                }
 
-                # Fallback 2: Physical Mouse Click Action
-                try {
-                    $rect = $btn.Current.BoundingRectangle
-                    if ($rect.Width -gt 0 -and $rect.Height -gt 0) {
-                        $x = [int]($rect.Left + ($rect.Width / 2))
-                        $y = [int]($rect.Top + ($rect.Height / 2))
-                        [Keyboard]::ClickPosition($x, $y)
-                        Write-Host "Sent native Mouse Click to ($x, $y)"
+                    # Fallback 2: Physical Mouse Click Action
+                    try {
+                        $rect = $btn.Current.BoundingRectangle
+                        if ($rect.Width -gt 0 -and $rect.Height -gt 0) {
+                            $x = [int]($rect.Left + ($rect.Width / 2))
+                            $y = [int]($rect.Top + ($rect.Height / 2))
+                            [Keyboard]::ClickPosition($x, $y)
+                            Write-Host "Sent native Mouse Click to ($x, $y)"
+                        }
                     }
-                }
-                catch {
-                    Write-Host "Failed to send physical click to $($name): $_"
-                }
+                    catch {
+                        Write-Host "Failed to send physical click to $($name): $_"
+                    }
                 
-                # Sleep a bit longer after an attempt to let UI process the click
-                Start-Sleep -Seconds 1
+                    # Sleep a bit longer after an attempt to let UI process the click
+                    Start-Sleep -Seconds 1
+                }
             }
         }
     }
-}
