@@ -56,10 +56,24 @@ if ($parentProc) {
 while ($true) {
     Start-Sleep -Seconds 1
     
-    # To avoid global OS tree walks (which freeze the system) AND to avoid PID matching issues
-    # (since Electron spawns many child processes), we first find all top-level windows that are Electron/VS Code windows.
+    $codePids = @()
+    if ($ideProcessName) {
+        $codePids = Get-Process -Name $ideProcessName -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id
+    }
+
+    if ($null -eq $codePids -or $codePids.Count -eq 0) {
+        continue
+    }
+
+    # Find ONLY top-level windows belonging to the IDE process to prevent global OS UI tree traversal freezes
+    $targetWindows = @()
     $windowCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ClassNameProperty, "Chrome_WidgetWin_1")
-    $targetWindows = $automation::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $windowCondition)
+    $windows = $automation::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $windowCondition)
+    foreach ($win in $windows) {
+        if ($null -ne $win.Current -and $codePids -contains $win.Current.ProcessId) {
+            $targetWindows += $win
+        }
+    }
 
     # Then we only search for target buttons inside those specific Electron windows.
 
