@@ -78,7 +78,7 @@ while ($true) {
             
                 # Strict check: Button text must explicitly match permission words.
                 # Avoid broadly catching ANY 'primary' class button, which causes random extension reloads to be clicked.
-                if ($name -match "(?i)^(allow|approve|yes|always allow|run( alt\+enter)?|always run( \^)?|always allow( \^)?|许可|允许|批准|确认|确定|总是允许|同意)$") {
+                if ($name -match "(?i)^(allow|approve|yes|always allow.*|run alt\+.*|always run.*|run$|许可|允许|批准|确认|确定|总是允许|同意)$") {
                     # Attempt to invoke
                     $invokePattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) -as [System.Windows.Automation.InvokePattern]
                     if ($invokePattern) {
