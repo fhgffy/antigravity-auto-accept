@@ -103,17 +103,6 @@ while ($true) {
                             Write-Host "Failed to click $($name): $_"
                         }
                     }
-                
-                    # Fallback 1: Try setting focus and issuing Alt+Enter natively
-                    try {
-                        $btn.SetFocus()
-                        Start-Sleep -Milliseconds 50
-                        [Keyboard]::SendAltEnter()
-                        Write-Host "Sent native Alt+Enter focus event to $($name)"
-                    }
-                    catch {
-                        Write-Host "Failed to send keys to $($name): $_"
-                    }
 
                     # Sleep a bit longer after an attempt to let UI process the click
                     Start-Sleep -Seconds 1
