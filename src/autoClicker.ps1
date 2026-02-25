@@ -37,16 +37,27 @@ public class Keyboard {
     [DllImport("user32.dll")]
     public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
 
+    public static uint GetWindowProcId(IntPtr hwnd) {
+        uint pid;
+        GetWindowThreadProcessId(hwnd, out pid);
+        return pid;
+    }
+
     public const byte VK_MENU = 0x12; 
     public const byte VK_RETURN = 0x0D; 
     public const uint KEYEVENTF_KEYUP = 0x0002;
     public const int SW_RESTORE = 9;
     public const int SW_MINIMIZE = 6;
 
-    public static void StealthAltEnter(IntPtr targetHwnd) {
+    public static void StealthAltEnter(IntPtr targetHwnd, IntPtr fallbackHwnd, bool forceRestoreFallback) {
         IntPtr currentForeground = GetForegroundWindow();
         bool wasMinimized = IsIconic(targetHwnd);
         bool requiresFocusSwitch = (currentForeground != targetHwnd && currentForeground != IntPtr.Zero);
+
+        if (!requiresFocusSwitch && forceRestoreFallback && fallbackHwnd != IntPtr.Zero) {
+            requiresFocusSwitch = true;
+            currentForeground = fallbackHwnd; // Pretend the user never left the browser!
+        }
 
         if (requiresFocusSwitch) {
              uint dummy1;
@@ -110,6 +121,10 @@ if ($parentProc) {
 # Cache to prevent infinitely re-clicking the same historical buttons in the chat view
 $global:clickedIds = New-Object System.Collections.Generic.HashSet[string]
 
+# Track the last window the user was actively using outside the IDE
+$global:lastNonIdeWindow = [IntPtr]::Zero
+$global:lastNonIdeTime = [DateTime]::MinValue
+
 while ($true) {
     Start-Sleep -Seconds 1
 
@@ -120,6 +135,16 @@ while ($true) {
 
     if ($null -eq $codePids -or $codePids.Count -eq 0) {
         continue
+    }
+
+    # Constantly background-track what the user is currently looking at
+    $currentHwnd = [Keyboard]::GetForegroundWindow()
+    if ($currentHwnd -ne [IntPtr]::Zero) {
+        $cProcId = [Keyboard]::GetWindowProcId($currentHwnd)
+        if ($codePids -notcontains $cProcId) {
+            $global:lastNonIdeWindow = $currentHwnd
+            $global:lastNonIdeTime = [DateTime]::Now
+        }
     }
 
     # Find ONLY top-level windows belonging to the IDE process to prevent global OS UI tree traversal freezes
@@ -192,7 +217,13 @@ while ($true) {
                     try {
                         $hwnd = [IntPtr]($win.Current.NativeWindowHandle)
                         if ($hwnd -ne [IntPtr]::Zero) {
-                            [Keyboard]::StealthAltEnter($hwnd)
+                            $forceRestore = $false
+                            if (($global:lastNonIdeWindow -ne [IntPtr]::Zero) -and (([DateTime]::Now - $global:lastNonIdeTime).TotalSeconds -lt 5)) {
+                                $forceRestore = $true
+                                Write-Host "IDE violently stole focus within last 5s! Un-stealing and returning focus back to Browser."
+                            }
+
+                            [Keyboard]::StealthAltEnter($hwnd, $global:lastNonIdeWindow, $forceRestore)
                             Write-Host "Sent Stealth Alt+Enter to window $hwnd for $($name)"
                         }
                     }
