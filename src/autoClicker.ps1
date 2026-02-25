@@ -13,25 +13,42 @@ using System;
 using System.Runtime.InteropServices;
 public class Keyboard {
     [DllImport("user32.dll")]
-    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-    
-    [DllImport("user32.dll")]
-    public static extern bool SetCursorPos(int X, int Y);
-    
-    [DllImport("user32.dll")]
-    public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint cButtons, uint dwExtraInfo);
+    public static extern IntPtr GetForegroundWindow();
 
-    public const byte VK_MENU = 0x12; // Alt key
-    public const byte VK_RETURN = 0x0D; // Enter key
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    public const byte VK_MENU = 0x12; 
+    public const byte VK_RETURN = 0x0D; 
     public const uint KEYEVENTF_KEYUP = 0x0002;
-    public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-    public const uint MOUSEEVENTF_LEFTUP = 0x0004;
-    
-    public static void SendAltEnter() {
-        keybd_event(VK_MENU, 0, 0, UIntPtr.Zero); // Alt Down
-        keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero); // Enter Down
-        keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero); // Enter Up
-        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero); // Alt Up
+    public const int SW_RESTORE = 9;
+
+    public static void StealthAltEnter(IntPtr targetHwnd) {
+        IntPtr currentForeground = GetForegroundWindow();
+
+        // If it's not already foreground, steal focus momentarily
+        if (currentForeground != targetHwnd && currentForeground != IntPtr.Zero) {
+             ShowWindow(targetHwnd, SW_RESTORE); // Ensure it's not minimized
+             SetForegroundWindow(targetHwnd);
+             System.Threading.Thread.Sleep(50); // Let Windows process the focus switch
+        }
+
+        keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
+        keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero);
+        System.Threading.Thread.Sleep(20);
+        keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+
+        // Restore immediately back to the previous foreground window
+        if (currentForeground != IntPtr.Zero && currentForeground != targetHwnd) {
+             SetForegroundWindow(currentForeground);
+        }
     }
 }
 "@
@@ -117,14 +134,24 @@ while ($true) {
                         catch { }
                     }
                 
-                    # Fallback: Native Focus and Alt+Enter
-                    # This is REQUIRED for Antigravity native prompts. Since we cache RuntimeIds, 
-                    # this will now ONLY happen EXACTLY ONCE per prompt, preventing infinite scroll snapping!
+                    # Attempt LegacyIAccessiblePattern (Silently fails on some Electron apps, works on others)
+                    $legacyPattern = $btn.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern) -as [System.Windows.Automation.LegacyIAccessiblePattern]
+                    if ($legacyPattern) {
+                        try {
+                            $legacyPattern.DoDefaultAction()
+                            Write-Host "LegacyPattern Invoked $name"
+                        }
+                        catch { }
+                    }
+                
+                    # Fallback: Stealth Focus (Ghost Protocol)
+                    # Quickly steals focus, injects the physical Alt+Enter, and instantly bounces focus back to user's browser in <80ms.
                     try {
-                        $btn.SetFocus()
-                        Start-Sleep -Milliseconds 50
-                        [Keyboard]::SendAltEnter()
-                        Write-Host "Sent native Alt+Enter to $($name)"
+                        $hwnd = [IntPtr]($win.Current.NativeWindowHandle)
+                        if ($hwnd -ne [IntPtr]::Zero) {
+                            [Keyboard]::StealthAltEnter($hwnd)
+                            Write-Host "Sent Stealth Alt+Enter to window $hwnd for $($name)"
+                        }
                     }
                     catch { }
 

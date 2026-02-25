@@ -28,8 +28,10 @@ VS Code and the Electron framework are notoriously difficult to automate due to 
 3. **The Hacker (user32.dll Keyboard Injection + RuntimeId Cache)**
    If Electron attempts to swallow or ignore the API trigger, the script instantly drops to the native Windows C++ API (`user32.dll`), focuses the target, and violently injects a physical `Alt + Enter` keystroke directly into the operating system's event queue.  
    ***v1.2.0 Upgrade:*** To prevent aggressive scrolling from older chat history buttons, we implemented a strict `RuntimeId` HashSet cache. The script extracts the memory fingerprint of every button it kills and permanently blacklists it. Perfect silence.
+   ***v1.3.1 Ghost Protocol Upgrade:*** Implemented a blazing fast `Stealth Focus Thievery` algorithm. If VS Code is minimized or behind your browser, the script instantly memorizes your active window, flashes VS Code to the front for `~50ms` to inject the physical keystroke, and seamlessly bounces focus back to your browser before you even blink. Perfect background execution without interrupting your workflow.
    > **黑客 (底层键盘注入 + 内存指纹缓存)：** 如果 Electron 试图吞掉 API 触发，会瞬间降维调用 C++ API (`user32.dll`)，暴力向事件队列物理注入 `Alt + Enter` 键盘敲击。  
-   > ***v1.2.0 史诗升级：*** 为防止扫描到聊天记录残留的旧按钮导致疯狂拉扯滚动条，引入严格的 `RuntimeId` 哈希缓存。提取被暗杀按钮的唯一指纹永久拉黑，**绝对静默，零焦点抢夺**。
+   > ***v1.2.0 史诗升级：*** 为防止扫描到聊天记录残留的旧按钮导致疯狂拉扯滚动条，引入严格的 `RuntimeId` 哈希缓存。提取被暗杀按钮的唯一指纹永久拉黑。
+   > ***v1.3.1 幽灵协议升级 (Ghost Protocol)：*** 独创的 **50毫秒极限偷天换日** 算法。哪怕您的 IDE 处于最小化，或者您正把浏览器叠在 IDE 上方疯狂冲浪。脚本会在后台记录您当前的窗口，瞬间将 IDE 调换至前台敲下确认键，并在 **50毫秒** 内将焦点完美弹回您的浏览器。快到您的肉眼和打字速度根本感觉不到任何中断！
    
 4. **The Encoder (Base64 UTF-16LE Execution)**
    *(Crucial Fix)* Native Windows `CreateProcess` calls from Node.js notoriously mangle strings on non-English locales. The extension compiles its script into a raw Base64 UTF-16LE binary payload and invokes PowerShell via `-EncodedCommand`. Path corruption is mathematically impossible.
