@@ -19,35 +19,76 @@ public class Keyboard {
     public static extern bool SetForegroundWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
     public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
 
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
     public const byte VK_MENU = 0x12; 
     public const byte VK_RETURN = 0x0D; 
     public const uint KEYEVENTF_KEYUP = 0x0002;
     public const int SW_RESTORE = 9;
+    public const int SW_MINIMIZE = 6;
 
     public static void StealthAltEnter(IntPtr targetHwnd) {
         IntPtr currentForeground = GetForegroundWindow();
+        bool wasMinimized = IsIconic(targetHwnd);
+        bool requiresFocusSwitch = (currentForeground != targetHwnd && currentForeground != IntPtr.Zero);
 
-        // If it's not already foreground, steal focus momentarily
-        if (currentForeground != targetHwnd && currentForeground != IntPtr.Zero) {
-             ShowWindow(targetHwnd, SW_RESTORE); // Ensure it's not minimized
-             SetForegroundWindow(targetHwnd);
-             System.Threading.Thread.Sleep(50); // Let Windows process the focus switch
+        if (requiresFocusSwitch) {
+             uint foregroundThreadId = GetWindowThreadProcessId(currentForeground, out _);
+             uint myThreadId = GetCurrentThreadId();
+             
+             if (foregroundThreadId != myThreadId) {
+                 AttachThreadInput(myThreadId, foregroundThreadId, true);
+                 if (wasMinimized) ShowWindow(targetHwnd, SW_RESTORE);
+                 SetForegroundWindow(targetHwnd);
+                 AttachThreadInput(myThreadId, foregroundThreadId, false);
+             } else {
+                 if (wasMinimized) ShowWindow(targetHwnd, SW_RESTORE);
+                 SetForegroundWindow(targetHwnd);
+             }
+
+             // Give Electron 150ms to wake up from background/minimized state and hook the keyboard
+             System.Threading.Thread.Sleep(150); 
         }
 
         keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
         keybd_event(VK_RETURN, 0, 0, UIntPtr.Zero);
-        System.Threading.Thread.Sleep(20);
+        System.Threading.Thread.Sleep(50);
         keybd_event(VK_RETURN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
         keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+        System.Threading.Thread.Sleep(50);
 
-        // Restore immediately back to the previous foreground window
-        if (currentForeground != IntPtr.Zero && currentForeground != targetHwnd) {
-             SetForegroundWindow(currentForeground);
+        if (requiresFocusSwitch) {
+             uint foregroundThreadId = GetWindowThreadProcessId(targetHwnd, out _);
+             uint myThreadId = GetCurrentThreadId();
+             
+             if (foregroundThreadId != myThreadId) {
+                 AttachThreadInput(myThreadId, foregroundThreadId, true);
+                 SetForegroundWindow(currentForeground);
+                 AttachThreadInput(myThreadId, foregroundThreadId, false);
+             } else {
+                 SetForegroundWindow(currentForeground);
+             }
+
+             // Re-minimize if it was minimized originally
+             if (wasMinimized) {
+                  ShowWindow(targetHwnd, SW_MINIMIZE);
+             }
         }
     }
 }
