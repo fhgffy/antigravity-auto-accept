@@ -49,7 +49,8 @@ public class Keyboard {
         bool requiresFocusSwitch = (currentForeground != targetHwnd && currentForeground != IntPtr.Zero);
 
         if (requiresFocusSwitch) {
-             uint foregroundThreadId = GetWindowThreadProcessId(currentForeground, out _);
+             uint dummy1;
+             uint foregroundThreadId = GetWindowThreadProcessId(currentForeground, out dummy1);
              uint myThreadId = GetCurrentThreadId();
              
              if (foregroundThreadId != myThreadId) {
@@ -74,7 +75,8 @@ public class Keyboard {
         System.Threading.Thread.Sleep(50);
 
         if (requiresFocusSwitch) {
-             uint foregroundThreadId = GetWindowThreadProcessId(targetHwnd, out _);
+             uint dummy2;
+             uint foregroundThreadId = GetWindowThreadProcessId(targetHwnd, out dummy2);
              uint myThreadId = GetCurrentThreadId();
              
              if (foregroundThreadId != myThreadId) {
