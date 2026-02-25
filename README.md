@@ -28,11 +28,12 @@ VS Code and the Electron framework are notoriously difficult to automate due to 
 3. **The Hacker (user32.dll Keyboard Injection + RuntimeId Cache)**
    If Electron attempts to swallow or ignore the API trigger, the script instantly drops to the native Windows C++ API (`user32.dll`), focuses the target, and violently injects a physical `Alt + Enter` keystroke directly into the operating system's event queue.  
    ***v1.2.0 Upgrade:*** To prevent aggressive scrolling from older chat history buttons, we implemented a strict `RuntimeId` HashSet cache. The script extracts the memory fingerprint of every button it kills and permanently blacklists it. Perfect silence.
-   ***v1.3.1 Ghost Protocol Upgrade:*** Implemented a blazing fast `Stealth Focus Thievery` algorithm. If VS Code is minimized or behind your browser, the script instantly memorizes your active window, flashes VS Code to the front for `~50ms` to inject the physical keystroke, and seamlessly bounces focus back to your browser before you even blink. Perfect background execution without interrupting your workflow.
+   ***v1.3.4 Ghost Protocol Upgrade:*** Implemented a blazing fast `Stealth Focus Thievery` algorithm with built-in DVR active-window memory. If VS Code forcefully steals focus due to an error, or if a prompt appears while it's behind your browser, the script flashes the physical keystroke and instantly snaps focus back to your browser using its DVR memory.
    > **黑客 (底层键盘注入 + 内存指纹缓存)：** 如果 Electron 试图吞掉 API 触发，会瞬间降维调用 C++ API (`user32.dll`)，暴力向事件队列物理注入 `Alt + Enter` 键盘敲击。  
    > ***v1.2.0 史诗升级：*** 为防止扫描到聊天记录残留的旧按钮导致疯狂拉扯滚动条，引入严格的 `RuntimeId` 哈希缓存。提取被暗杀按钮的唯一指纹永久拉黑。
-   > ***v1.3.1 幽灵协议升级 (Ghost Protocol)：*** 独创的 **50毫秒极限偷天换日** 算法。哪怕您的 IDE 处于最小化，或者您正把浏览器叠在 IDE 上方疯狂冲浪。脚本会在后台记录您当前的窗口，瞬间将 IDE 调换至前台敲下确认键，并在 **50毫秒** 内将焦点完美弹回您的浏览器。快到您的肉眼和打字速度根本感觉不到任何中断！
-   
+   > ***v1.3.4 幽灵协议升级 (Ghost Protocol DVR 录像机版)：*** 独创的 **后台前台状态记忆** 算法。哪怕您的 IDE 因为网络断开抛出红蓝按钮强行越狱把焦点抢到了您的游戏前面，脚本哪怕处于后台，也会瞬间连按重试，并在 **100毫秒** 内一脚把 IDE 踹回底层，将系统焦点完美还回给您的游戏/浏览器。快到肉眼甚至感觉不到任何中断！
+
+   > ⚠️ **终极后台挂机姿势**：如果您把 IDE **完全点击最小化 (-) 缩进任务栏**，Chromium 会被强行挂起并断开无障碍树（所有的外挂自动化系统都会在“最小化状态”下眼瞎失效）。因此，正确的后台挂机姿势永远是：**让 IDE 平敞在桌面上，直接全屏打开您的浏览器、游戏或是看番神器死死盖住它。**得益于这个全新的 1.3.4 行车记录仪机制，它会全自动在层层叠叠的软件下方极速猎杀您的一切烦恼！
 4. **The Encoder (Base64 UTF-16LE Execution)**
    *(Crucial Fix)* Native Windows `CreateProcess` calls from Node.js notoriously mangle strings on non-English locales. The extension compiles its script into a raw Base64 UTF-16LE binary payload and invokes PowerShell via `-EncodedCommand`. Path corruption is mathematically impossible.
    > **编码者 (Base64 UTF-16LE 执行防护)：** *(关键修复)* Node.js 在中文系统中极易引发乱码导致崩溃。扩展将后台脚本参数强制编译成最原始的 Base64 二进制载荷，以此跨越所有编码限制。从数学层面上断绝路径报错。
