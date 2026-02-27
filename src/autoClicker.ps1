@@ -109,12 +109,15 @@ public class Keyboard {
 
 Write-Host "Starting AutoClicker for VS Code (PID $vscodePid)..."
 
-# Dynamically resolve the IDE's process name from the given PID (handles VS Code, Cursor, VSCodium, etc.)
+# Dynamically resolve the IDE's process name from the given PID (handles VS Code, Cursor, VSCodium, Antigravity etc.)
 $ideProcessName = "Code"
 $parentProc = Get-Process -Id $vscodePid -ErrorAction SilentlyContinue
 if ($parentProc) {
-    # e.g., "Code", "Cursor", "VSCodium"
+    # e.g., "Code", "Cursor", "VSCodium", "Antigravity"
     $ideProcessName = $parentProc.Name
+    if ($ideProcessName -match "electron") {
+        $ideProcessName = "Antigravity"
+    }
     Write-Host "Resolved IDE Process Name: $ideProcessName"
 }
 
@@ -171,10 +174,11 @@ while ($true) {
                 $name = $btn.Current.Name
                 $class = $btn.Current.ClassName
                 $id = $btn.Current.AutomationId
+                $cleanName = $name.Trim()
                 
                 # DIAGNOSTIC: Print every button we scan in VS Code so the user can send me the log if it fails
-                if ($name.Length -gt 0 -and $name.Length -lt 50) {
-                    # Write-Host "SCANNING BTN: '$name'" # Too noisy
+                if ($cleanName.Length -gt 0 -and $cleanName.Length -lt 50) {
+                    # Write-Host "SCANNING BTN: '$cleanName'"
                 }
             
                 # Check if we have already processed this specific button instance in the UI tree
@@ -188,54 +192,74 @@ while ($true) {
 
                 # Strict check: Button text must explicitly match permission words or retry words.
                 # Avoid broadly catching ANY 'primary' class button, which causes random extension reloads to be clicked.
-                if ($name -match "(?i)^(allow|approve|yes|always allow.*|run alt\+.*|always run.*|run$|retry|许可|允许|批准|确认|确定|总是允许|同意|重试)$") {
+                if ($cleanName -match "(?i)^(allow|approve|yes|always allow.*|run$|run\s+.*|always run.*|retry|许可|允许|批准|确认|确定|总是允许|总是运行|同意|重试|expand.*|展开.*)$") {
                     
-                    Write-Host ">>> TARGET MATCHED: '$name' <<<"
+                    Write-Host ">>> TARGET MATCHED: '$cleanName' <<<"
+
+                    # Attempt to bring the element into view explicitly. This is crucial for offscreen buttons in Electron.
+                    try {
+                        $btn.SetFocus()
+                        $scrollPattern = $btn.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern) -as [System.Windows.Automation.ScrollItemPattern]
+                        if ($scrollPattern) {
+                            $scrollPattern.ScrollIntoView()
+                        }
+                    }
+                    catch { }
+
+                    # Track whether we successfully clicked it without needing physical keyboard
+                    $invokedSoftly = $false
 
                     # Attempt to invoke (Silently fails on Electron shadow DOM elements)
                     $invokePattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) -as [System.Windows.Automation.InvokePattern]
                     if ($invokePattern) {
                         try {
                             $invokePattern.Invoke()
-                            Write-Host "Invoked $name"
+                            Write-Host "Invoked $cleanName via InvokePattern"
+                            $invokedSoftly = $true
                         }
                         catch { }
                     }
                 
                     # Attempt LegacyIAccessiblePattern (Silently fails on some Electron apps, works on others)
-                    $legacyPattern = $btn.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern) -as [System.Windows.Automation.LegacyIAccessiblePattern]
-                    if ($legacyPattern) {
-                        try {
-                            $legacyPattern.DoDefaultAction()
-                            Write-Host "LegacyPattern Invoked $name"
+                    if (-not $invokedSoftly) {
+                        $legacyPattern = $btn.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern) -as [System.Windows.Automation.LegacyIAccessiblePattern]
+                        if ($legacyPattern) {
+                            try {
+                                $legacyPattern.DoDefaultAction()
+                                Write-Host "Invoked $cleanName via LegacyPattern"
+                                $invokedSoftly = $true
+                            }
+                            catch { }
                         }
-                        catch { }
                     }
                 
                     # Fallback: Stealth Focus (Ghost Protocol)
                     # Quickly steals focus, injects the physical Alt+Enter, and instantly bounces focus back to user's browser in <80ms.
-                    try {
-                        $hwnd = [IntPtr]($win.Current.NativeWindowHandle)
-                        if ($hwnd -ne [IntPtr]::Zero) {
-                            $forceRestore = $false
-                            if (($global:lastNonIdeWindow -ne [IntPtr]::Zero) -and (([DateTime]::Now - $global:lastNonIdeTime).TotalSeconds -lt 5)) {
-                                $forceRestore = $true
-                                Write-Host "IDE violently stole focus within last 5s! Un-stealing and returning focus back to Browser."
-                            }
+                    if (-not $invokedSoftly) {
+                        try {
+                            $hwnd = [IntPtr]($win.Current.NativeWindowHandle)
+                            if ($hwnd -ne [IntPtr]::Zero) {
+                                $forceRestore = $false
+                                if (($global:lastNonIdeWindow -ne [IntPtr]::Zero) -and (([DateTime]::Now - $global:lastNonIdeTime).TotalSeconds -lt 5)) {
+                                    $forceRestore = $true
+                                    Write-Host "IDE violently stole focus within last 5s! Un-stealing and returning focus back to Browser."
+                                }
 
-                            [Keyboard]::StealthAltEnter($hwnd, $global:lastNonIdeWindow, $forceRestore)
-                            Write-Host "Sent Stealth Alt+Enter to window $hwnd for $($name)"
+                                # Only do the keyboard simulation if we have to, and do it gently.
+                                [Keyboard]::StealthAltEnter($hwnd, $global:lastNonIdeWindow, $forceRestore)
+                                Write-Host "Sent Stealth Alt+Enter to window $hwnd for $($cleanName)"
+                            }
                         }
+                        catch { }
                     }
-                    catch { }
 
                     # Mark element as clicked so we NEVER process it again, even if it stays in the DOM history forever.
                     if ($null -ne $runtimeIdArray) {
                         $null = $global:clickedIds.Add($runtimeId)
                     }
 
-                    # Sleep a bit longer after an attempt to let UI process the click
-                    Start-Sleep -Seconds 1
+                    # Sleep less so we can blaze through these faster without causing the script to lag and trigger multiple window bounds
+                    Start-Sleep -Milliseconds 200
                 }
             }
         }
