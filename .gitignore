@@ -2,3 +2,11 @@ node_modules
 out
 .vscode-test
 *.vsix
+
+# Remotion 宣传视频项目（独立项目，不属于插件） 2026-03-21 //***
+promo-video/
+
+# 测试文件夹 2026-03-21 //***
+test_files/
+test_suite2/
+test_suite3/

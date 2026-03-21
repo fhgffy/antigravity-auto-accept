@@ -1,8 +1,22 @@
 .vscode/**
 .vscode-test/**
-out/**/*.map
-out/**/*.ts
+.git/**
 .gitignore
 tsconfig.json
 **/*.map
 **/*.ts
+!src/autoClicker.ps1
+
+# Remotion 宣传视频项目（不打包进 VSIX） 2026-03-21 //***
+promo-video/**
+
+# 测试文件夹 2026-03-21 //***
+test_files/**
+test_suite2/**
+test_suite3/**
+
+# 历史 VSIX 包 2026-03-21 //***
+*.vsix
+
+# 其他无关文件 2026-03-21 //***
+sponsor.png

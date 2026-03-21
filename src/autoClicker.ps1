@@ -190,15 +190,33 @@ while ($true) {
                     }
                 }
 
-                # Strict check: Button text must explicitly match permission words or retry words.
-                # Avoid broadly catching ANY 'primary' class button, which causes random extension reloads to be clicked.
-                if ($cleanName -match "(?i)^(allow|approve|yes|always allow.*|run$|run\s+.*|always run.*|retry|许可|允许|批准|确认|确定|总是允许|总是运行|同意|重试|expand.*|展开.*)$") {
+                # 严格匹配：按钮文本必须命中权限/重试关键词
+                # 注意：'run$' 和 'run\s+.*' 已移除，因为会误触代码块 "Run" 按钮和内联聊天动作按钮！
+                # 那样会导致 StealthAltEnter 发射，Alt+Enter 注入意外提交聊天输入框。
+                # v1.3.9 (2026-03-21): 新增 'proceed'/'execute'/'继续'/'执行' — 修复 Antigravity 浏览器 JS 执行权限弹窗 (Issue #1) //***
+                if ($cleanName -match "(?i)^(allow|approve|yes|proceed|always allow.*|always run.*|always proceed.*|retry|许可|允许|批准|确认|确定|继续|总是允许|总是运行|总是继续|同意|重试|执行)$") {
                     
+                    # Ignore elements that are explicitly disabled (historical buttons often become disabled)
+                    if ($btn.Current.IsEnabled -eq $false) {
+                        continue
+                    }
+
+                    # We also want to skip buttons that are completely off-screen IF they are historical.
+                    # BoundingRectangle.IsEmpty is true when the element is completely virtualized out of the viewport.
+                    if ($btn.Current.BoundingRectangle.IsEmpty) {
+                        continue
+                    }
+
                     Write-Host ">>> TARGET MATCHED: '$cleanName' <<<"
 
                     # Attempt to bring the element into view explicitly. This is crucial for offscreen buttons in Electron.
                     try {
-                        $btn.SetFocus()
+                        # Only steal focus if the IDE is already the active window. Otherwise scrolling might steal the user's typing focus!
+                        $currentHwnd = [Keyboard]::GetForegroundWindow()
+                        if ($codePids -contains [Keyboard]::GetWindowProcId($currentHwnd)) {
+                            $btn.SetFocus()
+                        }
+                        
                         $scrollPattern = $btn.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern) -as [System.Windows.Automation.ScrollItemPattern]
                         if ($scrollPattern) {
                             $scrollPattern.ScrollIntoView()
@@ -260,6 +278,12 @@ while ($true) {
 
                     # Sleep less so we can blaze through these faster without causing the script to lag and trigger multiple window bounds
                     Start-Sleep -Milliseconds 200
+
+                    # BREAK out of the button processing loop!
+                    # If there are multiple historical buttons on screen, processing them all in one pass 
+                    # causes the ScrollIntoView to wildly jitter the scrollbar back and forth between them.
+                    # By breaking, we only click ONE button per 1-second polling cycle.
+                    break
                 }
             }
         }
