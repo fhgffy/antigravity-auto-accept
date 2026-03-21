@@ -9,5 +9,6 @@
         "sourceMap": true,
         "rootDir": "src",
         "strict": true
-    }
+    },
+    "exclude": ["test_files", "test_suite2", "test_suite3", "promo-video", "node_modules"]
 }

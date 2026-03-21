@@ -194,7 +194,8 @@ while ($true) {
                 # 注意：'run$' 和 'run\s+.*' 已移除，因为会误触代码块 "Run" 按钮和内联聊天动作按钮！
                 # 那样会导致 StealthAltEnter 发射，Alt+Enter 注入意外提交聊天输入框。
                 # v1.3.9 (2026-03-21): 新增 'proceed'/'execute'/'继续'/'执行' — 修复 Antigravity 浏览器 JS 执行权限弹窗 (Issue #1) //***
-                if ($cleanName -match "(?i)^(allow|approve|yes|proceed|always allow.*|always run.*|always proceed.*|retry|许可|允许|批准|确认|确定|继续|总是允许|总是运行|总是继续|同意|重试|执行)$") {
+                # v1.4.0 (2026-03-21T17:16:02+08:00): 新增 'allow once'/'allow this conversation'/'allow all' — 修复目录权限弹窗不自动点击 //***
+                if ($cleanName -match "(?i)^(allow|allow once|allow this conversation|allow all|approve|yes|proceed|always allow.*|always run.*|always proceed.*|retry|许可|允许|允许本次|允许此对话|全部允许|批准|确认|确定|继续|总是允许|总是运行|总是继续|同意|重试|执行)$") {
                     
                     # Ignore elements that are explicitly disabled (historical buttons often become disabled)
                     if ($btn.Current.IsEnabled -eq $false) {
