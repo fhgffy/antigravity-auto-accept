@@ -22,6 +22,14 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(startCommand, stopCommand);
 
+    // 2026-03-22T12:11:20+08:00: 注册兜底命令，消除 IDE 幽灵命令报错 (Issue #3)
+    // Antigravity IDE 的 package.json 声明了 antigravity.agent.acceptAgentStep 的 keybinding，
+    // 但 dist/extension.js 从未注册过该命令。当 notificationPoller 或 StealthAltEnter
+    // 触发 Alt+Enter 时，会命中这条 keybinding 并报 command not found。
+    // 解决方案：检查该命令是否存在，不存在则注册一个空操作兜底版本。
+    registerFallbackCommands(context);
+    //***
+
     // Auto-start on load
     startClicker(context);
 }
@@ -88,3 +96,35 @@ function stopClicker() {
 export function deactivate() {
     stopClicker();
 }
+
+// 2026-03-22T12:11:20+08:00: 兜底命令注册 — 消除 IDE 幽灵命令报错 (Issue #3)
+// Antigravity IDE 内置扩展的 package.json 声明了 keybinding 但从未在代码中注册的命令。
+// 当 Alt+Enter 或 notificationPoller 触发这些命令时，VS Code 会报 command not found。
+// 此函数在命令不存在时预注册空操作版本，从根源消除报错。
+async function registerFallbackCommands(context: vscode.ExtensionContext) {
+    // Antigravity IDE 声明了 keybinding 但从未注册的幽灵命令列表
+    const phantomCommands = [
+        'antigravity.agent.acceptAgentStep',
+    ];
+
+    try {
+        const existingCommands = await vscode.commands.getCommands(true);
+        const existingSet = new Set(existingCommands);
+
+        for (const cmdId of phantomCommands) {
+            if (!existingSet.has(cmdId)) {
+                // 注册空操作兜底命令：静默拦截，不做任何实际操作
+                const fallback = vscode.commands.registerCommand(cmdId, () => {
+                    // 静默拦截，不输出日志（每 500ms 触发一次会刷屏）
+                });
+                context.subscriptions.push(fallback);
+                outputChannel.appendLine(`[Fallback] 已注册兜底命令: ${cmdId}`);
+            } else {
+                outputChannel.appendLine(`[Fallback] 命令已存在，跳过: ${cmdId}`);
+            }
+        }
+    } catch (err) {
+        outputChannel.appendLine(`[Fallback] 兜底命令注册失败: ${err}`);
+    }
+}
+//***

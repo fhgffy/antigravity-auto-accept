@@ -151,6 +151,10 @@ Press `Ctrl+Shift+P` and type:
 
 ## 📋 Changelog | 更新日志
 
+### v1.5.1 — Phantom Command Fix (2026-03-22)
+- 🔇 Fixed `command 'antigravity.agent.acceptAgentStep' not found` error in status bar (Issue #3)
+- 🔇 修复 Antigravity IDE 状态栏反复弹出"命令未找到"的报错 —— 原因是 IDE 内置扩展声明了 keybinding 但从未注册该命令（幽灵命令），本插件现在会自动注册兜底版本
+
 ### v1.5.0 — Remote Environment Support (2026-03-22)
 - 🌐 Added `extensionKind: ["ui"]` — full support for WSL / SSH / Container remote environments
 - 🌐 新增远程开发支持 — WSL / SSH / Container 环境下插件正常工作 (Issue #2)
