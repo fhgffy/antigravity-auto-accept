@@ -151,6 +151,18 @@ Press `Ctrl+Shift+P` and type:
 
 ## 📋 Changelog | 更新日志
 
+### v1.5.2 — Premium Console Output (2026-03-24)
+- ✨ Toolkit-style output: every log line now shows `[HH:mm:ss] emoji message`
+- 🔇 Eliminated CLIXML/XML noise from PowerShell stderr — no more `[ERR]` blocks
+- 🛡️ Fixed `InvokeMethodOnNull` crash when scanning buttons with null names
+- 🔧 Moved `GetCurrentPattern` calls inside try/catch — "不支持的模式" errors no longer leak to stderr
+- 🎨 Tag-based emoji architecture: PS1 outputs `[AA:TAG]` plaintext, TypeScript renders emojis (avoids pipe encoding issues)
+- ✨ Toolkit 风格输出：每行日志显示 `[HH:mm:ss] emoji 消息`
+- 🔇 彻底过滤 PowerShell CLIXML/XML 噪音——不再出现 `[ERR]` XML 块
+- 🛡️ 修复扫描无名称按钮时的 `InvokeMethodOnNull` 崩溃
+- 🔧 `GetCurrentPattern` 调用移入 try/catch——"不支持的模式"错误不再泄漏到 stderr
+- 🎨 标签化 emoji 架构：PS1 输出纯文本标签，TypeScript 侧渲染 emoji（避免管道编码乱码）
+
 ### v1.5.1 — Phantom Command Fix (2026-03-22)
 - 🔇 Fixed `command 'antigravity.agent.acceptAgentStep' not found` error in status bar (Issue #3)
 - 🔇 修复 Antigravity IDE 状态栏反复弹出"命令未找到"的报错 —— 原因是 IDE 内置扩展声明了 keybinding 但从未注册该命令（幽灵命令），本插件现在会自动注册兜底版本

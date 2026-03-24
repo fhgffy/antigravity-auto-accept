@@ -2,6 +2,13 @@ param (
     [string]$vscodePid
 )
 
+# 2026-03-24T22:30:00+08:00: 修复控制台输出中文乱码——强制设置输出编码为 UTF-8 //***
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
+# 2026-03-24T22:40:00+08:00: 抑制 PowerShell 进度条和模块加载的 CLIXML 噪音 //***
+$ProgressPreference = 'SilentlyContinue'
+
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -AssemblyName System.Windows.Forms
@@ -107,7 +114,9 @@ public class Keyboard {
 }
 "@
 
-Write-Host "Starting AutoClicker for VS Code (PID $vscodePid)..."
+# 2026-03-24T22:59:00+08:00: PS1 只输出纯文本标签，TS 侧统一添加 emoji（避免 stdout 管道乱码）//***
+$ts = Get-Date -Format 'HH:mm:ss'
+Write-Host "[AA:INIT] [$ts] AutoClicker started (PID $vscodePid)"
 
 # Dynamically resolve the IDE's process name from the given PID (handles VS Code, Cursor, VSCodium, Antigravity etc.)
 $ideProcessName = "Code"
@@ -118,7 +127,8 @@ if ($parentProc) {
     if ($ideProcessName -match "electron") {
         $ideProcessName = "Antigravity"
     }
-    Write-Host "Resolved IDE Process Name: $ideProcessName"
+    $ts = Get-Date -Format 'HH:mm:ss'
+    Write-Host "[AA:IDE] [$ts] IDE: $ideProcessName | Watching for permission dialogs..."
 }
 
 # Cache to prevent infinitely re-clicking the same historical buttons in the chat view
@@ -174,6 +184,8 @@ while ($true) {
                 $name = $btn.Current.Name
                 $class = $btn.Current.ClassName
                 $id = $btn.Current.AutomationId
+                # 2026-03-24T22:30:00+08:00: 修复 $name 为 null 时 .Trim() 抛出 InvokeMethodOnNull //***
+                if ($null -eq $name) { continue }
                 $cleanName = $name.Trim()
                 
                 # DIAGNOSTIC: Print every button we scan in VS Code so the user can send me the log if it fails
@@ -208,7 +220,9 @@ while ($true) {
                         continue
                     }
 
-                    Write-Host ">>> TARGET MATCHED: '$cleanName' <<<"
+                    # 2026-03-24T22:59:00+08:00: 纯文本点击日志，emoji 由 TS 侧添加 //***
+                    $ts = Get-Date -Format 'HH:mm:ss'
+                    Write-Host "[AA:CLICK] [$ts] Clicked: '$cleanName'"
 
                     # Attempt to bring the element into view explicitly. This is crucial for offscreen buttons in Electron.
                     try {
@@ -228,28 +242,28 @@ while ($true) {
                     # Track whether we successfully clicked it without needing physical keyboard
                     $invokedSoftly = $false
 
+                    # 2026-03-24T22:40:00+08:00: 将 GetCurrentPattern 移入 try/catch 防止 stderr 泄漏 //***
                     # Attempt to invoke (Silently fails on Electron shadow DOM elements)
-                    $invokePattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) -as [System.Windows.Automation.InvokePattern]
-                    if ($invokePattern) {
-                        try {
+                    try {
+                        $invokePattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) -as [System.Windows.Automation.InvokePattern]
+                        if ($invokePattern) {
                             $invokePattern.Invoke()
-                            Write-Host "Invoked $cleanName via InvokePattern"
                             $invokedSoftly = $true
                         }
-                        catch { }
                     }
+                    catch { }
                 
+                    # 2026-03-24T22:40:00+08:00: 将 LegacyPattern 也移入 try/catch 防止 TypeNotFound stderr //***
                     # Attempt LegacyIAccessiblePattern (Silently fails on some Electron apps, works on others)
                     if (-not $invokedSoftly) {
-                        $legacyPattern = $btn.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern) -as [System.Windows.Automation.LegacyIAccessiblePattern]
-                        if ($legacyPattern) {
-                            try {
+                        try {
+                            $legacyPattern = $btn.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern) -as [System.Windows.Automation.LegacyIAccessiblePattern]
+                            if ($legacyPattern) {
                                 $legacyPattern.DoDefaultAction()
-                                Write-Host "Invoked $cleanName via LegacyPattern"
                                 $invokedSoftly = $true
                             }
-                            catch { }
                         }
+                        catch { }
                     }
                 
                     # Fallback: Stealth Focus (Ghost Protocol)
@@ -261,12 +275,10 @@ while ($true) {
                                 $forceRestore = $false
                                 if (($global:lastNonIdeWindow -ne [IntPtr]::Zero) -and (([DateTime]::Now - $global:lastNonIdeTime).TotalSeconds -lt 5)) {
                                     $forceRestore = $true
-                                    Write-Host "IDE violently stole focus within last 5s! Un-stealing and returning focus back to Browser."
                                 }
 
                                 # Only do the keyboard simulation if we have to, and do it gently.
                                 [Keyboard]::StealthAltEnter($hwnd, $global:lastNonIdeWindow, $forceRestore)
-                                Write-Host "Sent Stealth Alt+Enter to window $hwnd for $($cleanName)"
                             }
                         }
                         catch { }

@@ -6,9 +6,17 @@ let clickerProcess: ChildProcess | undefined;
 let notificationPoller: NodeJS.Timeout | undefined;
 let outputChannel: vscode.OutputChannel;
 
+// 2026-03-24T22:55:00+08:00: 统一时间戳 + emoji 日志格式，对齐 Toolkit 风格 //***
+function log(emoji: string, message: string) {
+    const now = new Date();
+    const ts = now.toTimeString().slice(0, 8);
+    outputChannel.appendLine(`[${ts}] ${emoji} ${message}`);
+}
+
 export function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('Antigravity Auto Accept');
-    outputChannel.appendLine('Antigravity Auto Accept extension is now active!');
+    // 2026-03-24T22:55:00+08:00: Toolkit 风格启动日志 //***
+    log('🚀', 'Auto Accept: Activating (v1.5.2)...');
 
     const startCommand = vscode.commands.registerCommand('antigravity-auto-accept.start', () => {
         startClicker(context);
@@ -55,18 +63,42 @@ function startClicker(context: vscode.ExtensionContext) {
         '-EncodedCommand', encodedCommand
     ]);
 
+    // 2026-03-24T22:59:00+08:00: 解析 PS1 的 [AA:TAG] 标签，在 TS 侧添加 emoji（避免管道乱码）//***
+    const emojiMap: Record<string, string> = {
+        'INIT': '🖥️ ',
+        'IDE': '👁️ ',
+        'CLICK': '✅',
+    };
     clickerProcess.stdout?.on('data', (data) => {
-        const msg = data.toString().trim();
-        if (msg) { outputChannel.appendLine(`[PS] ${msg}`); }
+        // 2026-03-24T23:04:00+08:00: 按行分割处理——stdout 可能一次性到达多行数据 //***
+        const lines = data.toString().split(/\r?\n/);
+        for (const line of lines) {
+            const msg = line.trim();
+            if (!msg) { continue; }
+            // 解析 [AA:TAG] [HH:mm:ss] message 格式
+            const tagMatch = msg.match(/^\[AA:(\w+)\]\s*\[(\d{2}:\d{2}:\d{2})\]\s*(.*)$/);
+            if (tagMatch) {
+                const emoji = emojiMap[tagMatch[1]] || 'ℹ️';
+                outputChannel.appendLine(`[${tagMatch[2]}] ${emoji} ${tagMatch[3]}`);
+            } else {
+                outputChannel.appendLine(msg);
+            }
+        }
     });
 
     clickerProcess.stderr?.on('data', (data) => {
-        const msg = data.toString().trim();
-        if (msg) { outputChannel.appendLine(`[ERR] ${msg}`); }
+        const raw = data.toString();
+        // 过滤 PowerShell CLIXML 序列化噪音（进度条、信息流、重复错误）
+        if (raw.includes('CLIXML') || raw.includes('<Objs') || raw.includes('</Objs>') ||
+            raw.includes('<S S="Error">') || raw.includes('<TNRef') || raw.includes('<Obj S=')) {
+            return;
+        }
+        const msg = raw.trim();
+        if (msg) { log('⚠️', msg); }
     });
 
     clickerProcess.on('close', (code) => {
-        outputChannel.appendLine(`AutoClicker exited with code ${code}`);
+        log('🛑', `AutoClicker exited (code ${code})`);
         clickerProcess = undefined;
     });
 
@@ -77,7 +109,7 @@ function startClicker(context: vscode.ExtensionContext) {
         notificationPoller = setInterval(() => {
             vscode.commands.executeCommand('notifications.acceptPrimaryAction').then(undefined, () => { });
         }, 500);
-        outputChannel.appendLine('[Extension] Started Internal Toast Notification Poller');
+        log('🔔', 'Toast Poller: Active');
     }
 }
 
@@ -118,13 +150,13 @@ async function registerFallbackCommands(context: vscode.ExtensionContext) {
                     // 静默拦截，不输出日志（每 500ms 触发一次会刷屏）
                 });
                 context.subscriptions.push(fallback);
-                outputChannel.appendLine(`[Fallback] 已注册兜底命令: ${cmdId}`);
+                log('🔗', `Fallback registered: ${cmdId}`);
             } else {
-                outputChannel.appendLine(`[Fallback] 命令已存在，跳过: ${cmdId}`);
+                log('✅', `Command exists: ${cmdId}`);
             }
         }
     } catch (err) {
-        outputChannel.appendLine(`[Fallback] 兜底命令注册失败: ${err}`);
+        log('⚠️', `Fallback registration failed: ${err}`);
     }
 }
 //***
