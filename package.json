@@ -2,8 +2,9 @@
   "name": "antigravity-auto-accept",
   "displayName": "Antigravity Auto Accept",
   "description": "Automatically click Allow/Approve for Gemini Antigravity IDE permissions.",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "license": "MIT",
+  "icon": "icon.png",
   "publisher": "fhgffy",
   "repository": {
     "type": "git",
