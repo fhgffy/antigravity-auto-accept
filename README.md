@@ -151,6 +151,10 @@ Press `Ctrl+Shift+P` and type:
 
 ## 📋 Changelog | 更新日志
 
+### v1.5.3 — Custom Logo (2026-03-24)
+- 🎨 Added premium custom logo/icon — shield + glowing checkmark with anti-gravity particle effects
+- 🎨 新增高品质自定义 Logo —— 盾牌 + 发光对勾，反重力粒子特效，cyan/紫色渐变暗色风格
+
 ### v1.5.2 — Premium Console Output (2026-03-24)
 - ✨ Toolkit-style output: every log line now shows `[HH:mm:ss] emoji message`
 - 🔇 Eliminated CLIXML/XML noise from PowerShell stderr — no more `[ERR]` blocks
