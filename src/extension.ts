@@ -16,7 +16,7 @@ function log(emoji: string, message: string) {
 export function activate(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel('Antigravity Auto Accept');
     // 2026-03-24T22:55:00+08:00: Toolkit 风格启动日志 //***
-    log('🚀', 'Auto Accept: Activating (v1.5.2)...');
+    log('🚀', 'Auto Accept: Activating (v2.1.0)...');
 
     const startCommand = vscode.commands.registerCommand('antigravity-auto-accept.start', () => {
         startClicker(context);

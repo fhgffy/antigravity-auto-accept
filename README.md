@@ -166,6 +166,14 @@ Press `Ctrl+Shift+P` and type:
 
 ## 📋 Changelog | 更新日志
 
+### v2.1.0 — The Revenant: Error Panel Detection (2026-03-25)
+- 🩺 **错误面板检测**：通过 UIAutomation `FindFirst` 精确搜索 `Agent terminated due to error` 文本，Agent 空闲时仍能自动点击 Retry（Issue #4）
+- ⚡ **智能按需搜索**：仅在 ■ 停止按钮不存在时才执行错误面板搜索，`FindFirst` 命中即返回，零额外开销
+- 🎯 **三态决策**：■ 运行中 → 全量匹配权限按钮 | 错误面板 → 仅 Retry/重试 | 完全空闲 → 跳过
+- 🩺 **Error panel detection**: `FindFirst` searches for `Agent terminated due to error` text via UIAutomation — clicks Retry even when agent is idle (Issue #4)
+- ⚡ **Smart on-demand search**: Error panel scan runs only when ■ stop button is absent; `FindFirst` returns on first match — zero overhead
+- 🎯 **Three-state logic**: ■ running → full permission clicks | error panel → Retry only | idle → skip
+
 ### v2.0.0 — The Oracle: UI State Detection (2026-03-25)
 - 🔮 **核心重构**：通过 UIAutomation 检测聊天面板的 ■ 停止按钮状态，从根源区分历史按钮 vs 新权限
 - ✅ Agent 运行中（■ 方块可见）→ 自动点击权限按钮
