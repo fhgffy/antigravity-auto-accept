@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept
+# 🚀 Antigravity Auto Accept v2
 
 **The Ultimate Permission Bypass for Gemini Antigravity IDE**
 **Gemini Antigravity IDE 终极权限自动放行插件**
@@ -18,7 +18,7 @@
 
 ## ✨ How It Works | 工作原理
 
-### 🛡️ The 4-Tier Annihilation Protocol | 四重毁灭协议
+### 🛡️ The 5-Tier Annihilation Protocol | 五重毁灭协议
 
 <table>
 <tr>
@@ -64,9 +64,9 @@ A PowerShell background process scans the Windows UI Automation tree for permiss
 </td>
 <td>
 
-When Electron swallows the API trigger, drops to `user32.dll` C++ API and physically injects `Alt+Enter` into the OS event queue. Uses a `RuntimeId` HashSet cache to permanently blacklist killed buttons.
+When Electron swallows the API trigger, drops to `user32.dll` C++ API and physically injects `Alt+Enter` into the OS event queue.
 
-当 Electron 吞掉 API 触发时，降维调用 `user32.dll` 物理注入 `Alt+Enter`。使用 `RuntimeId` 哈希缓存永久拉黑已击杀按钮。
+当 Electron 吞掉 API 触发时，降维调用 `user32.dll` 物理注入 `Alt+Enter`。
 
 </td>
 </tr>
@@ -85,13 +85,28 @@ Compiles the PowerShell payload into Base64 UTF-16LE binary and invokes via `-En
 
 </td>
 </tr>
+<tr>
+<td>
+
+**🔮 Tier 5 — The Oracle**
+神谕层 (v2.0.0)
+
+</td>
+<td>
+
+Live UI state detection: scans for the ■ stop button in the chat toolbar via UIAutomation. When ■ is present, the agent is running and permission buttons are fresh — click them. When → arrow is shown, the agent is idle and all buttons are historical — ignore them completely. Zero false positives.
+
+实时 UI 状态检测：通过 UIAutomation 扫描聊天工具栏中的 ■ 停止按钮。■ 存在 = Agent 运行中 = 点击权限按钮；→ 箭头 = Agent 空闲 = 忽略所有历史按钮。零误触。
+
+</td>
+</tr>
 </table>
 
 ### 🔁 Bonus: Immortal Agent | 附赠：不死 Agent
 
-Network timeout? `Retry` button? The scanner clicks it the exact millisecond it appears. Your AI agent never stops generating.
+Network timeout? `Retry` button? The scanner clicks it the exact millisecond it appears — but **only** when the agent is actively running (■ visible).
 
-网络超时？`重试` 按钮？扫描器在它露头的第一毫秒按掉。你的 AI 助手永不断连。
+网络超时？`重试` 按钮？扫描器在它露头的第一毫秒按掉——但**仅在** Agent 运行中（■ 可见）时才会触发。
 
 ---
 
@@ -150,6 +165,16 @@ Press `Ctrl+Shift+P` and type:
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v2.0.0 — The Oracle: UI State Detection (2026-03-25)
+- 🔮 **核心重构**：通过 UIAutomation 检测聊天面板的 ■ 停止按钮状态，从根源区分历史按钮 vs 新权限
+- ✅ Agent 运行中（■ 方块可见）→ 自动点击权限按钮
+- ❌ Agent 空闲（→ 箭头）→ 忽略所有历史按钮，零抽搐
+- 🗑️ 移除 RuntimeId 缓存机制（不再需要，UI 状态检测从根本解决问题）
+- 🔮 **Core rewrite**: Detects ■ stop button state in chat panel via UIAutomation — distinguishes historical vs fresh permission buttons at the source
+- ✅ Agent running (■ visible) → auto-click permission buttons
+- ❌ Agent idle (→ arrow) → ignore all historical buttons, zero false clicks
+- 🗑️ Removed RuntimeId cache mechanism (no longer needed — UI state detection solves the root cause)
 
 ### v1.5.3 — Custom Logo (2026-03-24)
 - 🎨 Added premium custom logo/icon — shield + glowing checkmark with anti-gravity particle effects

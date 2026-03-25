@@ -131,8 +131,37 @@ if ($parentProc) {
     Write-Host "[AA:IDE] [$ts] IDE: $ideProcessName | Watching for permission dialogs..."
 }
 
-# Cache to prevent infinitely re-clicking the same historical buttons in the chat view
-$global:clickedIds = New-Object System.Collections.Generic.HashSet[string]
+# 2026-03-25T09:22:00+08:00: v2.0.0 — UI 状态检测：通过 ■ 停止按钮判断 agent 是否运行中 //***
+# ■ 停止按钮的 UIAutomation 指纹：
+#   ControlType = Group（不是 Button）
+#   ClassName 包含 'bg-gray-500' 和 'rounded-full'
+#   大小约 37x37 (30~50px)
+# 存在 = agent 运行中 = 权限按钮可点击
+# 不存在 = agent 空闲 = 所有权限按钮都是历史记录，跳过
+function Is-AgentRunning($win) {
+    $trueCondition = [System.Windows.Automation.Condition]::TrueCondition
+    $groupCondition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::Group
+    )
+    $groups = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $groupCondition)
+    foreach ($g in $groups) {
+        try {
+            if ($null -eq $g -or $null -eq $g.Current) { continue }
+            $cls = $g.Current.ClassName
+            if ($null -eq $cls) { continue }
+            # 匹配 ■ 停止按钮的 CSS 指纹
+            if ($cls -match 'bg-gray-500' -and $cls -match 'rounded-full' -and $cls -match 'cursor-pointer') {
+                $r = $g.Current.BoundingRectangle
+                if (-not $r.IsEmpty -and $r.Width -ge 30 -and $r.Width -le 50 -and $r.Height -ge 30 -and $r.Height -le 50) {
+                    return $true
+                }
+            }
+        } catch {}
+    }
+    return $false
+}
+#***
 
 # Track the last window the user was actively using outside the IDE
 $global:lastNonIdeWindow = [IntPtr]::Zero
@@ -170,80 +199,61 @@ while ($true) {
         }
     }
 
-    # Then we only search for target buttons inside those specific Electron windows.
+    # 2026-03-25T09:22:00+08:00: v2.0.0 — 检测 ■ 停止按钮判断 agent 是否在运行 //***
+    # 只有 agent 正在运行时（■ 出现），权限按钮才是新产生的，才需要点击
+    # agent 空闲时（→ 箭头或无按钮），所有权限按钮都是历史记录
+    $agentRunning = $false
+    foreach ($win in $targetWindows) {
+        if (Is-AgentRunning $win) {
+            $agentRunning = $true
+            break
+        }
+    }
+
+    if (-not $agentRunning) {
+        # agent 空闲，跳过本轮扫描
+        continue
+    }
+    #***
 
     $btnCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
-    
-    # Only search for buttons inside actual VS Code windows!
+
     foreach ($win in $targetWindows) {
         $buttons = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
-        
+
         foreach ($btn in $buttons) {
             if ($null -ne $btn -and $null -ne $btn.Current) {
-            
+
                 $name = $btn.Current.Name
-                $class = $btn.Current.ClassName
-                $id = $btn.Current.AutomationId
                 # 2026-03-24T22:30:00+08:00: 修复 $name 为 null 时 .Trim() 抛出 InvokeMethodOnNull //***
                 if ($null -eq $name) { continue }
                 $cleanName = $name.Trim()
-                
-                # DIAGNOSTIC: Print every button we scan in VS Code so the user can send me the log if it fails
-                if ($cleanName.Length -gt 0 -and $cleanName.Length -lt 50) {
-                    # Write-Host "SCANNING BTN: '$cleanName'"
-                }
-            
-                # Check if we have already processed this specific button instance in the UI tree
-                $runtimeIdArray = $btn.GetRuntimeId()
-                if ($null -ne $runtimeIdArray) {
-                    $runtimeId = $runtimeIdArray -join ','
-                    if ($global:clickedIds.Contains($runtimeId)) {
-                        continue
-                    }
-                }
 
                 # 严格匹配：按钮文本必须命中权限/重试关键词
-                # 注意：'run$' 和 'run\s+.*' 已移除，因为会误触代码块 "Run" 按钮和内联聊天动作按钮！
-                # 那样会导致 StealthAltEnter 发射，Alt+Enter 注入意外提交聊天输入框。
-                # v1.3.9 (2026-03-21): 新增 'proceed'/'execute'/'继续'/'执行' — 修复 Antigravity 浏览器 JS 执行权限弹窗 (Issue #1) //***
-                # v1.4.0 (2026-03-21T17:16:02+08:00): 新增 'allow once'/'allow this conversation'/'allow all' — 修复目录权限弹窗不自动点击 //***
+                # v1.3.9 (2026-03-21): 新增 'proceed'/'execute'/'继续'/'执行' //***
+                # v1.4.0 (2026-03-21): 新增 'allow once'/'allow this conversation'/'allow all' //***
                 if ($cleanName -match "(?i)^(allow|allow once|allow this conversation|allow all|approve|yes|proceed|always allow.*|always run.*|always proceed.*|retry|许可|允许|允许本次|允许此对话|全部允许|批准|确认|确定|继续|总是允许|总是运行|总是继续|同意|重试|执行)$") {
-                    
-                    # Ignore elements that are explicitly disabled (historical buttons often become disabled)
-                    if ($btn.Current.IsEnabled -eq $false) {
-                        continue
-                    }
 
-                    # We also want to skip buttons that are completely off-screen IF they are historical.
-                    # BoundingRectangle.IsEmpty is true when the element is completely virtualized out of the viewport.
-                    if ($btn.Current.BoundingRectangle.IsEmpty) {
-                        continue
-                    }
+                    if ($btn.Current.IsEnabled -eq $false) { continue }
+                    if ($btn.Current.BoundingRectangle.IsEmpty) { continue }
 
                     # 2026-03-24T22:59:00+08:00: 纯文本点击日志，emoji 由 TS 侧添加 //***
                     $ts = Get-Date -Format 'HH:mm:ss'
                     Write-Host "[AA:CLICK] [$ts] Clicked: '$cleanName'"
 
-                    # Attempt to bring the element into view explicitly. This is crucial for offscreen buttons in Electron.
                     try {
-                        # Only steal focus if the IDE is already the active window. Otherwise scrolling might steal the user's typing focus!
                         $currentHwnd = [Keyboard]::GetForegroundWindow()
                         if ($codePids -contains [Keyboard]::GetWindowProcId($currentHwnd)) {
                             $btn.SetFocus()
                         }
-                        
                         $scrollPattern = $btn.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern) -as [System.Windows.Automation.ScrollItemPattern]
-                        if ($scrollPattern) {
-                            $scrollPattern.ScrollIntoView()
-                        }
+                        if ($scrollPattern) { $scrollPattern.ScrollIntoView() }
                     }
                     catch { }
 
-                    # Track whether we successfully clicked it without needing physical keyboard
                     $invokedSoftly = $false
 
-                    # 2026-03-24T22:40:00+08:00: 将 GetCurrentPattern 移入 try/catch 防止 stderr 泄漏 //***
-                    # Attempt to invoke (Silently fails on Electron shadow DOM elements)
+                    # 2026-03-24T22:40:00+08:00: InvokePattern 点击 //***
                     try {
                         $invokePattern = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) -as [System.Windows.Automation.InvokePattern]
                         if ($invokePattern) {
@@ -252,9 +262,8 @@ while ($true) {
                         }
                     }
                     catch { }
-                
-                    # 2026-03-24T22:40:00+08:00: 将 LegacyPattern 也移入 try/catch 防止 TypeNotFound stderr //***
-                    # Attempt LegacyIAccessiblePattern (Silently fails on some Electron apps, works on others)
+
+                    # 2026-03-24T22:40:00+08:00: LegacyPattern 回退 //***
                     if (-not $invokedSoftly) {
                         try {
                             $legacyPattern = $btn.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern) -as [System.Windows.Automation.LegacyIAccessiblePattern]
@@ -265,9 +274,8 @@ while ($true) {
                         }
                         catch { }
                     }
-                
-                    # Fallback: Stealth Focus (Ghost Protocol)
-                    # Quickly steals focus, injects the physical Alt+Enter, and instantly bounces focus back to user's browser in <80ms.
+
+                    # Stealth Focus 回退 (Ghost Protocol)
                     if (-not $invokedSoftly) {
                         try {
                             $hwnd = [IntPtr]($win.Current.NativeWindowHandle)
@@ -276,27 +284,14 @@ while ($true) {
                                 if (($global:lastNonIdeWindow -ne [IntPtr]::Zero) -and (([DateTime]::Now - $global:lastNonIdeTime).TotalSeconds -lt 5)) {
                                     $forceRestore = $true
                                 }
-
-                                # Only do the keyboard simulation if we have to, and do it gently.
                                 [Keyboard]::StealthAltEnter($hwnd, $global:lastNonIdeWindow, $forceRestore)
                             }
                         }
                         catch { }
                     }
 
-                    # Mark element as clicked so we NEVER process it again, even if it stays in the DOM history forever.
-                    if ($null -ne $runtimeIdArray) {
-                        $null = $global:clickedIds.Add($runtimeId)
-                    }
-
-                    # Sleep less so we can blaze through these faster without causing the script to lag and trigger multiple window bounds
                     Start-Sleep -Milliseconds 200
-
-                    # BREAK out of the button processing loop!
-                    # If there are multiple historical buttons on screen, processing them all in one pass 
-                    # causes the ScrollIntoView to wildly jitter the scrollbar back and forth between them.
-                    # By breaking, we only click ONE button per 1-second polling cycle.
-                    break
+                    break  # 每周期只点击一个按钮
                 }
             }
         }
