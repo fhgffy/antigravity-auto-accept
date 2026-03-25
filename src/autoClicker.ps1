@@ -131,13 +131,14 @@ if ($parentProc) {
     Write-Host "[AA:IDE] [$ts] IDE: $ideProcessName | Watching for permission dialogs..."
 }
 
-# 2026-03-25T23:20:00+08:00: v2.1.0 — 双态检测：■ 停止按钮 + 错误面板文本 //***
+# 2026-03-26T07:30:00+08:00: v2.1.1 — 三态检测 + 非 Antigravity IDE 回退 //***
 # ■ 停止按钮：ControlType=Group, ClassName 含 'bg-gray-500'+'rounded-full', 30~50px
-# 错误面板：FindFirst 精确搜索 Name="Agent terminated due to error" 文本
-#   比 CSS class 匹配更稳定——直接命中语义文本，不依赖可变的样式类名
-# 返回 hashtable: @{ Running=$bool; HasError=$bool }
+# → 箭头按钮：ControlType=Button, ClassName 含 'rounded-full', 30~50px (灰色无字 / 蓝色 Name='Send')
+# 错误面板：FindFirst 精确搜索 "Agent terminated due to error"
+# 返回 hashtable: @{ Running; HasError; HasChatToolbar }
+# HasChatToolbar=false 时表示非 Antigravity IDE，回退到传统模式（盲点所有权限按钮）
 function Get-AgentState($win) {
-    $state = @{ Running = $false; HasError = $false }
+    $state = @{ Running = $false; HasError = $false; HasChatToolbar = $false }
 
     # 检测 ■ 停止按钮（Group 遍历）
     $groupCondition = New-Object System.Windows.Automation.PropertyCondition(
@@ -155,13 +156,43 @@ function Get-AgentState($win) {
                 $r = $g.Current.BoundingRectangle
                 if (-not $r.IsEmpty -and $r.Width -ge 30 -and $r.Width -le 50 -and $r.Height -ge 30 -and $r.Height -le 50) {
                     $state.Running = $true
+                    $state.HasChatToolbar = $true
                     break
                 }
             }
         } catch {}
     }
 
-    # 检测错误面板：精确搜索 "Agent terminated due to error" 文本（FindFirst 一旦命中立即返回）
+    # 未检测到 ■ 时，搜索 → 箭头按钮（确认是 Antigravity IDE 但 agent 空闲）
+    if (-not $state.Running) {
+        $btnCondition = New-Object System.Windows.Automation.PropertyCondition(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Button
+        )
+        $buttons = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
+        foreach ($b in $buttons) {
+            try {
+                if ($null -eq $b -or $null -eq $b.Current) { continue }
+                $cls = $b.Current.ClassName
+                if ($null -eq $cls) { continue }
+                # → 箭头按钮指纹：rounded-full + cursor-pointer + 30~50px
+                # 灰色箭头: class 含 'opacity-70' + 'rounded-full'
+                # 蓝色箭头: Name='Send' + class 含 'bg-ide-button-background' + 'rounded-full'
+                if ($cls -match 'rounded-full' -and $cls -match 'cursor-pointer') {
+                    $r = $b.Current.BoundingRectangle
+                    if (-not $r.IsEmpty -and $r.Width -ge 30 -and $r.Width -le 50 -and $r.Height -ge 30 -and $r.Height -le 50) {
+                        $bName = $b.Current.Name
+                        if (($cls -match 'opacity-70') -or ($null -ne $bName -and $bName -eq 'Send')) {
+                            $state.HasChatToolbar = $true
+                            break
+                        }
+                    }
+                }
+            } catch {}
+        }
+    }
+
+    # 检测错误面板（仅当 agent 未运行时）
     if (-not $state.Running) {
         try {
             $errorNameCondition = New-Object System.Windows.Automation.PropertyCondition(
@@ -171,6 +202,7 @@ function Get-AgentState($win) {
             $errorText = $win.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $errorNameCondition)
             if ($null -ne $errorText) {
                 $state.HasError = $true
+                $state.HasChatToolbar = $true  # 错误面板也是 Antigravity 特有
             }
         } catch {}
     }
@@ -215,33 +247,37 @@ while ($true) {
         }
     }
 
-    # 2026-03-25T23:10:00+08:00: v2.1.0 — 双态检测：■ 运行中 / 错误面板 / 完全空闲 //***
-    # Running=true → 全量匹配权限按钮
-    # HasError=true → 仅匹配 Retry/重试（错误面板恢复）
-    # 两者都 false → 完全空闲，跳过本轮
+    # 2026-03-26T07:30:00+08:00: v2.1.1 — 三态检测 + 非 Antigravity 回退 //***
+    # HasChatToolbar=true + Running=true → 全量匹配权限按钮
+    # HasChatToolbar=true + HasError=true → 仅匹配 Retry/重试
+    # HasChatToolbar=true + 两者都 false → 空闲，跳过
+    # HasChatToolbar=false → 非 Antigravity IDE，回退传统模式→盲点所有权限按钮
     $agentRunning = $false
     $hasError = $false
+    $hasChatToolbar = $false
     foreach ($win in $targetWindows) {
         $s = Get-AgentState $win
         if ($s.Running) { $agentRunning = $true }
         if ($s.HasError) { $hasError = $true }
+        if ($s.HasChatToolbar) { $hasChatToolbar = $true }
     }
 
-    if (-not $agentRunning -and -not $hasError) {
-        # agent 完全空闲且无错误面板，跳过本轮扫描
+    if ($hasChatToolbar -and -not $agentRunning -and -not $hasError) {
+        # Antigravity IDE 且 agent 完全空闲，跳过本轮扫描
         continue
     }
 
-
-    # 2026-03-25T23:10:00+08:00: 根据状态选择按钮匹配范围 //***
-    if ($agentRunning) {
-        # agent 运行中：全量匹配所有权限/重试按钮
+    # 根据状态选择按钮匹配范围
+    if (-not $hasChatToolbar) {
+        # 非 Antigravity IDE（VS Code / Cursor / 其他）：传统模式，盲点所有权限按钮
+        $btnRegex = "(?i)^(allow|allow once|allow this conversation|allow all|approve|yes|proceed|always allow.*|always run.*|always proceed.*|retry|许可|允许|允许本次|允许此对话|全部允许|批准|确认|确定|继续|总是允许|总是运行|总是继续|同意|重试|执行)$"
+    } elseif ($agentRunning) {
+        # Antigravity + agent 运行中：全量匹配
         $btnRegex = "(?i)^(allow|allow once|allow this conversation|allow all|approve|yes|proceed|always allow.*|always run.*|always proceed.*|retry|许可|允许|允许本次|允许此对话|全部允许|批准|确认|确定|继续|总是允许|总是运行|总是继续|同意|重试|执行)$"
     } else {
-        # agent 空闲但有错误面板：仅点击 Retry/重试（网络错误恢复）
+        # Antigravity + 错误面板：仅 Retry/重试
         $btnRegex = "(?i)^(retry|重试)$"
     }
-    #***
 
     $btnCondition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
 

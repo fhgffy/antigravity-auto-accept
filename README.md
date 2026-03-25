@@ -166,6 +166,10 @@ Press `Ctrl+Shift+P` and type:
 
 ## 📋 Changelog | 更新日志
 
+### v2.1.1 — Universal Compatibility (2026-03-26)
+- 🌍 **非 Antigravity IDE 回退**：检测到聊天工具栏（→ / ■）时使用 Oracle 智能模式；未检测到时（VS Code / Cursor / 其他 IDE）自动回退传统模式，盲点所有权限按钮
+- 🌍 **Non-Antigravity fallback**: When chat toolbar (→ / ■) is detected, use Oracle mode; when not detected (VS Code / Cursor / other IDEs), fall back to legacy mode — click all permission buttons unconditionally
+
 ### v2.1.0 — The Revenant: Error Panel Detection (2026-03-25)
 - 🩺 **错误面板检测**：通过 UIAutomation `FindFirst` 精确搜索 `Agent terminated due to error` 文本，Agent 空闲时仍能自动点击 Retry（Issue #4）
 - ⚡ **智能按需搜索**：仅在 ■ 停止按钮不存在时才执行错误面板搜索，`FindFirst` 命中即返回，零额外开销
