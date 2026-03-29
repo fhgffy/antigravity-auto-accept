@@ -1,7 +1,7 @@
-# 🚀 Antigravity Auto Accept v2
+# 🚀 Antigravity Auto Accept v5
 
-**The Ultimate Permission Bypass for Gemini Antigravity IDE**
-**Gemini Antigravity IDE 终极权限自动放行插件**
+**Auto-accept all permission prompts in Antigravity IDE — zero clicks, zero configuration.**
+**Antigravity IDE 权限弹窗全自动放行 —— 零点击，零配置。**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%3E%3D1.80.0-blueviolet.svg)](https://code.visualstudio.com/)
@@ -9,121 +9,68 @@
 [![Remote](https://img.shields.io/badge/Remote-WSL%20%7C%20SSH%20%7C%20Container-success.svg)](#-remote-development-support--远程开发支持)
 
 > **Tired of permission popups interrupting your AI workflow?**
-> This extension deploys a 4-tiered annihilation protocol to automatically bypass every single permission prompt — `Allow`, `Run`, `Approve`, `Retry` — the millisecond it appears. Your AI agent becomes immortal.
+> This extension uses Windows UIAutomation to detect and click every permission button — `Run`, `Accept`, `Allow`, `Retry` — the millisecond it appears. No CDP port, no complex setup. Just install and forget.
 >
 > **受够了权限弹窗打断你的 AI 工作流？**
-> 本插件部署四重毁灭协议，在弹窗露头的第一毫秒自动灭杀一切权限确认 —— `允许`、`运行`、`确认`、`重试` —— 让你的 AI 助手化身不朽机器。
+> 本插件使用 Windows UIAutomation 检测并点击一切权限按钮 —— `Run`、`Accept`、`Allow`、`Retry` —— 在它出现的第一毫秒。无需 CDP 端口，无需复杂配置。装完即忘。
 
 ---
 
 ## ✨ How It Works | 工作原理
 
-### 🛡️ The 5-Tier Annihilation Protocol | 五重毁灭协议
+```
+┌─────────────────────────────────────────────────┐
+│  Extension Host (TypeScript)                    │
+│  ┌───────────────────────────────────────┐      │
+│  │ Spawns PowerShell background process  │      │
+│  │ 500ms polling · 1500ms cooldown       │      │
+│  └───────────────┬───────────────────────┘      │
+│                  │ stdout                        │
+│                  ▼                               │
+│  Parse ___CLICK_INVOKE___ / ___CLICK_PHYSICAL___│
+│  → Log to Output Channel                       │
+└─────────────────────────────────────────────────┘
 
-<table>
-<tr>
-<th width="180">Tier</th>
-<th>Mechanism</th>
-</tr>
-<tr>
-<td>
+┌─────────────────────────────────────────────────┐
+│  PowerShell (autoClicker.ps1)                   │
+│                                                 │
+│  1. Scan Chrome_WidgetWin_1 windows             │
+│     → Only windows with "Antigravity" in title  │
+│                                                 │
+│  2. Find all Button controls (UIAutomation)     │
+│     → Match: Run, Accept, Allow, Apply,         │
+│       Continue, Proceed, Retry, Execute,        │
+│       Approve, Confirm, Overwrite, Save,        │
+│       Yes, OK                                   │
+│     → Exclude: Run and Debug, Run Task,         │
+│       Always run, Run Extension, ...            │
+│                                                 │
+│  3. Click via InvokePattern (API-level)         │
+│     → Fallback: user32.dll physical mouse click │
+└─────────────────────────────────────────────────┘
+```
 
-**👻 Tier 1 — The Phantom**
-幻影层
+### Two-Layer Click | 双层点击
 
-</td>
-<td>
-
-Injects a poller directly into VS Code's extension host. Every **500ms**, it blindly fires `notifications.acceptPrimaryAction` to destroy Toast notifications from the inside — completely invisible to Windows.
-
-在 VS Code 扩展宿主内注入轮询器，每 **500ms** 盲发原生指令，从内部瓦解 Toast 通知。对 Windows 完全隐形。
-
-</td>
-</tr>
-<tr>
-<td>
-
-**🤝 Tier 2 — The Diplomat**
-外交官层
-
-</td>
-<td>
-
-A PowerShell background process scans the Windows UI Automation tree for permission keywords (`Allow`, `Approve`, `Run`, `许可`, `确认`...) and invokes them via .NET `InvokePattern`.
-
-后台 PowerShell 进程扫描 Windows UI 自动化树，匹配权限关键词并通过 .NET `InvokePattern` 静默触发。
-
-</td>
-</tr>
-<tr>
-<td>
-
-**⚡ Tier 3 — The Hacker**
-黑客层
-
-</td>
-<td>
-
-When Electron swallows the API trigger, drops to `user32.dll` C++ API and physically injects `Alt+Enter` into the OS event queue.
-
-当 Electron 吞掉 API 触发时，降维调用 `user32.dll` 物理注入 `Alt+Enter`。
-
-</td>
-</tr>
-<tr>
-<td>
-
-**🔐 Tier 4 — The Encoder**
-编码者层
-
-</td>
-<td>
-
-Compiles the PowerShell payload into Base64 UTF-16LE binary and invokes via `-EncodedCommand`. Path corruption on CJK systems is mathematically impossible.
-
-将 PowerShell 载荷编译为 Base64 UTF-16LE 二进制，从数学层面断绝中文路径乱码。
-
-</td>
-</tr>
-<tr>
-<td>
-
-**🔮 Tier 5 — The Oracle**
-神谕层 (v2.0.0)
-
-</td>
-<td>
-
-Live UI state detection: scans for the ■ stop button in the chat toolbar via UIAutomation. When ■ is present, the agent is running and permission buttons are fresh — click them. When → arrow is shown, the agent is idle and all buttons are historical — ignore them completely. Zero false positives.
-
-实时 UI 状态检测：通过 UIAutomation 扫描聊天工具栏中的 ■ 停止按钮。■ 存在 = Agent 运行中 = 点击权限按钮；→ 箭头 = Agent 空闲 = 忽略所有历史按钮。零误触。
-
-</td>
-</tr>
-</table>
-
-### 🔁 Bonus: Immortal Agent | 附赠：不死 Agent
-
-Network timeout? `Retry` button? The scanner clicks it the exact millisecond it appears — but **only** when the agent is actively running (■ visible).
-
-网络超时？`重试` 按钮？扫描器在它露头的第一毫秒按掉——但**仅在** Agent 运行中（■ 可见）时才会触发。
+| Layer | Mechanism |
+|-------|-----------|
+| **InvokePattern** (preferred) | UIAutomation API-level invocation. No cursor movement, no focus stealing. Silent and instant. |
+| **Physical Click** (fallback) | When InvokePattern is unavailable, falls back to `user32.dll` `SetCursorPos` + `mouse_event`. Works on any Electron button. |
 
 ---
 
 ## 🌐 Remote Development Support | 远程开发支持
 
-> **v1.5.0 — Full Remote Environment Support!**
+The extension declares `extensionKind: ["ui"]`, forcing it to **always run on your local Windows machine** — even in remote environments.
 
-The extension declares `extensionKind: ["ui"]`, which forces it to **always run on your local Windows machine** — even when connected to remote environments. This ensures the Win32 UIAutomation APIs remain available.
-
-本插件声明 `extensionKind: ["ui"]`，**始终在本地 Windows 侧运行** —— 即使连接远程环境也不受影响。
+本插件声明 `extensionKind: ["ui"]`，**始终在本地 Windows 侧运行**。
 
 | Environment | Status |
 |-------------|--------|
 | 🖥️ Local Windows | ✅ Fully supported |
-| 🐧 Remote - WSL | ✅ Supported (v1.5.0+) |
-| 🔗 Remote - SSH | ✅ Supported (v1.5.0+) |
-| 📦 Remote - Container | ✅ Supported (v1.5.0+) |
+| 🐧 Remote - WSL | ✅ Supported |
+| 🔗 Remote - SSH | ✅ Supported |
+| 📦 Remote - Container | ✅ Supported |
 
 ---
 
@@ -131,8 +78,8 @@ The extension declares `extensionKind: ["ui"]`, which forces it to **always run 
 
 ### Prerequisites | 前置需求
 
-- **Windows 10/11** — Uses the native `powershell.exe` shipped with Windows
-- No additional extensions required | 无需安装任何额外扩展
+- **Windows 10/11** — Uses native `powershell.exe` and UIAutomation
+- No CDP port, no additional setup | 无需 CDP 端口，无需额外配置
 
 ### Steps | 安装步骤
 
@@ -159,88 +106,64 @@ The extension declares `extensionKind: ["ui"]`, which forces it to **always run 
 ### Manual Toggle | 手动启停
 
 Press `Ctrl+Shift+P` and type:
-- `Antigravity Auto Accept: Start` — 开启
-- `Antigravity Auto Accept: Stop` — 关闭
+- `Start Antigravity Auto Accept` — 开启
+- `Stop Antigravity Auto Accept` — 关闭
+- `Toggle Antigravity Auto Accept ON/OFF` — 切换
 
 ---
 
 ## 📋 Changelog | 更新日志
 
+### v5.1.0 — Back to Basics: UIAutomation Revival (2026-03-29)
+
+- 🔄 **架构回归**：从 CDP 方案回归 UIAutomation 直接按钮检测。UIAutomation 能看到 Antigravity 的权限按钮并支持 InvokePattern，无需 CDP 端口
+- 🧹 **极简重写**：`extension.ts` 仅 ~150 行，`autoClicker.ps1` 仅 ~120 行。去除所有 Oracle/状态检测/指纹去重等复杂逻辑
+- 🎯 **智能匹配**：前缀匹配 + 精确匹配 + 排除列表，覆盖 12 类权限关键词，排除 IDE 菜单误触
+- ⚡ **双层点击**：优先 InvokePattern（无焦点抢占），失败时回退 user32.dll 物理点击
+- 🔄 **Architecture revert**: Back to UIAutomation from CDP. UIAutomation can see Antigravity's permission buttons with InvokePattern support — no CDP port needed
+- 🧹 **Minimal rewrite**: ~150 lines extension.ts, ~120 lines autoClicker.ps1. Removed Oracle/state detection/fingerprint dedup complexity
+- 🎯 **Smart matching**: Prefix + exact match + exclusion list covering 12 permission keyword categories
+- ⚡ **Two-layer click**: InvokePattern first (no focus stealing), user32.dll physical click fallback
+
+### v5.0.0 — The CDP Experiment (2026-03-29)
+
+- 🔧 **CDP 架构实验**：全面迁移到 Chrome DevTools Protocol，通过 WebSocket 连接 Antigravity 的 Chromium 调试端口，在 webview 内执行 JS 检测按钮 + `Input.dispatchMouseEvent` 模拟点击
+- 📦 **新增模块**：`cdpClient.ts`（WebSocket CDP 客户端）、`buttonDetector.ts`（DOM 按钮扫描脚本）、`shortcutPatcher.ts`（自动修补快捷方式添加 `--remote-debugging-port=9222`）
+- ❌ **已废弃**：确认 UIAutomation 仍能穿透最新版 Antigravity 后，v5.1.0 回归 UIAutomation
+- 🔧 **CDP architecture experiment**: Full migration to Chrome DevTools Protocol — WebSocket connection to Chromium debug port, JS injection for button detection + `Input.dispatchMouseEvent` for clicks
+- 📦 **New modules**: `cdpClient.ts`, `buttonDetector.ts`, `shortcutPatcher.ts`
+- ❌ **Superseded**: Reverted to UIAutomation in v5.1.0 after confirming it still works with latest Antigravity
+
+### v2.1.3 — Fingerprint Dedup: Click Once, Never Spam (2026-03-26)
+
+- 🧠 **指纹去重缓存**：每个按钮点击后记录位置指纹（Name + X/Y 取整到 10px），同一按钮不再重复点击。解决 v2.1.2 Legacy 模式下疯狂点击历史 "Always run" 导致抢焦点的问题
+- 🔄 **四态决策重构**：■ 运行中 → 全量点击（无需去重） | 错误面板 → 仅 Retry | Antigravity 空闲 → 去重点击 | 非 Antigravity → 全量 + 去重
+- ⏱️ **TTL 自动清空**：指纹缓存 120 秒后自动清空，适应新一轮对话/UI 刷新
+- 🧠 **Fingerprint dedup cache**: After clicking a button, records its position fingerprint (Name + X/Y rounded to 10px). Same button is never re-clicked
+- 🔄 **Four-state logic**: ■ running → click all | error panel → Retry only | Antigravity idle → dedup click | non-Antigravity → click all + dedup
+- ⏱️ **TTL auto-clear**: Fingerprint cache auto-clears every 120s for new conversations/UI refreshes
+
+### v2.1.2 — Arrow Button False Positive Fix (2026-03-26)
+
+- 🐛 **修复箭头按钮误判**：`Add context` / `Cancel` 等功能按钮的 CSS class 含 `opacity-70` + `rounded-full`，被误识别为聊天工具栏灰色箭头 → 所有权限按钮扫描被跳过
+- 🔧 **修复方式**：灰色箭头判定增加 `Name 必须为空` 约束（真正的灰色箭头是纯图标无文字）
+- 🐛 **Fix arrow button false positive**: `Add context` / `Cancel` buttons matched the gray arrow fingerprint — caused all permission button scanning to be skipped
+- 🔧 **Fix**: Added `Name must be empty` constraint for gray arrow detection
+
 ### v2.1.1 — Universal Compatibility (2026-03-26)
+
 - 🌍 **非 Antigravity IDE 回退**：检测到聊天工具栏（→ / ■）时使用 Oracle 智能模式；未检测到时（VS Code / Cursor / 其他 IDE）自动回退传统模式，盲点所有权限按钮
-- 🌍 **Non-Antigravity fallback**: When chat toolbar (→ / ■) is detected, use Oracle mode; when not detected (VS Code / Cursor / other IDEs), fall back to legacy mode — click all permission buttons unconditionally
-
-### v2.1.0 — The Revenant: Error Panel Detection (2026-03-25)
-- 🩺 **错误面板检测**：通过 UIAutomation `FindFirst` 精确搜索 `Agent terminated due to error` 文本，Agent 空闲时仍能自动点击 Retry（Issue #4）
-- ⚡ **智能按需搜索**：仅在 ■ 停止按钮不存在时才执行错误面板搜索，`FindFirst` 命中即返回，零额外开销
-- 🎯 **三态决策**：■ 运行中 → 全量匹配权限按钮 | 错误面板 → 仅 Retry/重试 | 完全空闲 → 跳过
-- 🩺 **Error panel detection**: `FindFirst` searches for `Agent terminated due to error` text via UIAutomation — clicks Retry even when agent is idle (Issue #4)
-- ⚡ **Smart on-demand search**: Error panel scan runs only when ■ stop button is absent; `FindFirst` returns on first match — zero overhead
-- 🎯 **Three-state logic**: ■ running → full permission clicks | error panel → Retry only | idle → skip
-
-### v2.0.0 — The Oracle: UI State Detection (2026-03-25)
-- 🔮 **核心重构**：通过 UIAutomation 检测聊天面板的 ■ 停止按钮状态，从根源区分历史按钮 vs 新权限
-- ✅ Agent 运行中（■ 方块可见）→ 自动点击权限按钮
-- ❌ Agent 空闲（→ 箭头）→ 忽略所有历史按钮，零抽搐
-- 🗑️ 移除 RuntimeId 缓存机制（不再需要，UI 状态检测从根本解决问题）
-- 🔮 **Core rewrite**: Detects ■ stop button state in chat panel via UIAutomation — distinguishes historical vs fresh permission buttons at the source
-- ✅ Agent running (■ visible) → auto-click permission buttons
-- ❌ Agent idle (→ arrow) → ignore all historical buttons, zero false clicks
-- 🗑️ Removed RuntimeId cache mechanism (no longer needed — UI state detection solves the root cause)
-
-### v1.5.3 — Custom Logo (2026-03-24)
-- 🎨 Added premium custom logo/icon — shield + glowing checkmark with anti-gravity particle effects
-- 🎨 新增高品质自定义 Logo —— 盾牌 + 发光对勾，反重力粒子特效，cyan/紫色渐变暗色风格
-
-### v1.5.2 — Premium Console Output (2026-03-24)
-- ✨ Toolkit-style output: every log line now shows `[HH:mm:ss] emoji message`
-- 🔇 Eliminated CLIXML/XML noise from PowerShell stderr — no more `[ERR]` blocks
-- 🛡️ Fixed `InvokeMethodOnNull` crash when scanning buttons with null names
-- 🔧 Moved `GetCurrentPattern` calls inside try/catch — "不支持的模式" errors no longer leak to stderr
-- 🎨 Tag-based emoji architecture: PS1 outputs `[AA:TAG]` plaintext, TypeScript renders emojis (avoids pipe encoding issues)
-- ✨ Toolkit 风格输出：每行日志显示 `[HH:mm:ss] emoji 消息`
-- 🔇 彻底过滤 PowerShell CLIXML/XML 噪音——不再出现 `[ERR]` XML 块
-- 🛡️ 修复扫描无名称按钮时的 `InvokeMethodOnNull` 崩溃
-- 🔧 `GetCurrentPattern` 调用移入 try/catch——"不支持的模式"错误不再泄漏到 stderr
-- 🎨 标签化 emoji 架构：PS1 输出纯文本标签，TypeScript 侧渲染 emoji（避免管道编码乱码）
-
-### v1.5.1 — Phantom Command Fix (2026-03-22)
-- 🔇 Fixed `command 'antigravity.agent.acceptAgentStep' not found` error in status bar (Issue #3)
-- 🔇 修复 Antigravity IDE 状态栏反复弹出"命令未找到"的报错 —— 原因是 IDE 内置扩展声明了 keybinding 但从未注册该命令（幽灵命令），本插件现在会自动注册兜底版本
-
-### v1.5.0 — Remote Environment Support (2026-03-22)
-- 🌐 Added `extensionKind: ["ui"]` — full support for WSL / SSH / Container remote environments
-- 🌐 新增远程开发支持 — WSL / SSH / Container 环境下插件正常工作 (Issue #2)
-
-### v1.4.0 — Directory Permission Auto-Accept (2026-03-21)
-- 🔓 Fixed `Allow Once`, `Allow This Conversation`, `Allow All` buttons not being auto-clicked
-- 🔓 修复目录权限弹窗中多词按钮无法自动点击的问题
-
-### v1.3.9 — Browser JS Execution Fix (2026-03-21)
-- 🌐 Added `Proceed`, `Execute`, `继续`, `执行` keywords for browser JS execution dialogs (Issue #1)
-- 🌐 新增浏览器 JS 执行权限对话框的自动确认支持
-
-### v1.3.8 — Ultimate Anti-Jitter (2026-03-21)
-- 🔇 Eradicated scrollbar twitching from historical buttons
-- 🔇 One-Click-Per-Cycle break mechanism
-
-### v1.3.5 — Ghost Protocol (2026-03-20)
-- 👻 `ScrollIntoView` for off-screen buttons
-- 👻 Stealth focus switching — returns control to your browser/game in < 100ms
-
-### v1.2.0 — RuntimeId Cache (2026-03-19)
-- 🧠 Permanent RuntimeId blacklist prevents re-clicking historical buttons
-- 🧠 Base64 UTF-16LE encoding for CJK path support
+- 🌍 **Non-Antigravity fallback**: Oracle mode when chat toolbar detected; legacy mode for VS Code / Cursor / other IDEs — click all permission buttons unconditionally
 
 ---
 
 ## ⚠️ Pro Tip | 使用技巧
 
 > **Don't minimize the IDE!** Chromium suspends the accessibility tree when minimized.
-> Instead, keep the IDE open behind your browser/game — the Ghost Protocol handles everything silently underneath.
+> Keep the IDE open behind your browser/game — the scanner handles everything silently underneath.
 >
 > **不要最小化 IDE！** Chromium 最小化后会断开无障碍树。
-> 正确做法：让 IDE 平敞在桌面上，用浏览器/游戏盖住它。幽灵协议会在底层静默猎杀一切弹窗。
+> 正确做法：让 IDE 平敞在桌面上，用浏览器/游戏盖住它即可。
 
 ---
 

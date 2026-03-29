@@ -1,8 +1,8 @@
 {
   "name": "antigravity-auto-accept",
   "displayName": "Antigravity Auto Accept",
-  "description": "Automatically click Allow/Approve for Gemini Antigravity IDE permissions.",
-  "version": "2.1.1",
+  "description": "Auto-accept Antigravity IDE permission prompts via UIAutomation. Zero manual clicks, no CDP port needed.",
+  "version": "5.1.0",
   "license": "MIT",
   "icon": "icon.png",
   "publisher": "fhgffy",
@@ -16,8 +16,15 @@
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "antigravity",
+    "auto-accept",
+    "automation",
+    "agent",
+    "cdp"
+  ],
   "activationEvents": [
-    "*"
+    "onStartupFinished"
   ],
   "extensionKind": ["ui"],
   "main": "./out/extension.js",
@@ -30,6 +37,10 @@
       {
         "command": "antigravity-auto-accept.stop",
         "title": "Stop Antigravity Auto Accept"
+      },
+      {
+        "command": "antigravity-auto-accept.toggle",
+        "title": "Toggle Antigravity Auto Accept ON/OFF"
       }
     ]
   },
@@ -40,9 +51,13 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts"
   },
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
   "devDependencies": {
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.80.0",
+    "@types/ws": "^8.5.10",
     "typescript": "^5.1.0"
   }
 }
