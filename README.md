@@ -1,3 +1,5 @@
+
+
 # 🚀 Antigravity Auto Accept v5
 
 **Auto-accept all permission prompts in Antigravity IDE — zero clicks, zero configuration.**
@@ -92,8 +94,8 @@ The extension declares `extensionKind: ["ui"]`, forcing it to **always run on yo
 
 **方式二：手动下载 VSIX 安装**
 
-1. **Download** the latest `.vsix` from the [Releases page](../../releases)
-   从 [Releases 页面](../../releases) 下载最新 `.vsix` 文件
+1. **Download** the latest `.vsix` from the [Releases page](https://github.com/fhgffy/antigravity-auto-accept/releases)
+   从 [Releases 页面](https://github.com/fhgffy/antigravity-auto-accept/releases) 下载最新 `.vsix` 文件
 
 2. **Install** via `Ctrl+Shift+X` → `...` → **Install from VSIX...**
    通过扩展面板 → `...` → **从 VSIX 安装...**
