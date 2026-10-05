@@ -1,8 +1,8 @@
 {
   "name": "antigravity-auto-accept",
   "displayName": "Antigravity Auto Accept",
-  "description": "Auto-accept Antigravity IDE permission prompts via UIAutomation. Zero manual clicks, no CDP port needed.",
-  "version": "5.1.0",
+  "description": "Automatically accept supported Antigravity IDE agent approval buttons on Windows. No debug port or command allowlist setup.",
+  "version": "5.3.0",
   "license": "MIT",
   "icon": "icon.png",
   "publisher": "fhgffy",
@@ -21,12 +21,22 @@
     "auto-accept",
     "automation",
     "agent",
-    "cdp"
+    "uiautomation",
+    "windows"
   ],
   "activationEvents": [
     "onStartupFinished"
   ],
   "extensionKind": ["ui"],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Auto-accept runs only in a trusted workspace."
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -41,23 +51,66 @@
       {
         "command": "antigravity-auto-accept.toggle",
         "title": "Toggle Antigravity Auto Accept ON/OFF"
+      },
+      {
+        "command": "antigravity-auto-accept.restart",
+        "title": "Restart Antigravity Auto Accept Scanner"
+      },
+      {
+        "command": "antigravity-auto-accept.showOutput",
+        "title": "Show Antigravity Auto Accept Logs"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Antigravity Auto Accept",
+      "properties": {
+        "antigravityAutoAccept.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the auto-accept scanner automatically when the extension activates."
+        },
+        "antigravityAutoAccept.pollMs": {
+          "type": "number",
+          "default": 500,
+          "minimum": 100,
+          "maximum": 5000,
+          "description": "How often the Windows UIAutomation scanner looks for permission buttons, in milliseconds."
+        },
+        "antigravityAutoAccept.cooldownMs": {
+          "type": "number",
+          "default": 1500,
+          "minimum": 300,
+          "maximum": 10000,
+          "description": "Minimum delay after a click before the scanner can click again, in milliseconds."
+        },
+        "antigravityAutoAccept.restoreCursor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Restore the mouse cursor to its previous position after a fallback physical click."
+        },
+        "antigravityAutoAccept.showNotifications": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show VS Code notifications when the scanner is started, stopped, toggled, or restarted."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
+    "typecheck": "tsc --noEmit -p ./",
     "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile && npm run lint",
-    "lint": "eslint src --ext ts"
-  },
-  "dependencies": {
-    "ws": "^8.16.0"
+    "lint": "npm run typecheck",
+    "selftest": "powershell.exe -NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -Command \"$ProgressPreference='SilentlyContinue'; & ([scriptblock]::Create([IO.File]::ReadAllText('./src/autoClicker.ps1',[Text.Encoding]::UTF8))) -SelfTest\"",
+    "test:lifecycle": "node --test tests/extension.test.cjs",
+    "test:scanner": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./tests/scanner.test.ps1",
+    "test": "npm run compile && npm run typecheck && npm run selftest && npm run test:lifecycle && npm run test:scanner",
+    "package": "npx --yes @vscode/vsce@4.0.0 package --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.80.0",
-    "@types/ws": "^8.5.10",
     "typescript": "^5.1.0"
   }
 }

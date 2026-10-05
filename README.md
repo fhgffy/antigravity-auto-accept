@@ -1,7 +1,7 @@
-# 🚀 Antigravity Auto Accept v5
+# 🚀 Antigravity Auto Accept v5.3
 
-**Auto-accept all permission prompts in Antigravity IDE — zero clicks, zero configuration.**
-**Antigravity IDE 权限弹窗全自动放行 —— 零点击，零配置。**
+**Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
+**Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%3E%3D1.80.0-blueviolet.svg)](https://code.visualstudio.com/)
@@ -9,10 +9,29 @@
 [![Remote](https://img.shields.io/badge/Remote-WSL%20%7C%20SSH%20%7C%20Container-success.svg)](#-remote-development-support--远程开发支持)
 
 > **Tired of permission popups interrupting your AI workflow?**
-> This extension uses Windows UIAutomation to detect and click every permission button — `Run`, `Accept`, `Allow`, `Retry` — the millisecond it appears. No CDP port, no complex setup. Just install and forget.
+> This extension starts automatically in a trusted Antigravity workspace and uses Windows UIAutomation to accept supported `Run`, `Accept`, and `Allow` buttons. No CDP port or executable patching is required.
 >
 > **受够了权限弹窗打断你的 AI 工作流？**
-> 本插件使用 Windows UIAutomation 检测并点击一切权限按钮 —— `Run`、`Accept`、`Allow`、`Retry` —— 在它出现的第一毫秒。无需 CDP 端口，无需复杂配置。装完即忘。
+> 插件在可信的 Antigravity 工作区自动启动，通过 Windows UIAutomation 接受支持的 `Run`、`Accept`、`Allow` 等审批按钮。无需 CDP 端口，也不修改 IDE 程序。
+
+## Native permissions and scope | 原生权限与适用范围
+
+Antigravity's [IDE settings documentation](https://antigravity.google/docs/settings?tab=ide) describes terminal **Always Proceed**, with denylist exceptions. Native permission features differ by product and platform: [Antigravity 2.0 and Antigravity IDE have separate release tracks](https://antigravity.google/docs/changelog). If your installed version's native controls meet your needs, they may be sufficient.
+
+官方 IDE 设置文档提供终端 **Always Proceed**；原生权限能力因产品、版本和平台而异，不能把 Antigravity 2.0 / CLI 的 Turbo 说明直接当成本机 IDE 2.5.5 已验证的设置。如果当前版本的原生设置已经满足需求，可以直接使用。这个扩展保留的价值是兼容仍显示审批按钮的工作流和旧版 IDE；本次实测的是 IDE 2.5.5 的一次允许审批卡片。
+
+- Installation enables scanning by default; a **trusted workspace, local Windows host, and accessible IDE window** are required. The extension does not change the IDE's permission settings.
+- **Strict Mode, explicit denials, enterprise policies, sandbox restrictions, and browser denylist entries remain enforced by Antigravity.** This is not a guarantee that every command can execute.
+- Workspace trust prompts and generic `Save`, `OK`, `Yes`, or `Retry` buttons are not agent approvals and are excluded. English and Chinese approval labels are supported.
+- Current permission cards are supported by selecting **Yes, allow this time** and submitting the same card. The scanner does not select either **always allow** option or expand historical command records.
+- `InvokePattern` can work without moving the cursor. Physical fallback only clicks when the target point still belongs to the verified Antigravity window; covered windows are skipped.
+- One scanner covers the desktop session's Antigravity windows from the same installation path. Other enabled windows wait to take over. Stop disables this window's scanner; another enabled window may continue scanning, including buttons in the stopped window. Workspace trust gates the scanner's host; scanning is not isolated per workspace.
+
+默认安装即启动扫描，但前提是可信工作区、本地 Windows 和可访问的 IDE 窗口。“零配置”指无需额外扫描器配置，不代表绕过所有权限。未针对每个 IDE 版本、远程环境和审批类型进行实机验证。
+
+Current maintenance: **fhgffy**, with **Codex** assisting fixes and tests. See [CONTRIBUTING.md](CONTRIBUTING.md) to help maintain the project. Historical Git commit authorship is preserved.
+
+Verification notes are maintained in [docs/verification-2026-10-05.md](docs/verification-2026-10-05.md). A result on one IDE version does not establish compatibility with every permission type or future release.
 
 ---
 
@@ -35,13 +54,11 @@
 │  PowerShell (autoClicker.ps1)                   │
 │                                                 │
 │  1. Scan Chrome_WidgetWin_1 windows             │
-│     → Only windows with "Antigravity" in title  │
+│     → Verify the owning Antigravity executable │
 │                                                 │
 │  2. Find all Button controls (UIAutomation)     │
-│     → Match: Run, Accept, Allow, Apply,         │
-│       Continue, Proceed, Retry, Execute,        │
-│       Approve, Confirm, Overwrite, Save,        │
-│       Yes, OK                                   │
+│     → Match supported agent approval labels    │
+│       in English and Chinese                   │
 │     → Exclude: Run and Debug, Run Task,         │
 │       Always run, Run Extension, ...            │
 │                                                 │
@@ -55,7 +72,7 @@
 | Layer | Mechanism |
 |-------|-----------|
 | **InvokePattern** (preferred) | UIAutomation API-level invocation. No cursor movement, no focus stealing. Silent and instant. |
-| **Physical Click** (fallback) | When InvokePattern is unavailable, falls back to `user32.dll` `SetCursorPos` + `mouse_event`. Works on any Electron button. |
+| **Physical Click** (fallback) | Rechecks button state and the owning window at the target point before clicking. Skips covered windows and restores the cursor when configured. |
 
 ---
 
@@ -67,10 +84,10 @@ The extension declares `extensionKind: ["ui"]`, forcing it to **always run on yo
 
 | Environment | Status |
 |-------------|--------|
-| 🖥️ Local Windows | ✅ Fully supported |
-| 🐧 Remote - WSL | ✅ Supported |
-| 🔗 Remote - SSH | ✅ Supported |
-| 📦 Remote - Container | ✅ Supported |
+| 🖥️ Local Windows | Supported scanner host; see verification notes for tested IDE versions |
+| 🐧 Remote - WSL | Local UI extension design; remote end-to-end verification pending |
+| 🔗 Remote - SSH | Local UI extension design; remote end-to-end verification pending |
+| 📦 Remote - Container | Local UI extension design; remote end-to-end verification pending |
 
 ---
 
@@ -83,14 +100,20 @@ The extension declares `extensionKind: ["ui"]`, forcing it to **always run on yo
 
 ### Steps | 安装步骤
 
-**方式一：插件商店搜索安装（推荐）**
+**方式一：手动下载 v5.3.0 VSIX 安装（当前推荐）**
+
+从 [Releases 页面](../../releases) 下载 v5.3.0 的 `.vsix`，通过扩展面板 → `...` → **Install from VSIX...** 安装，然后执行 **Developer: Reload Window** 或重启 IDE。
+
+**方式二：插件商店搜索安装**
 
 在 VS Code / Antigravity 的扩展面板 (`Ctrl+Shift+X`) 中搜索 **`Antigravity Auto Accept`**（开发者: **fhgffy**），点击安装即可。
+
+v5.3.0 尚未发布到以下商店；商店版本可能较旧。验证记录和 GitHub Release 对应本次修复版本。
 
 - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=fhgffy.antigravity-auto-accept)
 - [Open VSX Registry](https://open-vsx.org/extension/fhgffy/antigravity-auto-accept)
 
-**方式二：手动下载 VSIX 安装**
+**VSIX installation | 手动安装步骤**
 
 1. **Download** the latest `.vsix` from the [Releases page](../../releases)
    从 [Releases 页面](../../releases) 下载最新 `.vsix` 文件
@@ -100,8 +123,8 @@ The extension declares `extensionKind: ["ui"]`, forcing it to **always run on yo
 
 3. **Restart** your IDE | **重启** IDE
 
-> 💡 **Zero Configuration** — The extension activates automatically on IDE startup. No setup needed.
-> **零配置** — 插件随 IDE 启动自动激活，无需任何设置。
+> 💡 **Automatic startup** — Scanning starts automatically in a trusted Antigravity workspace. Windows permission and workspace trust choices remain yours.
+> **自动启动** — 在可信 Antigravity 工作区自动扫描，系统权限与工作区信任仍由用户决定。
 
 ### Manual Toggle | 手动启停
 
@@ -109,10 +132,45 @@ Press `Ctrl+Shift+P` and type:
 - `Start Antigravity Auto Accept` — 开启
 - `Stop Antigravity Auto Accept` — 关闭
 - `Toggle Antigravity Auto Accept ON/OFF` — 切换
+- `Restart Antigravity Auto Accept Scanner` — 重启后台扫描器
+- `Show Antigravity Auto Accept Logs` — 打开输出日志
+
+### Optional Settings | 可选设置
+
+The defaults still work with zero configuration. Advanced users can tune these in Settings:
+
+默认仍然是零配置即用。需要微调时，可以在设置里修改：
+
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `antigravityAutoAccept.autoStart` | `true` | Start scanning automatically when the extension activates |
+| `antigravityAutoAccept.pollMs` | `500` | UIAutomation scan interval |
+| `antigravityAutoAccept.cooldownMs` | `1500` | Minimum delay after one click before the next click |
+| `antigravityAutoAccept.restoreCursor` | `true` | Restore your mouse position after fallback physical clicks |
+| `antigravityAutoAccept.showNotifications` | `false` | Show start/stop/restart notifications |
 
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.0 — Compatibility and Lifecycle Repair (2026-10-05)
+
+- Support the current one-time permission card and its scoped Submit button; exclude completed Run tool records.
+- Support the current `Antigravity IDE.exe` and legacy Antigravity host names; verify window process ownership.
+- Repair stop/start races, cancel delayed restarts, and let waiting windows take over scanner ownership.
+- Support Chinese approval labels; exclude generic dialog actions and allow negative multi-monitor coordinates.
+- Verify the physical click target, handle hidden windows conservatively, and stop when the owning extension host exits.
+- Add lifecycle and scanner regression tests, Windows CI, and public contributor instructions.
+- Explain native Always Proceed and the limits of automatic approval.
+
+### v5.2.0 — Safer Matching + Cleaner Controls (2026-07-28)
+
+- 🛡️ **误点修复**：收紧前缀匹配边界，`Application Settings`、`Continuous Integration` 这类普通按钮不再被 `Apply` / `Continue` 误判
+- 🖱️ **鼠标体验优化**：物理点击回退后默认恢复鼠标原位置，减少抢鼠标感
+- ⚙️ **新增设置**：支持配置自动启动、扫描间隔、点击冷却、鼠标恢复和通知开关
+- 🧭 **新增命令**：支持命令面板重启扫描器、打开扩展日志
+- 🧪 **测试链修复**：`npm run lint` 不再依赖缺失的 ESLint，新增 PowerShell 匹配规则自测
+- 🔒 **依赖清理**：移除 v5.0 CDP 实验遗留的 `ws` 依赖，`npm audit` 回到 0 漏洞
 
 ### v5.1.0 — Back to Basics: UIAutomation Revival (2026-03-29)
 
@@ -160,10 +218,10 @@ Press `Ctrl+Shift+P` and type:
 ## ⚠️ Pro Tip | 使用技巧
 
 > **Don't minimize the IDE!** Chromium suspends the accessibility tree when minimized.
-> Keep the IDE open behind your browser/game — the scanner handles everything silently underneath.
+> Keep the IDE window available. API invocation may work in the background; physical fallback skips points covered by another app.
 >
 > **不要最小化 IDE！** Chromium 最小化后会断开无障碍树。
-> 正确做法：让 IDE 平敞在桌面上，用浏览器/游戏盖住它即可。
+> 保持 IDE 窗口可访问。API 调用可能支持后台审批；物理点击回退会跳过被其它应用遮挡的目标。
 
 ---
 
