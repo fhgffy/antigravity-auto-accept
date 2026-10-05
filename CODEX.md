@@ -6,9 +6,9 @@
 VSCode/Antigravity 插件，自动点击 Antigravity IDE 的权限弹窗（Run/Accept/Allow 等按钮）。
 - 发布者：fhgffy
 - 仓库：https://github.com/fhgffy/antigravity-auto-accept
-- 双平台累计 2,400+ 安装量，评分 5.0/5
+- 安装量与评分以两个扩展商店的实时页面为准。
 
-## 当前版本：v5.3.0（UIAutomation 兼容修复，2026-10-05）
+## 当前版本：v5.3.1（浏览器审批兼容修复，2026-10-06）
 
 ### 架构变更
 v4.0.0 及之前使用 PowerShell + UIAutomation + user32.dll 物理鼠标点击方案。
@@ -21,14 +21,18 @@ v5.3.0 保持 UIAutomation 架构，在既有 v5.2.0 改动上修复宿主兼容
 - `autoClicker.ps1` — UIAutomation 扫描 Antigravity 窗口按钮，优先 InvokePattern，失败时物理点击并恢复鼠标位置
 - `package.json` — 配置项、测试脚本、命令面板入口
 
+v5.3.1 增加浏览器域名审批：宽布局直接选择 `Allow Once`，窄布局通过当前按钮的 ScrollItem/ExpandCollapse 模式滚入并展开菜单，再核对菜单归属并选择本次允许。浏览器专用批准标签不会进入全窗通用匹配。
+
 ### 使用前提
 Windows 10/11，本地可运行 `powershell.exe` 和 UIAutomation。无需 CDP 端口。
 
 ### 待验证/待完成
 - [x] 已安装并重载 5.3.0，在 Antigravity IDE 2.5.5 验证同一个无害终端命令：扫描 OFF 时等待，ON 后自动批准一次并返回退出码 0
 - [x] VSIX、工作区和已安装的扫描器/扩展运行文件 SHA-256 一致；说明书的相对链接由 VSCE 转为仓库链接，打包说明书与已安装说明书一致
+- [x] 已安装并重载 5.3.1，在同一个真实浏览器任务验证宽布局和原窄布局连续本次批准；窄布局未人工滚动或批准。记录见 `docs/verification-2026-10-06.md`。
 - [ ] 按审批类型逐项实机验证；不能把字符串自测写成所有权限弹窗已验证
 - [ ] 发布到 VS Code Marketplace
+- [ ] 发布到 Open VSX
 
 ### 竞品参考
 - knarfy/antigravity-autoaccept — 已 clone 到 C:/Temp/knarfy-aa，架构参考来源

@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3
+# 🚀 Antigravity Auto Accept v5.3.1
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -23,7 +23,7 @@ Antigravity's [IDE settings documentation](https://antigravity.google/docs/setti
 - Installation enables scanning by default; a **trusted workspace, local Windows host, and accessible IDE window** are required. The extension does not change the IDE's permission settings.
 - **Strict Mode, explicit denials, enterprise policies, sandbox restrictions, and browser denylist entries remain enforced by Antigravity.** This is not a guarantee that every command can execute.
 - Workspace trust prompts and generic `Save`, `OK`, `Yes`, or `Retry` buttons are not agent approvals and are excluded. English and Chinese approval labels are supported.
-- Current permission cards are supported by selecting **Yes, allow this time** and submitting the same card. The scanner does not select either **always allow** option or expand historical command records.
+- Command permission cards select **Yes, allow this time** and submit the same card. Browser domain cards select **Allow Once**, including the menu inside **More actions** in a narrow sidebar. The scanner does not select **Always Allow** or expand historical command records.
 - `InvokePattern` can work without moving the cursor. Physical fallback only clicks when the target point still belongs to the verified Antigravity window; covered windows are skipped.
 - One scanner covers the desktop session's Antigravity windows from the same installation path. Other enabled windows wait to take over. Stop disables this window's scanner; another enabled window may continue scanning, including buttons in the stopped window. Workspace trust gates the scanner's host; scanning is not isolated per workspace.
 
@@ -100,20 +100,16 @@ The extension declares `extensionKind: ["ui"]`, forcing it to **always run on yo
 
 ### Steps | 安装步骤
 
-**方式一：手动下载 v5.3.0 VSIX 安装（当前推荐）**
-
-从 [Releases 页面](../../releases) 下载 v5.3.0 的 `.vsix`，通过扩展面板 → `...` → **Install from VSIX...** 安装，然后执行 **Developer: Reload Window** 或重启 IDE。
-
-**方式二：插件商店搜索安装**
+**方式一：插件商店搜索安装（推荐）**
 
 在 VS Code / Antigravity 的扩展面板 (`Ctrl+Shift+X`) 中搜索 **`Antigravity Auto Accept`**（开发者: **fhgffy**），点击安装即可。
 
-v5.3.0 尚未发布到以下商店；商店版本可能较旧。验证记录和 GitHub Release 对应本次修复版本。
+本次浏览器审批修复位于 **v5.3.1**，请核对商店显示的版本。若商店仍显示旧版本，请使用 GitHub Release 中对应版本的 VSIX。
 
 - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=fhgffy.antigravity-auto-accept)
 - [Open VSX Registry](https://open-vsx.org/extension/fhgffy/antigravity-auto-accept)
 
-**VSIX installation | 手动安装步骤**
+**方式二：下载 VSIX | 手动安装步骤**
 
 1. **Download** the latest `.vsix` from the [Releases page](../../releases)
    从 [Releases 页面](../../releases) 下载最新 `.vsix` 文件
@@ -121,7 +117,7 @@ v5.3.0 尚未发布到以下商店；商店版本可能较旧。验证记录和 
 2. **Install** via `Ctrl+Shift+X` → `...` → **Install from VSIX...**
    通过扩展面板 → `...` → **从 VSIX 安装...**
 
-3. **Restart** your IDE | **重启** IDE
+3. Run **Developer: Reload Window** or restart the IDE | 执行 **Developer: Reload Window** 或**重启** IDE
 
 > 💡 **Automatic startup** — Scanning starts automatically in a trusted Antigravity workspace. Windows permission and workspace trust choices remain yours.
 > **自动启动** — 在可信 Antigravity 工作区自动扫描，系统权限与工作区信任仍由用户决定。
@@ -152,6 +148,12 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.1 — Browser Approval Cards (2026-10-06)
+
+- Recognize the browser domain permission card and choose Allow Once.
+- Handle the narrow sidebar where Allow Once is folded into More actions.
+- Keep browser approval scoped to the active card and preserve command one-time approvals.
 
 ### v5.3.0 — Compatibility and Lifecycle Repair (2026-10-05)
 
