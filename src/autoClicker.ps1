@@ -105,6 +105,16 @@ $editCondition = New-Object System.Windows.Automation.PropertyCondition(
     [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
     [System.Windows.Automation.ControlType]::Edit
 )
+# 2026-10-06：浏览器权限在宽栏是按钮、窄栏是弹出菜单项，分别读取实际控件类型。
+$textCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text
+)
+$menuCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Menu
+)
+$menuItemCondition = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::MenuItem
+)
 
 # 2026-10-05：只匹配审批动作及其中文标签，普通保存、确认、重试按钮不参与自动同意。
 $targetPrefixes = @('Run', 'Accept', 'Allow', 'Execute', 'Approve', '运行', '接受', '允许', '同意', '批准', '执行')
@@ -124,6 +134,8 @@ function Test-ButtonMatch([string]$Name) {
     if ([string]::IsNullOrWhiteSpace($Name)) { return $false }
     $n = $Name.Trim()
     if ($n -match '\b(Reject|Deny|Denied|Cancel|Stop|Abort)\b|拒绝|取消|停止|中止') { return $false }
+    # 2026-10-06：本次允许专属于已核验的浏览器卡片，不能由全窗普通按钮回退绕过作用域。
+    if ($n -eq 'Allow Once') { return $false }
     # 2026-10-05：执行后的工具标题也会以 Run 开头，仅静态审批标签和快捷键后缀可点击。
     if ($n -match '^(Run|Execute|Approve|运行|执行|批准)') {
         return $n -match '^(Run|Execute|Approve|Run command|Execute command|Approve command|运行|执行|批准|运行命令|执行命令|批准命令)(\s*[\(\[]?(Alt|Ctrl|Shift|Enter|Cmd|Win)(\s*\+\s*(Alt|Ctrl|Shift|Enter|Cmd|Win|[A-Za-z0-9]))*[\)\]]?)?$'
@@ -246,12 +258,213 @@ function Test-LiveApprovalCard($Card) {
     return Test-ApprovalCardShape @($edits | ForEach-Object { $_.Current.Name }) @($radios | ForEach-Object { $_.Current.AutomationId }) @($radios | ForEach-Object { $_.Current.Name }) @($buttons | ForEach-Object { $_.Current.Name })
 }
 
-# 2026-10-05：审批卡片的诊断最多每五秒输出一次，便于排查宿主 UI 变化且避免刷屏。
+# 2026-10-06：审批卡片的诊断最多每十秒输出一次，便于排查宿主 UI 变化且避免刷屏。
 $script:lastApprovalDiagnosticTime = [DateTime]::MinValue
-function Write-ApprovalDiagnostic([string]$Message) {
-    if (([DateTime]::Now - $script:lastApprovalDiagnosticTime).TotalSeconds -lt 5) { return }
+$script:approvalDiagnosticTimes = @{}
+# 2026-10-06：候选、控件模式和动作结果分别节流，候选结构不能永久压住后续失败证据。
+function Write-ApprovalDiagnostic([string]$Message, [string]$Category = 'approval') {
+    $now = [DateTime]::Now
+    if ($Category -eq 'browser-candidate') {
+        if (($now - $script:lastApprovalDiagnosticTime).TotalSeconds -lt 10) { return }
+        $script:lastApprovalDiagnosticTime = $now
+    }
+    else {
+        if ($script:approvalDiagnosticTimes.ContainsKey($Category) -and ($now - $script:approvalDiagnosticTimes[$Category]).TotalSeconds -lt 10) { return }
+        $script:approvalDiagnosticTimes[$Category] = $now
+    }
     [Console]::WriteLine("___SCANNER_DIAGNOSTIC___:$Message")
-    $script:lastApprovalDiagnosticTime = [DateTime]::Now
+}
+
+# 2026-10-06：浏览器权限文案必须包含真实主机名，不把普通消息或网址正文当作审批。
+function Test-BrowserPermissionText([string]$Name) {
+    if ($Name -notmatch '^Agent needs permission to act on (\S+)$') { return $false }
+    return [Uri]::CheckHostName($Matches[1]) -ne [UriHostNameType]::Unknown
+}
+
+# 2026-10-06：同一卡片必须同时有权限文案、配置、拒绝和始终允许，批准仍只选择本次。
+function Test-BrowserPermissionCardShape($TextNames, $ButtonNames) {
+    if (@($TextNames | Where-Object { Test-BrowserPermissionText $_ }).Count -ne 1) { return $false }
+    foreach ($required in @('Configure', 'Deny', 'Always Allow')) {
+        if (@($ButtonNames | Where-Object { $_ -eq $required }).Count -ne 1) { return $false }
+    }
+    $onceCount = @($ButtonNames | Where-Object { $_ -eq 'Allow Once' }).Count
+    if ($onceCount -eq 1) { return $true }
+    return $onceCount -eq 0 -and @($ButtonNames | Where-Object { $_ -eq 'More actions' }).Count -eq 1
+}
+
+# 2026-10-06：只检查当前卡片的直属控件，不能从整段会话拼凑不相关按钮。
+function Test-LiveBrowserPermissionCard($Card) {
+    $texts = $Card.FindAll([System.Windows.Automation.TreeScope]::Children, $textCondition)
+    $buttons = $Card.FindAll([System.Windows.Automation.TreeScope]::Children, $btnCondition)
+    return Test-BrowserPermissionCardShape @($texts | ForEach-Object { $_.Current.Name }) @($buttons | ForEach-Object { $_.Current.Name })
+}
+
+# 2026-10-06：门户菜单必须靠近此次触发按钮，负坐标副屏沿用同一几何判断。
+function Test-BrowserMenuAnchor($MenuRectangle, $ButtonRectangle) {
+    if ($null -eq (Get-ButtonCenter $MenuRectangle) -or $null -eq (Get-ButtonCenter $ButtonRectangle)) { return $false }
+    $horizontal = $MenuRectangle.X -le ($ButtonRectangle.X + $ButtonRectangle.Width + 16) -and ($MenuRectangle.X + $MenuRectangle.Width) -ge ($ButtonRectangle.X - 16)
+    $below = [Math]::Abs($MenuRectangle.Y - ($ButtonRectangle.Y + $ButtonRectangle.Height))
+    $above = [Math]::Abs(($MenuRectangle.Y + $MenuRectangle.Height) - $ButtonRectangle.Y)
+    return $horizontal -and [Math]::Min($below, $above) -le 32
+}
+
+# 2026-10-06：菜单限定为目标宿主窗口内可见的菜单，隐藏或其他进程的菜单不参与差分。
+function Get-VisibleBrowserMenus($Window, [int]$WindowProcessId) {
+    foreach ($menu in $Window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $menuCondition)) {
+        if ($menu.Current.ProcessId -eq $WindowProcessId -and -not $menu.Current.IsOffscreen -and $menu.Current.IsEnabled -and $null -ne (Get-ButtonCenter $menu.Current.BoundingRectangle)) { $menu }
+    }
+}
+
+# 2026-10-06：仅输出候选控件结构和固定批准标签，不记录域名、消息或窗口标题。
+function Write-BrowserCandidateDiagnostic($CandidateButtons, [int]$WindowProcessId) {
+    if (([DateTime]::Now - $script:lastApprovalDiagnosticTime).TotalSeconds -lt 10) { return }
+    $candidates = @($CandidateButtons | Where-Object { $_.Current.Name -in @('Allow Once', 'More actions') })
+    $structures = @()
+    foreach ($allow in $candidates) {
+        try {
+            $card = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($allow)
+            $parentType = 'none'
+            $texts = @()
+            $buttons = @()
+            if ($null -ne $card) {
+                $parentType = $card.Current.ControlType.ProgrammaticName
+                $texts = @($card.FindAll([System.Windows.Automation.TreeScope]::Children, $textCondition))
+                $buttons = @($card.FindAll([System.Windows.Automation.TreeScope]::Children, $btnCondition))
+            }
+            $fixedLabels = @($buttons | ForEach-Object { $_.Current.Name } | Where-Object { $_ -in @('Configure', 'Deny', 'Always Allow', 'Allow Once', 'More actions') }) -join ','
+            $shape = Test-BrowserPermissionCardShape @($texts | ForEach-Object { $_.Current.Name }) @($buttons | ForEach-Object { $_.Current.Name })
+            # 2026-10-06：离屏控件也只读报告支持模式，为后续受控滚动提供实际证据。
+            $patternSummary = 'patterns=unavailable'
+            try {
+                $supportsInvoke = $allow.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty)
+                $supportsScrollItem = $allow.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty)
+                $supportsExpand = $allow.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsExpandCollapsePatternAvailableProperty)
+                $patternSummary = "invoke=$supportsInvoke scrollitem=$supportsScrollItem expand=$supportsExpand"
+            }
+            catch { }
+            $structures += "[$($allow.Current.Name) enabled=$($allow.Current.IsEnabled) offscreen=$($allow.Current.IsOffscreen) parent=$parentType texts=$($texts.Count) buttons=$($buttons.Count) labels=$fixedLabels shape=$shape $patternSummary]"
+        }
+        catch { $structures += '[candidate structure unavailable]' }
+    }
+    $summary = @($structures | Sort-Object -Unique) -join ' '
+    Write-ApprovalDiagnostic "browser candidates pid=$WindowProcessId buttons=$($CandidateButtons.Count) candidates=$($candidates.Count) $summary" 'browser-candidate'
+}
+
+# 2026-10-06：宽栏直接允许本次，窄栏展开已核验卡片的菜单，只允许此次新出现的本次菜单项。
+function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHandle) {
+    $conversation = $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $conversationCondition)
+    if ($null -eq $conversation) {
+        Write-ApprovalDiagnostic "browser conversation missing pid=$WindowProcessId" 'browser-candidate'
+        return $false
+    }
+    $conversationButtons = @($conversation.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition))
+    Write-BrowserCandidateDiagnostic $conversationButtons $WindowProcessId
+    foreach ($allow in $conversationButtons) {
+        $stage = 'candidate'
+        try {
+            $actionName = $allow.Current.Name
+            if ($actionName -notin @('Allow Once', 'More actions') -or -not $allow.Current.IsEnabled) { continue }
+            $card = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($allow)
+            if ($null -eq $card -or -not (Test-LiveBrowserPermissionCard $card)) { continue }
+            if ($actionName -eq 'More actions') {
+                $cardButtons = $card.FindAll([System.Windows.Automation.TreeScope]::Children, $btnCondition)
+                if (@($cardButtons | Where-Object { $_.Current.Name -eq 'Allow Once' }).Count -gt 0) { continue }
+            }
+            # 2026-10-06：只记录固定模式布尔值，区分控件不支持调用与调用后菜单没有出现。
+            $stage = 'pattern'
+            $invokeAvailable = $allow.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty)
+            $scrollItemAvailable = $allow.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty)
+            $expandAvailable = $allow.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsExpandCollapsePatternAvailableProperty)
+            Write-ApprovalDiagnostic "browser pattern action=$actionName invoke=$invokeAvailable scrollitem=$scrollItemAvailable expand=$expandAvailable" 'browser-pattern'
+            # 2026-10-06：离屏的已核验窄卡片仅通过自身滚动模式带出，滚动前后复核宿主和当前卡片。
+            if ($allow.Current.IsOffscreen) {
+                if ($actionName -ne 'More actions' -or -not $scrollItemAvailable) { continue }
+                $stage = 'scroll-pattern'
+                $scrollItem = $allow.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
+                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
+                # 2026-10-06：宿主查询可能改变卡片状态，滚动前后的界面复核统一放在查询之后。
+                if (-not (Test-LiveBrowserPermissionCard $card) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled) { continue }
+                if (-not (Test-ParentAlive)) { return $false }
+                $stage = 'scroll'
+                $scrollItem.ScrollIntoView()
+                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
+                if (-not (Test-LiveBrowserPermissionCard $card) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
+                if (-not (Test-ParentAlive)) { return $false }
+                Write-ApprovalDiagnostic 'browser scroll returned=True visible=True' 'browser-scroll'
+            }
+            # 2026-10-06：实机窄按钮没有 Invoke，优先使用展开模式避免切换菜单；宽栏本次按钮继续 Invoke。
+            $stage = 'action-pattern'
+            $method = 'invoke'
+            if ($actionName -eq 'More actions' -and $expandAvailable) {
+                $actionPattern = $allow.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
+                $method = 'expand'
+            }
+            elseif ($invokeAvailable) { $actionPattern = $allow.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) }
+            else { continue }
+            $stage = 'before-menus'
+            $beforeMenus = @{}
+            if ($actionName -eq 'More actions') {
+                foreach ($menu in @(Get-VisibleBrowserMenus $Window $WindowProcessId)) { $beforeMenus[($menu.GetRuntimeId() -join '.')] = $true }
+            }
+            $stage = 'host'
+            if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+            if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
+            # 2026-10-06：最后一次宿主查询后重读卡片和动作按钮，不沿用查询前的批准状态。
+            $stage = 'final-card'
+            if (-not (Test-LiveBrowserPermissionCard $card) -or $allow.Current.Name -ne $actionName -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
+            if (-not (Test-ParentAlive)) { return $false }
+            $stage = $method
+            if ($method -eq 'expand') { $actionPattern.Expand() }
+            else { $actionPattern.Invoke() }
+            if ($actionName -eq 'Allow Once') {
+                [Console]::WriteLine('___CLICK_INVOKE___:Allow Once (browser domain permission)')
+                return $true
+            }
+            $stage = 'menu-query'
+            $menuCount = 0
+            $newMenuCount = 0
+            $itemCount = 0
+            for ($attempt = 0; $attempt -lt 3; $attempt++) {
+                Start-Sleep -Milliseconds 100
+                if (-not (Test-ParentAlive)) { return $false }
+                $visibleMenus = @(Get-VisibleBrowserMenus $Window $WindowProcessId)
+                $menuCount = $visibleMenus.Count
+                $newMenus = @($visibleMenus | Where-Object { -not $beforeMenus.ContainsKey(($_.GetRuntimeId() -join '.')) })
+                $newMenuCount = $newMenus.Count
+                if ($newMenus.Count -ne 1) { continue }
+                $menu = $newMenus[0]
+                if (-not (Test-BrowserMenuAnchor $menu.Current.BoundingRectangle $allow.Current.BoundingRectangle)) { continue }
+                $label = $menu.Current.LabeledBy
+                if ($null -ne $label -and ($label.GetRuntimeId() -join '.') -ne ($allow.GetRuntimeId() -join '.')) { continue }
+                $items = @($menu.FindAll([System.Windows.Automation.TreeScope]::Descendants, $menuItemCondition) | Where-Object { $_.Current.Name -eq 'Allow Once' })
+                $itemCount = $items.Count
+                if ($items.Count -ne 1) { continue }
+                $item = $items[0]
+                $stage = 'item-pattern' # 2026-10-06：菜单项模式异常单独标明阶段，便于实机定位。
+                $itemInvoke = $item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
+                # 2026-10-06：宿主查询完成后复核卡片、菜单和本次菜单项，关联触发器仍保持最后复核。
+                $stage = 'item-final'
+                if (-not (Test-LiveBrowserPermissionCard $card) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
+                if ($menu.Current.ProcessId -ne $WindowProcessId -or $menu.Current.IsOffscreen -or -not $menu.Current.IsEnabled -or -not (Test-BrowserMenuAnchor $menu.Current.BoundingRectangle $allow.Current.BoundingRectangle)) { continue }
+                if ($item.Current.Name -ne 'Allow Once' -or -not $item.Current.IsEnabled -or $item.Current.IsOffscreen) { continue }
+                # 2026-10-06：菜单项取模式和宿主查询后复核关联触发器，菜单改属其他卡片时不批准。
+                $label = $menu.Current.LabeledBy
+                if ($null -ne $label -and ($label.GetRuntimeId() -join '.') -ne ($allow.GetRuntimeId() -join '.')) { continue }
+                if (-not (Test-ParentAlive)) { return $false }
+                $stage = 'item-invoke' # 2026-10-06：明确唯一新菜单本次批准的实际调用阶段。
+                $itemInvoke.Invoke()
+                [Console]::WriteLine('___CLICK_INVOKE___:Allow Once (browser domain permission)')
+                return $true
+            }
+            Write-ApprovalDiagnostic "browser menu method=$method action-returned=True before=$($beforeMenus.Count) visible=$menuCount new=$newMenuCount once-items=$itemCount" 'browser-menu'
+        }
+        catch { Write-ApprovalDiagnostic "browser error stage=$stage type=$($_.Exception.GetType().Name)" 'browser-error' }
+    }
+    return $false
 }
 
 # 2026-10-05：新版卡片只选本次允许并提交同一卡片，不修改终端或权限的持久设置。
@@ -332,7 +545,7 @@ function Invoke-SelfTest {
         @{ Name = 'Run command'; Expected = $true },
         @{ Name = 'Run Task (Ctrl+Shift+P)'; Expected = $false },
         @{ Name = 'Runnable'; Expected = $false },
-        @{ Name = 'Allow once'; Expected = $true },
+        @{ Name = 'Allow once'; Expected = $false },
         @{ Name = 'Allow this workspace'; Expected = $true },
         @{ Name = 'Accept all'; Expected = $true },
         @{ Name = 'Accept All Changes'; Expected = $true },
@@ -385,7 +598,10 @@ function Invoke-SelfTest {
         @{ Name = 'Execute npm test'; Expected = $false },
         @{ Name = 'Approve npm test'; Expected = $false },
         @{ Name = 'Run (1)'; Expected = $false },
-        @{ Name = 'Run command (Alt+Enter)'; Expected = $true }
+        @{ Name = 'Run command (Alt+Enter)'; Expected = $true },
+        # 2026-10-06：浏览器专用批准由卡片分支处理，普通按钮匹配不得放行。
+        @{ Name = 'Allow Once'; Expected = $false },
+        @{ Name = 'Always Allow'; Expected = $false }
     )
 
     $failed = 0
@@ -518,6 +734,12 @@ try {
                 if ($windowHandle -eq [IntPtr]::Zero) { continue }
 
                 # 2026-10-05：新版本次审批卡片优先处理，完成后统一进入原点击冷却。
+                # 2026-10-06：浏览器域名卡片使用同卡片本次允许，窄栏菜单不能交给普通按钮匹配。
+                if (Invoke-BrowserPermissionCards $win $windowProcessId $windowHandle) {
+                    $didClick = $true
+                    $lastClickTime = [DateTime]::Now
+                    break
+                }
                 if (Invoke-ApprovalCards $win $windowProcessId $windowHandle) {
                     $didClick = $true
                     $lastClickTime = [DateTime]::Now

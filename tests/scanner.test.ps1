@@ -1,14 +1,23 @@
 # 2026-10-05：解析实际扫描器并运行无点击回归，独立互斥名称不干扰真实 IDE。
-param([string[]]$PowerShellEngines = @('powershell.exe', 'pwsh.exe'))
+# 2026-10-06：旧源码副本可指定原自测数量，使红灯证据落在行为缺陷而非数量变化。
+param([string[]]$PowerShellEngines = @('powershell.exe', 'pwsh.exe'), [string]$ScannerSourcePath = '', [int]$ExpectedSelfTestCount = 95)
 
 $ErrorActionPreference = 'Stop'
-$scannerPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\src\autoClicker.ps1'))
+# 2026-10-06：允许只读旧源码副本复现红灯，避免回滚共享工作区中的修复。
+$scannerPath = if ([string]::IsNullOrWhiteSpace($ScannerSourcePath)) { [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\src\autoClicker.ps1')) } else { [IO.Path]::GetFullPath($ScannerSourcePath) }
 $source = [IO.File]::ReadAllText($scannerPath, [Text.Encoding]::UTF8)
 $tokens = $null
 $parseErrors = $null
 $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens, [ref]$parseErrors)
 if ($parseErrors.Count -gt 0) { throw "Scanner parse errors: $($parseErrors -join '; ')" }
 $checks = 1
+
+# 2026-10-06：实际按钮函数依赖源码匹配表，测试也加载原表，避免空变量把误批掩盖成未命中。
+foreach ($name in @('targetPrefixes', 'excludeExact', 'exactOnly')) {
+    $assignment = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Left -is [Management.Automation.Language.VariableExpressionAst] -and $node.Left.VariablePath.UserPath -eq $name }, $true)
+    if ($assignment.Count -ne 1) { throw "Missing button matching table: $name" }
+    . ([scriptblock]::Create($assignment[0].Extent.Text))
+}
 
 # 2026-10-05：通过 UTF-8 读取后创建脚本块，兼容 Windows PowerShell 5 的无 BOM 文件。
 function Start-TestProcess([string]$Executable, [string]$Command) {
@@ -46,10 +55,10 @@ foreach ($engine in $engines) {
         if (-not $process.WaitForExit(15000)) { throw 'SelfTest timeout' }
         $output = $process.StandardOutput.ReadToEnd()
         $errorOutput = $process.StandardError.ReadToEnd()
-        if ($process.ExitCode -ne 0 -or $output -notmatch '___SELFTEST_DONE___:passed=93' -or $errorOutput.Length -gt 0) {
+        if ($process.ExitCode -ne 0 -or $output -notmatch ("___SELFTEST_DONE___:passed=$ExpectedSelfTestCount\b") -or $errorOutput.Length -gt 0) {
             throw "SelfTest failed: engine=$engine exit=$($process.ExitCode) output=$output stderr=$errorOutput"
         }
-        Write-Output "PASS SelfTest 93 cases: $engine"
+        Write-Output "PASS SelfTest $ExpectedSelfTestCount cases: $engine"
         $checks++
     }
     finally {
@@ -88,15 +97,35 @@ foreach ($name in $testFunctions) {
     }
     . ([scriptblock]::Create($functionText))
 }
+# 2026-10-06：浏览器卡片函数存在时执行实际实现，旧版没有该入口时由扫描尾段复现漏批。
+foreach ($name in @('Test-BrowserPermissionText', 'Test-BrowserPermissionCardShape', 'Test-LiveBrowserPermissionCard', 'Test-BrowserMenuAnchor', 'Get-VisibleBrowserMenus', 'Write-BrowserCandidateDiagnostic', 'Invoke-BrowserPermissionCards')) {
+    $definition = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+    if ($definition.Count -eq 0) { continue }
+    $functionText = $definition[0].Extent.Text.Replace('[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($allow)', '(Get-TestParent $allow)')
+    . ([scriptblock]::Create($functionText))
+}
 function Get-TestParent($Node) { return $Node.Parent }
 $script:lastApprovalDiagnosticTime = [DateTime]::MinValue
+$script:approvalDiagnosticTimes = @{}
 $script:testParentAlive = $true
 $script:exitParentDuringLookup = $false
 function Test-ParentAlive { return $script:testParentAlive }
 $script:optionToDeselect = $null
+# 2026-10-06：宿主归属查询期间只在测试内改变卡片状态，复现最后查询与动作之间的竞态。
+$script:browserHostLookupWindow = $null
+$script:browserHostLookupCount = 0
 function Get-TargetProcessIds {
     if ($null -ne $script:optionToDeselect) { $script:optionToDeselect.Selection.Current.IsSelected = $false }
     if ($script:exitParentDuringLookup) { $script:testParentAlive = $false }
+    if ($null -ne $script:browserHostLookupWindow) {
+        $script:browserHostLookupCount++
+        $mutation = $script:browserHostLookupWindow
+        if ($script:browserHostLookupCount -eq $mutation.Lookup) {
+            if ($mutation.State -eq 'card') { $mutation.Window.Card.Texts[0].Current.Name = 'Ordinary card' }
+            elseif ($mutation.State -eq 'once-offscreen') { $mutation.Window.Once.Current.IsOffscreen = $true }
+            elseif ($mutation.State -eq 'menu-offscreen') { $mutation.Window.Menu.Current.IsOffscreen = $true }
+        }
+    }
     return @{ 123 = $true }
 }
 $conversationCondition = 'conversation'
@@ -198,6 +227,7 @@ $legacyButton = [pscustomobject]@{
 $legacyButton | Add-Member ScriptMethod Invoke { $this.Invocations++ }
 $legacyButton | Add-Member ScriptMethod GetCurrentPattern { param($pattern) return $this }
 $legacyWindow = [pscustomobject]@{ Current = [pscustomobject]@{ ProcessId = 123; NativeWindowHandle = 42 }; Buttons = @($legacyButton) }
+$legacyWindow | Add-Member ScriptMethod FindFirst { param($scope, $condition) return $null }
 $legacyWindow | Add-Member ScriptMethod FindAll {
     param($scope, $condition)
     $script:testParentAlive = $false
@@ -213,6 +243,197 @@ $ParentProcessId = 0
 if ($legacyButton.Invocations -ne 0) { throw 'Legacy button invoked after parent exit during scan' }
 $checks++
 Write-Output 'PASS parent exit during button search: legacy Invoke skipped'
+
+# 2026-10-06：实际扫描尾段复现窄浏览器卡片，菜单和所有点击仅为内存桩。
+$textCondition = 'text'
+$menuCondition = 'menu'
+$menuItemCondition = 'menuitem'
+function New-TestBrowserWindow([string]$Mode) {
+    $once = [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Allow Once'; IsEnabled = $true; IsOffscreen = $false; ProcessId = 123 }; Invocations = 0; Menu = $null; Relabel = $false; OtherTrigger = $null }
+    $once | Add-Member ScriptMethod Invoke { $this.Invocations++ }
+    $once | Add-Member ScriptMethod GetCurrentPattern { param($pattern) if ($this.Relabel) { $this.Menu.Current.LabeledBy = $this.OtherTrigger }; return $this }
+    $once | Add-Member ScriptMethod GetCurrentPropertyValue { param($property) return $true }
+    $menu = [pscustomobject]@{ Current = [pscustomobject]@{ ProcessId = 123; IsEnabled = $true; IsOffscreen = $false; BoundingRectangle = @{ X = 100; Y = 234; Width = 160; Height = 40 } }; Once = $once; Key = 1001 }
+    $menu | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
+    $menu | Add-Member ScriptMethod FindAll { param($scope, $condition) if ($condition -eq 'menuitem') { return @($this.Once) }; return @() }
+    $always = [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Always Allow'; IsEnabled = $true; IsOffscreen = $false; BoundingRectangle = @{ X = 100; Y = 200; Width = 130; Height = 30 } }; Invocations = 0 }
+    $always | Add-Member ScriptMethod Invoke { $this.Invocations++ }
+    $always | Add-Member ScriptMethod GetCurrentPattern { param($pattern) return $this }
+    # 2026-10-06：按实机不支持 Invoke、支持滚动与展开的窄按钮模拟模式，动作只累计内存计数。
+    $more = [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'More actions'; IsEnabled = $true; IsOffscreen = ($Mode -like 'scroll-*'); BoundingRectangle = @{ X = 240; Y = 200; Width = 20; Height = 30 }; ExpandCollapseState = [System.Windows.Automation.ExpandCollapseState]::Collapsed }; Window = $null; Parent = $null; Scrolls = 0; Expansions = 0; Invocations = 0 }
+    $more | Add-Member ScriptMethod Invoke { $this.Window.Opened = $true }
+    $more | Add-Member ScriptMethod ScrollIntoView {
+        $this.Scrolls++
+        if ($this.Window.Mode -ne 'scroll-still-offscreen') { $this.Current.IsOffscreen = $false }
+        if ($this.Window.Mode -eq 'scroll-card-changed') { $this.Parent.Texts[0].Current.Name = 'Ordinary card' }
+        if ($this.Window.Mode -eq 'scroll-parent-exit') { $script:testParentAlive = $false }
+        if ($this.Window.Mode -eq 'scroll-host-changed') { $this.Window.Current.ProcessId = 999 }
+    }
+    $more | Add-Member ScriptMethod Expand { $this.Expansions++; $this.Current.ExpandCollapseState = [System.Windows.Automation.ExpandCollapseState]::Expanded; $this.Window.Opened = $true }
+    $more | Add-Member ScriptMethod GetCurrentPattern {
+        param($pattern)
+        if ($this.Window.Mode -in @('parent-exit', 'scroll-pattern-parent-exit')) { $script:testParentAlive = $false }
+        if (($this.Window.Mode -like 'scroll-*' -or $this.Window.Mode -eq 'expand-only') -and $pattern.Id -eq [System.Windows.Automation.InvokePattern]::Pattern.Id) { throw 'Invoke not supported by real narrow trigger' }
+        return $this
+    }
+    $more | Add-Member ScriptMethod GetCurrentPropertyValue {
+        param($property)
+        if ($property.Id -eq [System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty.Id -and ($this.Window.Mode -like 'scroll-*' -or $this.Window.Mode -eq 'expand-only')) { return $false }
+        return $true
+    }
+    $more | Add-Member ScriptMethod GetRuntimeId { return @(2001) }
+    if ($Mode -in @('labeled-menu', 'relabel-menu')) { $menu.Current | Add-Member NoteProperty LabeledBy $more }
+    if ($Mode -in @('mislabeled-menu', 'relabel-menu')) {
+        $otherTrigger = [pscustomobject]@{}
+        $otherTrigger | Add-Member ScriptMethod GetRuntimeId { return @(2002) }
+        if ($Mode -eq 'mislabeled-menu') { $menu.Current | Add-Member NoteProperty LabeledBy $otherTrigger }
+        else { $once.Menu = $menu; $once.Relabel = $true; $once.OtherTrigger = $otherTrigger }
+    }
+    $permissionText = if ($Mode -in @('unrelated', 'wide-unrelated')) { 'Ordinary card on github.com' } else { 'Agent needs permission to act on github.com' }
+    $buttons = @(
+        [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Configure'; IsEnabled = $true; IsOffscreen = $false; BoundingRectangle = @{ X = 0; Y = 200; Width = 40; Height = 30 } } },
+        [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Deny'; IsEnabled = $true; IsOffscreen = $false; BoundingRectangle = @{ X = 50; Y = 200; Width = 40; Height = 30 } } }, $always, $more)
+    if ($Mode -like 'wide*') { $once.Current | Add-Member NoteProperty BoundingRectangle @{ X = 100; Y = 200; Width = 80; Height = 30 }; $buttons += $once }
+    $card = [pscustomobject]@{ Current = [pscustomobject]@{ ControlType = [System.Windows.Automation.ControlType]::Group }; Texts = @([pscustomobject]@{ Current = [pscustomobject]@{ Name = $permissionText } }); Buttons = $buttons }
+    $card | Add-Member ScriptMethod FindAll { param($scope, $condition) if ($condition -eq 'text') { return $this.Texts }; if ($condition -eq 'button') { return $this.Buttons }; return @() }
+    $once | Add-Member NoteProperty Parent $card
+    $more.Parent = $card
+    $conversation = [pscustomobject]@{ Card = $card }
+    $conversation | Add-Member ScriptMethod FindAll { param($scope, $condition) if ($condition -eq 'button') { return $this.Card.Buttons }; return @() }
+    $secondMenu = [pscustomobject]@{ Current = $menu.Current }
+    $secondMenu | Add-Member ScriptMethod GetRuntimeId { return @(1002) }
+    $window = [pscustomobject]@{ Current = [pscustomobject]@{ ProcessId = 123; NativeWindowHandle = 42 }; Conversation = $conversation; Card = $card; Menu = $menu; SecondMenu = $secondMenu; Always = $always; Once = $once; More = $more; Opened = $false; Mode = $Mode }
+    $more.Window = $window
+    $window | Add-Member ScriptMethod FindFirst { param($scope, $condition) if ($this.Mode -notin @('outside-conversation', 'wide-outside-conversation')) { return $this.Conversation }; return $null }
+    $window | Add-Member ScriptMethod FindAll {
+        param($scope, $condition)
+        if ($condition -eq 'button') { return $this.Card.Buttons }
+        if ($condition -eq 'menu' -and ($this.Opened -or $this.Mode -eq 'preexisting-menu')) {
+            if ($this.Mode -eq 'ambiguous-menu') { return @($this.Menu, $this.SecondMenu) }
+            return @($this.Menu)
+        }
+        return @()
+    }
+    return $window
+}
+
+# 2026-10-06：诊断仅观察结构，验证总数、离屏状态和日志中没有域名或用户消息。
+if (Get-Command Write-BrowserCandidateDiagnostic -ErrorAction SilentlyContinue) {
+    $diagnosticWindow = New-TestBrowserWindow 'wide'
+    $diagnosticWindow.More.Current.IsOffscreen = $true
+    $script:lastApprovalDiagnosticTime = [DateTime]::MinValue
+    $originalConsoleWriter = [Console]::Out
+    $diagnosticWriter = New-Object IO.StringWriter
+    try {
+        [Console]::SetOut($diagnosticWriter)
+        Write-BrowserCandidateDiagnostic $diagnosticWindow.Card.Buttons 123
+    }
+    finally { [Console]::SetOut($originalConsoleWriter) }
+    $diagnosticOutput = $diagnosticWriter.ToString()
+    $diagnosticWriter.Dispose()
+    if ($diagnosticOutput -notmatch 'pid=123 buttons=5 candidates=2' -or $diagnosticOutput -notmatch 'offscreen=True parent=ControlType.Group texts=1 buttons=5' -or $diagnosticOutput -match 'github\.com|Agent needs permission') { throw 'Browser structural diagnostic leaked content or reported wrong structure' }
+    if ($diagnosticWindow.Once.Invocations -ne 0 -or $diagnosticWindow.Always.Invocations -ne 0) { throw 'Browser structural diagnostic invoked an action' }
+    $checks++
+    Write-Output 'PASS browser diagnostic counts, offscreen state, content privacy, and no actions'
+}
+
+# 2026-10-06：候选诊断和错误结果各自节流，结构日志之后的关键结果仍必须能够输出。
+$script:lastApprovalDiagnosticTime = [DateTime]::MinValue
+$script:approvalDiagnosticTimes = @{}
+$originalConsoleWriter = [Console]::Out
+$throttleWriter = New-Object IO.StringWriter
+try {
+    [Console]::SetOut($throttleWriter)
+    Write-ApprovalDiagnostic 'candidate structure' 'browser-candidate'
+    Write-ApprovalDiagnostic 'pattern support' 'browser-pattern'
+    Write-ApprovalDiagnostic 'menu result' 'browser-menu'
+    Write-ApprovalDiagnostic 'candidate repeated' 'browser-candidate'
+    Write-ApprovalDiagnostic 'pattern repeated' 'browser-pattern'
+}
+finally { [Console]::SetOut($originalConsoleWriter) }
+$throttleOutput = $throttleWriter.ToString()
+$throttleWriter.Dispose()
+if ($throttleOutput -notmatch 'candidate structure' -or $throttleOutput -notmatch 'pattern support' -or $throttleOutput -notmatch 'menu result' -or $throttleOutput -match 'repeated') { throw 'Diagnostic categories starved each other or did not throttle duplicates' }
+$checks++
+Write-Output 'PASS diagnostic categories preserve action evidence and throttle repeats'
+
+foreach ($case in @(
+    @{ Mode = 'narrow'; Expected = 1 }, @{ Mode = 'wide'; Expected = 1 },
+    @{ Mode = 'scroll-expand'; Expected = 1; Scrolls = 1; Expansions = 1 },
+    @{ Mode = 'expand-only'; Expected = 1; Scrolls = 0; Expansions = 1 },
+    @{ Mode = 'scroll-still-offscreen'; Expected = 0; Scrolls = 1; Expansions = 0 },
+    @{ Mode = 'scroll-card-changed'; Expected = 0; Scrolls = 1; Expansions = 0 },
+    @{ Mode = 'scroll-parent-exit'; Expected = 0; Scrolls = 1; Expansions = 0 },
+    @{ Mode = 'scroll-host-changed'; Expected = 0; Scrolls = 1; Expansions = 0 },
+    @{ Mode = 'scroll-pattern-parent-exit'; Expected = 0; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'unrelated'; Expected = 0 }, @{ Mode = 'outside-conversation'; Expected = 0 },
+    @{ Mode = 'preexisting-menu'; Expected = 0 }, @{ Mode = 'ambiguous-menu'; Expected = 0 },
+    @{ Mode = 'parent-exit'; Expected = 0 },
+    @{ Mode = 'labeled-menu'; Expected = 1 }, @{ Mode = 'mislabeled-menu'; Expected = 0 },
+    @{ Mode = 'wide-unrelated'; Expected = 0 }, @{ Mode = 'wide-outside-conversation'; Expected = 0 },
+    @{ Mode = 'relabel-menu'; Expected = 0 }
+)) {
+    $script:testParentAlive = $true
+    $browserWindow = New-TestBrowserWindow $case.Mode
+    $automation = [pscustomobject]@{ Window = $browserWindow; Scans = 0 }
+    $automation | Add-Member ScriptMethod FindAll {
+        param($scope, $condition)
+        $this.Scans++
+        if ($this.Scans -gt 1) { $script:testParentAlive = $false; return @() }
+        return @($this.Window)
+    }
+    . ([scriptblock]::Create($lifecycleSource))
+    if ($browserWindow.Once.Invocations -ne $case.Expected -or $browserWindow.Always.Invocations -ne 0) {
+        throw "Browser permission regression: mode=$($case.Mode) expected=$($case.Expected) once=$($browserWindow.Once.Invocations) permanent=$($browserWindow.Always.Invocations)"
+    }
+    # 2026-10-06：无点击桩同时验证失效卡片只滚动而不展开，宿主退出前不能开始滚动。
+    if ($case.ContainsKey('Scrolls') -and ($browserWindow.More.Scrolls -ne $case.Scrolls -or $browserWindow.More.Expansions -ne $case.Expansions)) { throw "Browser pattern regression: mode=$($case.Mode) scrolls=$($browserWindow.More.Scrolls) expands=$($browserWindow.More.Expansions)" }
+    $checks++
+    Write-Output "PASS browser permission actual scanner: $($case.Mode)"
+}
+
+# 2026-10-06：调用实际浏览器函数，在宿主查询后变更卡片和可见性，所有案例应保持零批准。
+$hostMutationFailures = @()
+foreach ($case in @(
+    @{ Mode = 'wide'; State = 'card'; Lookup = 1; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'labeled-menu'; State = 'card'; Lookup = 2; Scrolls = 0; Expansions = 1 },
+    @{ Mode = 'labeled-menu'; State = 'once-offscreen'; Lookup = 2; Scrolls = 0; Expansions = 1 },
+    @{ Mode = 'labeled-menu'; State = 'menu-offscreen'; Lookup = 2; Scrolls = 0; Expansions = 1 },
+    @{ Mode = 'scroll-expand'; State = 'card'; Lookup = 1; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'scroll-expand'; State = 'card'; Lookup = 2; Scrolls = 1; Expansions = 0 }
+)) {
+    $script:testParentAlive = $true
+    $browserWindow = New-TestBrowserWindow $case.Mode
+    $script:browserHostLookupCount = 0
+    $script:browserHostLookupWindow = @{ Window = $browserWindow; Lookup = $case.Lookup; State = $case.State }
+    try { $actual = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42) }
+    finally { $script:browserHostLookupWindow = $null }
+    $description = "$($case.Mode) $($case.State) lookup=$($case.Lookup) result=$actual once=$($browserWindow.Once.Invocations) permanent=$($browserWindow.Always.Invocations) scrolls=$($browserWindow.More.Scrolls) expands=$($browserWindow.More.Expansions)"
+    if ($actual -or $browserWindow.Once.Invocations -ne 0 -or $browserWindow.Always.Invocations -ne 0 -or $browserWindow.More.Scrolls -ne $case.Scrolls -or $browserWindow.More.Expansions -ne $case.Expansions) {
+        $hostMutationFailures += $description
+        Write-Output "FAIL browser host lookup state: $description"
+    }
+    else { $checks++; Write-Output "PASS browser host lookup state: $description" }
+}
+if ($hostMutationFailures.Count -gt 0) { throw "Browser host lookup state regressions: $($hostMutationFailures -join '; ')" }
+
+# 2026-10-06：调用真实卡片规则验证文案和同卡片按钮，不用复制的匹配逻辑作断言。
+foreach ($case in @(
+    @{ Text = 'Agent needs permission to act on github.com'; Buttons = @('Configure', 'Deny', 'Always Allow', 'More actions'); Expected = $true },
+    @{ Text = 'Agent needs permission to act on github.com'; Buttons = @('Configure', 'Deny', 'Always Allow', 'Allow Once'); Expected = $true },
+    @{ Text = 'Ordinary message on github.com'; Buttons = @('Configure', 'Deny', 'Always Allow', 'More actions'); Expected = $false },
+    @{ Text = 'Agent needs permission to act on github.com'; Buttons = @('Deny', 'Always Allow', 'More actions'); Expected = $false },
+    @{ Text = 'Agent needs permission to act on github.com'; Buttons = @('Configure', 'Always Allow', 'More actions'); Expected = $false },
+    @{ Text = 'Agent needs permission to act on https://github.com'; Buttons = @('Configure', 'Deny', 'Always Allow', 'More actions'); Expected = $false },
+    @{ Text = 'Agent needs permission to act on github.com/other'; Buttons = @('Configure', 'Deny', 'Always Allow', 'More actions'); Expected = $false },
+    @{ Text = 'Agent needs permission to act on github.com'; Buttons = @('Configure', 'Deny', 'Always Allow'); Expected = $false }
+)) {
+    if ((Test-BrowserPermissionCardShape @($case.Text) $case.Buttons) -ne $case.Expected) { throw 'Browser card shape mismatch' }
+    $checks++
+}
+if (Test-ButtonMatch 'Always Allow') { throw 'Global Always Allow matcher must remain disabled' }
+$checks++
+Write-Output 'PASS browser permission shape and global Always Allow exclusion'
 
 $stub = $parentFunction[0].Extent.Text + "`nfunction Get-TargetProcessIds { return @{} }`n"
 $engine = $engines[0]
