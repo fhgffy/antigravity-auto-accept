@@ -7,6 +7,20 @@ tsconfig.json
 **/*.ts
 !src/autoClicker.ps1
 
+# 2026-10-05：开发测试、维护记录与协作文件不进入安装包。
+tests/**
+docs/**
+.github/**
+CODEX.md
+CLAUDE.md
+CONTRIBUTING.md
+.agent/**
+
+# 废弃 CDP 实验产物不进入 VSIX（本地 out 目录可能残留） 2026-07-28 //***
+out/buttonDetector.js
+out/cdpClient.js
+out/shortcutPatcher.js
+
 # Remotion 宣传视频项目（不打包进 VSIX） 2026-03-21 //***
 promo-video/**
 
