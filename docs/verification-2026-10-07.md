@@ -69,3 +69,7 @@ GitHub CI 将 Windows PowerShell 5.1 与 PowerShell 7 分成独立 job，要求�
 首次 GitHub run 37515131660 在启动前报告六处 step.shell 中 matrix 上下文不可用，未生成测试 job。按官方 Contexts reference 将 shell 表达式移到 jobs.test.defaults.run，保持 PS5/PS7 各自引擎不变。官方 actionlint 1.7.12 改前退出 1 并复现六处错误，改后退出 0；这层校验与 YAML/PowerShell AST 解析分别记录。最终远端成功以修复后 PR 检查为准。
 
 实机清理阶段关闭本次创建、已完成 B533 的空白窗口（当时是扫描器拥有者），原用户窗口于 03:01:12 再次自动接管并显示 ON；随后关闭本次未授信目录窗口，全程保持 Restricted Mode、未操作信任选项。窗口枚举确认只剩原用户 IDE 窗口，未关闭用户原有 Chrome 或 Codex。
+
+矩阵 shell 修复提交 28c95686caf156d651365d6f6521b01676188dcd 的 push run 37515927205 和 PR run 37515933390 均已实际成功，两个引擎及 VSIX job 全绿。远端日志为 Windows PowerShell 5.1.26100.33438、PowerShell 7.6.6、Node 22.23.3；每引擎自测 95、扫描 110、两轮单引擎接管 22，VSIX 八文件字节校验和上传通过。
+
+该轮日志提示旧 Actions 的 Node 20 运行时已弃用且被强制 Node 24。核对官方 release 和 action.yml 后，checkout 固定到 v7.0.1、setup-node 固定到 v7.0.0、upload-artifact 固定到 v7.0.1，三者官方运行时均为 Node 24；项目测试 node-version 22 及缓存、上传参数保留。Actions 表达式校验和独立补丁审查通过，最终提交的远端结果见 [PR #9](https://github.com/fhgffy/antigravity-auto-accept/pull/9) 的检查与正文。

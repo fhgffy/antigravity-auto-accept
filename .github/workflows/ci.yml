@@ -35,8 +35,9 @@ jobs:
             executable: pwsh.exe
             major: 7
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # 2026-10-07：采用官方 Node 24 运行时 Actions，测试项目仍使用 Node 22。
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: '22'
           cache: npm
@@ -79,8 +80,9 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # 2026-10-07：采用官方 Node 24 运行时 Actions，测试项目仍使用 Node 22。
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: '22'
           cache: npm
@@ -98,7 +100,7 @@ jobs:
           [IO.File]::WriteAllText((Join-Path $PWD "$vsix.sha256"), "$hash  $vsix`n", [Text.UTF8Encoding]::new($false))
           "path=$vsix" >> $env:GITHUB_OUTPUT
       - name: Upload verified installable package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: antigravity-auto-accept-${{ github.sha }}
           path: |

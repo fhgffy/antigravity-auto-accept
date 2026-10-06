@@ -217,3 +217,8 @@
 - **已跑复现：** 本地 YAML 和 PowerShell AST 都通过，但 GitHub run 37515131660 在启动 job 之前失败；六个 step.shell 中的 matrix.shell 被远端判为 Unrecognized named-value，未生成任何测试结果。
 - **下次做法：** 按 GitHub Contexts reference 的具体键位置检查可用上下文；job.defaults.run 支持 matrix，不能把 workflow 根 defaults.run 或步骤 shell 当作同一规则。工作流变更使用 Actions 表达式校验器，并以新提交在远端实际创建和完成所有 job 作为最终证据。
 - **检查：** 没有 runner/job 的配置失败与测试失败分开记录；本地解析成功或旧提交 CI 成功都不能替代这次精确 SHA 的远端结果。
+
+## 2026-10-07 Asia/Shanghai - Actions 运行时与项目 Node 分开维护
+
+- **已跑观察：** checkout/setup-node/upload-artifact v4 的远端 job 成功，但提示 Node 20 Action 运行时已弃用并强制 Node 24；项目实际测试的 Node 仍为 22。
+- **下次做法：** 升级前通过官方 release 和 action.yml 核对稳定版本、runs.using 及输入兼容，独立审查并以新 SHA 重跑整个流程；不能只改 node-version 来消除 Action 自身运行时警告。
