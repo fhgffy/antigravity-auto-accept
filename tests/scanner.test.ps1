@@ -94,6 +94,9 @@ foreach ($name in $testFunctions) {
     if ($name -eq 'Invoke-ApprovalCards') {
         $functionText = $functionText.Replace('[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)', '(Get-TestParent $option)')
         $functionText = $functionText.Replace('[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($card)', '(Get-TestParent $card)')
+        # 2026-10-06：新增归属复核也使用同一可控父链，不在回归中访问真实桌面控件。
+        $functionText = $functionText.Replace('[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)', '(Get-TestParent $optionGroup)')
+        $functionText = $functionText.Replace('[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($submit)', '(Get-TestParent $submit)')
     }
     . ([scriptblock]::Create($functionText))
 }
@@ -134,38 +137,89 @@ $radioCondition = 'radio'
 $btnCondition = 'button'
 
 # 2026-10-05：构造真实审批树的最小桩，选项和提交的动作仅改变测试对象。
-function New-TestApprovalWindow([bool]$HasPermissionTarget, [bool]$InitiallySelected, [bool]$SelectionReadable) {
-    $selection = [pscustomobject]@{ Current = [pscustomobject]@{ IsSelected = $InitiallySelected } }
-    $selection | Add-Member ScriptMethod Select { $this.Current.IsSelected = $true }
+function New-TestApprovalWindow([bool]$HasPermissionTarget, [bool]$InitiallySelected, [bool]$SelectionReadable, [string]$Mode = '') {
+    # 2026-10-06：会话兄弟区域和长权限表单均使用真实两层父链，滚动只改变内存控件状态。
+    $selection = [pscustomobject]@{ Current = [pscustomobject]@{ IsSelected = $InitiallySelected }; Selects = 0 }
+    $selection | Add-Member ScriptMethod Select { $this.Selects++; $this.Current.IsSelected = $true }
     $option = [pscustomobject]@{
-        Current = [pscustomobject]@{ Name = '1 Yes, allow this time'; AutomationId = 'ask-opt-P0-31-1'; IsEnabled = $true; IsOffscreen = $false }
+        Current = [pscustomobject]@{ Name = '1 Yes, allow this time'; AutomationId = 'ask-opt-P0-31-1'; IsEnabled = $true; IsOffscreen = ($Mode -like 'option-*') }
         Selection = $selection
         SelectionReadable = $SelectionReadable
         Parent = $null
+        Window = $null
+        Scrolls = 0
     }
     $option | Add-Member ScriptMethod GetCurrentPattern {
         param($pattern)
+        if ($pattern.Id -eq [System.Windows.Automation.ScrollItemPattern]::Pattern.Id -and $this.Window.Mode -ne 'option-scroll-unsupported') { return $this }
         if ($pattern.Id -eq [System.Windows.Automation.SelectionItemPattern]::Pattern.Id -and $this.SelectionReadable) { return $this.Selection }
         throw 'Pattern unavailable in test'
     }
-    $submit = [pscustomobject]@{ Current = [pscustomobject]@{ Name = ('Submit ' + [char]0x21B5); IsEnabled = $true; IsOffscreen = $false }; Invocations = 0 }
+    $option | Add-Member ScriptMethod GetCurrentPropertyValue { param($property) if ($property.Id -eq [System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty.Id -and $this.Window.Mode -eq 'option-scroll-unsupported') { return $false }; return $true } # 2026-10-06：固定模式只读诊断不访问真实桌面。
+    $option | Add-Member ScriptMethod ScrollIntoView {
+        $this.Scrolls++
+        if ($this.Window.Mode -eq 'option-scroll-throws') { throw 'ScrollIntoView failed in test' } # 2026-10-06：滚动本身失败也不得继续选择或提交。
+        if ($this.Window.Mode -ne 'option-scroll-still-offscreen') { $this.Current.IsOffscreen = $false }
+        if ($this.Window.Mode -eq 'option-scroll-parent-exit') { $script:testParentAlive = $false }
+        if ($this.Window.Mode -eq 'option-scroll-host-changed') { $this.Window.Current.ProcessId = 999 }
+        if ($this.Window.Mode -eq 'option-scroll-target-changed') { $this.Window.Card.Edits[0].Current.Value = 'Write-Output CHANGED_TARGET' }
+        if ($this.Window.Mode -eq 'option-scroll-target-replaced') { $this.Window.Card.Edits[0].Key = 9825 } # 2026-10-06：同值目标被替换也不能沿用旧控件批准。
+        if ($this.Window.Mode -eq 'option-scroll-form-changed') {
+            $otherCard = [pscustomobject]@{ Key = 999 }
+            $otherCard | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
+            $this.Parent = [pscustomobject]@{ Parent = $otherCard }
+        }
+    }
+    $submit = [pscustomobject]@{ Current = [pscustomobject]@{ Name = ('Submit ' + [char]0x21B5); IsEnabled = $true; IsOffscreen = ($Mode -like 'submit-*') }; Invocations = 0; Scrolls = 0; Window = $null; Parent = $null }
     $submit | Add-Member ScriptMethod Invoke { $this.Invocations++ }
-    $submit | Add-Member ScriptMethod GetCurrentPattern { param($pattern) return $this }
+    $submit | Add-Member ScriptMethod GetCurrentPattern { param($pattern) if ($pattern.Id -eq [System.Windows.Automation.ScrollItemPattern]::Pattern.Id -and $this.Window.Mode -eq 'submit-scroll-unsupported') { throw 'ScrollItem unavailable in test' }; return $this }
+    $submit | Add-Member ScriptMethod GetCurrentPropertyValue { param($property) if ($property.Id -eq [System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty.Id -and $this.Window.Mode -eq 'submit-scroll-unsupported') { return $false }; return $true } # 2026-10-06：提交按钮诊断仅返回桩内支持布尔值。
+    $submit | Add-Member ScriptMethod ScrollIntoView {
+        $this.Scrolls++
+        if ($this.Window.Mode -eq 'submit-scroll-throws') { throw 'ScrollIntoView failed in test' } # 2026-10-06：提交按钮滚动失败只计数，不产生真实点击。
+        if ($this.Window.Mode -ne 'submit-scroll-still-offscreen') { $this.Current.IsOffscreen = $false }
+        if ($this.Window.Mode -eq 'submit-scroll-parent-exit') { $script:testParentAlive = $false }
+        if ($this.Window.Mode -eq 'submit-scroll-host-changed') { $this.Window.Current.ProcessId = 999 }
+        if ($this.Window.Mode -eq 'submit-scroll-target-changed') { $this.Window.Card.Edits[0].Current.Value = 'Write-Output CHANGED_TARGET' }
+        if ($this.Window.Mode -eq 'submit-scroll-target-replaced') { $this.Window.Card.Edits[0].Key = 9825 } # 2026-10-06：提交滚动期间更换目标控件时必须停止。
+        if ($this.Window.Mode -eq 'submit-scroll-lost-selection') { $this.Window.Card.Radios[0].Selection.Current.IsSelected = $false }
+        if ($this.Window.Mode -eq 'submit-scroll-hides-option') { $this.Window.Card.Radios[0].Current.IsOffscreen = $true }
+        if ($this.Window.Mode -eq 'submit-scroll-renamed') { $this.Current.Name = 'Save' }
+        if ($this.Window.Mode -eq 'submit-scroll-form-changed') {
+            $this.Parent = [pscustomobject]@{ Key = 999 }
+            $this.Parent | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
+        }
+    }
     $editName = if ($HasPermissionTarget) { 'Edit permission target' } else { 'Other question' }
+    # 2026-10-06：目标值与控件身份按真实 ValuePattern 提供，改变命令正文而保留标签才能验证目标竞态。
+    $target = [pscustomobject]@{ Current = [pscustomobject]@{ Name = $editName; Value = 'Write-Output AA_TEST' }; Key = 9824 }
+    $target | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
+    $target | Add-Member ScriptMethod GetCurrentPattern { param($pattern) if ($pattern.Id -eq [System.Windows.Automation.ValuePattern]::Pattern.Id) { return $this }; throw 'Target pattern unavailable' }
+    $target | Add-Member ScriptMethod GetCurrentPropertyValue { param($property) return $true } # 2026-10-06：目标模式支持诊断不输出命令值。
     $card = [pscustomobject]@{
-        Edits = @([pscustomobject]@{ Current = [pscustomobject]@{ Name = $editName } })
+        Key = 824
+        Edits = @($target)
         Radios = @($option,
             [pscustomobject]@{ Current = [pscustomobject]@{ Name = '2 Yes, and always allow command'; AutomationId = 'ask-opt-P0-31-2' } },
             [pscustomobject]@{ Current = [pscustomobject]@{ Name = '4 No (tell the agent what to do instead)'; AutomationId = 'ask-opt-P0-31-__write_in__' } })
         Buttons = @($submit)
     }
+    $card | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
     $card | Add-Member ScriptMethod FindAll {
         param($scope, $condition)
         switch ($condition) { 'edit' { return $this.Edits }; 'radio' { return $this.Radios }; 'button' { return $this.Buttons } }
     }
     $option.Parent = [pscustomobject]@{ Parent = $card }
-    $window = [pscustomobject]@{ Current = [pscustomobject]@{ ProcessId = 123; NativeWindowHandle = 42 }; Card = $card }
-    $window | Add-Member ScriptMethod FindFirst { param($scope, $condition) return $this.Card }
+    $submit.Parent = $card
+    if ($Mode -eq 'external-mixed-prefix') { $card.Radios[1].Current.AutomationId = 'ask-opt-P0-999-2' }
+    if ($Mode -eq 'external-duplicate-submit') { $card.Buttons += [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Submit' } } }
+    $emptyConversation = [pscustomobject]@{}
+    $emptyConversation | Add-Member ScriptMethod FindAll { param($scope, $condition) return @() }
+    $window = [pscustomobject]@{ Current = [pscustomobject]@{ ProcessId = 123; NativeWindowHandle = 42 }; Card = $card; Mode = $Mode; EmptyConversation = $emptyConversation }
+    $option.Window = $window
+    $submit.Window = $window
+    $window | Add-Member ScriptMethod FindFirst { param($scope, $condition) if ($this.Mode -ne '') { return $this.EmptyConversation }; return $this.Card }
+    $window | Add-Member ScriptMethod FindAll { param($scope, $condition) if ($condition -eq 'radio') { return $this.Card.Radios }; return @() }
     return $window
 }
 foreach ($case in @(
@@ -182,6 +236,49 @@ foreach ($case in @(
     $checks++
 }
 Write-Output 'PASS permission-card scope, one-time selection, and unreadable selection skip'
+
+# 2026-10-06：真实窗口候选中包含会话外专用表单，普通问答及滚动后失效仍必须保持零提交。
+$externalFailures = @()
+foreach ($case in @(
+    @{ Mode = 'external-selected'; Target = $true; Selected = $true; Expected = 1 },
+    @{ Mode = 'external-select-once'; Target = $true; Selected = $false; Expected = 1 },
+    @{ Mode = 'external-question'; Target = $false; Selected = $true; Expected = 0 },
+    @{ Mode = 'external-mixed-prefix'; Target = $true; Selected = $true; Expected = 0 },
+    @{ Mode = 'external-duplicate-submit'; Target = $true; Selected = $true; Expected = 0 },
+    @{ Mode = 'option-scroll'; Target = $true; Selected = $false; Expected = 1 },
+    @{ Mode = 'option-scroll-unsupported'; Target = $true; Selected = $false; Expected = 0 },
+    @{ Mode = 'option-scroll-throws'; Target = $true; Selected = $false; Expected = 0 },
+    @{ Mode = 'option-scroll-still-offscreen'; Target = $true; Selected = $false; Expected = 0 },
+    @{ Mode = 'option-scroll-parent-exit'; Target = $true; Selected = $false; Expected = 0 },
+    @{ Mode = 'option-scroll-host-changed'; Target = $true; Selected = $false; Expected = 0 },
+    @{ Mode = 'option-scroll-target-changed'; Target = $true; Selected = $false; Expected = 0 },
+    @{ Mode = 'option-scroll-target-replaced'; Target = $true; Selected = $false; Expected = 0 },
+    @{ Mode = 'option-scroll-form-changed'; Target = $true; Selected = $false; Expected = 0 },
+    @{ Mode = 'submit-scroll'; Target = $true; Selected = $true; Expected = 1 },
+    @{ Mode = 'submit-scroll-hides-option'; Target = $true; Selected = $true; Expected = 1 },
+    @{ Mode = 'submit-scroll-unsupported'; Target = $true; Selected = $true; Expected = 0 },
+    @{ Mode = 'submit-scroll-throws'; Target = $true; Selected = $true; Expected = 0 },
+    @{ Mode = 'submit-scroll-still-offscreen'; Target = $true; Selected = $true; Expected = 0 },
+    @{ Mode = 'submit-scroll-parent-exit'; Target = $true; Selected = $true; Expected = 0 },
+    @{ Mode = 'submit-scroll-host-changed'; Target = $true; Selected = $true; Expected = 0 },
+    @{ Mode = 'submit-scroll-target-changed'; Target = $true; Selected = $true; Expected = 0 },
+    @{ Mode = 'submit-scroll-target-replaced'; Target = $true; Selected = $true; Expected = 0 },
+    @{ Mode = 'submit-scroll-lost-selection'; Target = $true; Selected = $true; Expected = 0 },
+    @{ Mode = 'submit-scroll-renamed'; Target = $true; Selected = $true; Expected = 0 },
+    @{ Mode = 'submit-scroll-form-changed'; Target = $true; Selected = $true; Expected = 0 }
+)) {
+    $script:testParentAlive = $true
+    $window = New-TestApprovalWindow $case.Target $case.Selected $true $case.Mode
+    $actual = Invoke-ApprovalCards $window 123 ([IntPtr]42)
+    # 2026-10-06：阴性滚动案例必须到达对应真实动作，不能因树桩缺失而提前异常形成假通过。
+    $expectedOptionScrolls = if ($case.Mode -like 'option-*' -and $case.Mode -ne 'option-scroll-unsupported') { 1 } else { 0 }
+    $expectedSubmitScrolls = if ($case.Mode -like 'submit-*' -and $case.Mode -ne 'submit-scroll-unsupported') { 1 } else { 0 }
+    $description = "$($case.Mode) expected=$($case.Expected) result=$actual submit=$($window.Card.Buttons[0].Invocations) option-scrolls=$($window.Card.Radios[0].Scrolls) submit-scrolls=$($window.Card.Buttons[0].Scrolls)"
+    if ($actual -ne ($case.Expected -eq 1) -or $window.Card.Buttons[0].Invocations -ne $case.Expected -or $window.Card.Radios[0].Scrolls -ne $expectedOptionScrolls -or $window.Card.Buttons[0].Scrolls -ne $expectedSubmitScrolls) { $externalFailures += $description; Write-Output "FAIL external permission: $description" }
+    else { $checks++; Write-Output "PASS external permission: $description" }
+}
+if ($externalFailures.Count -gt 0) { throw "External permission regressions: $($externalFailures -join '; ')" }
+$script:testParentAlive = $true
 
 # 2026-10-05：宿主归属检查期间取消本次允许，实际提交函数必须重新读取并跳过。
 $window = New-TestApprovalWindow $true $true $true

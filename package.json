@@ -2,7 +2,7 @@
   "name": "antigravity-auto-accept",
   "displayName": "Antigravity Auto Accept",
   "description": "Automatically accept supported Antigravity IDE agent approval buttons on Windows. No debug port or command allowlist setup.",
-  "version": "5.3.1",
+  "version": "5.3.2",
   "license": "MIT",
   "icon": "icon.png",
   "publisher": "fhgffy",
