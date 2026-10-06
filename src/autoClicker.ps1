@@ -241,13 +241,8 @@ function Test-ApprovalOptionSelected($Option) {
         $selection = $Option.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
         return $selection.Current.IsSelected
     }
-    catch {
-        try {
-            $legacy = $Option.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)
-            return ($legacy.Current.State -band 16) -ne 0
-        }
-        catch { return $false }
-    }
+    # 2026-10-07：托管 UIA 不提供 LegacyIAccessiblePattern，读不到真实选中状态时保持不提交。
+    catch { return $false }
 }
 
 # 2026-10-05：读取审批卡片的实时控件特征，普通问答表单和全局提交按钮不会命中。
@@ -470,7 +465,11 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             }
             Write-ApprovalDiagnostic "browser menu method=$method action-returned=True before=$($beforeMenus.Count) visible=$menuCount new=$newMenuCount once-items=$itemCount" 'browser-menu'
         }
-        catch { Write-ApprovalDiagnostic "browser error stage=$stage type=$($_.Exception.GetType().Name)" 'browser-error' }
+        catch {
+            Write-ApprovalDiagnostic "browser error stage=$stage type=$($_.Exception.GetType().Name)" 'browser-error'
+            # 2026-10-07：最终批准已尝试但结果未知时占用本轮，展开或滚动失败仍可继续其它候选。
+            if (($stage -eq 'invoke' -and $actionName -eq 'Allow Once') -or $stage -eq 'item-invoke') { return $true }
+        }
     }
     return $false
 }
@@ -527,15 +526,10 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 $stage = 'selection-pattern'
                 $selectionMethod = 'select'
                 try { $selection = $option.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern) }
+                # 2026-10-07：仅降级到托管 UIA 实际支持的调用模式，选中状态仍由 SelectionItem 复核。
                 catch {
-                    try {
-                        $selection = $option.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-                        $selectionMethod = 'invoke'
-                    }
-                    catch {
-                        $selection = $option.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)
-                        $selectionMethod = 'legacy'
-                    }
+                    $selection = $option.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                    $selectionMethod = 'invoke'
                 }
                 if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
@@ -545,8 +539,7 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 if (-not (Test-ParentAlive)) { return $false }
                 $stage = 'selection'
                 if ($selectionMethod -eq 'select') { $selection.Select() }
-                elseif ($selectionMethod -eq 'invoke') { $selection.Invoke() }
-                else { $selection.DoDefaultAction() }
+                else { $selection.Invoke() } # 2026-10-07：已取得调用模式后只执行一次选择动作。
             }
             if (-not (Test-ApprovalOptionSelected $option) -or -not (Test-LiveApprovalCard $card $expectedTarget)) {
                 Write-ApprovalDiagnostic 'permission-card one-time selection unavailable'
@@ -595,12 +588,17 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 if (-not $option.Current.IsEnabled -or ($option.Current.IsOffscreen -and -not $submitScrolled) -or $option.Current.AutomationId -notmatch '^ask-opt-.+-1$' -or -not (Test-OneTimeApprovalName $option.Current.Name) -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not (Test-ApprovalOptionSelected $option)) { continue }
                 # 2026-10-05：所有控件查询结束后最后检查父宿主，退出期间不提交权限卡片。
                 if (-not (Test-ParentAlive)) { return $false }
+                $stage = 'submit-invoke' # 2026-10-07：最终批准阶段紧邻调用，选中、模式及只读查询失败不能误计为批准尝试。
                 $invoke.Invoke()
                 [Console]::WriteLine('___CLICK_INVOKE___:Submit (one-time permission)')
                 return $true
             }
         }
-        catch { Write-ApprovalDiagnostic "permission-card error stage=$stage type=$($_.Exception.GetType().Name)" 'permission-error' } # 2026-10-06：错误日志只含固定阶段和类型，不输出命令正文。
+        catch {
+            Write-ApprovalDiagnostic "permission-card error stage=$stage type=$($_.Exception.GetType().Name)" 'permission-error'
+            # 2026-10-07：提交调用已开始即消耗本轮，异常不能导致同轮继续批准其它窗口。
+            if ($stage -eq 'submit-invoke') { return $true }
+        } # 2026-10-06：错误日志只含固定阶段和类型，不输出命令正文。
     }
     return $false
 }
@@ -793,6 +791,7 @@ try {
     if (-not $mutexOwned -or -not (Test-ParentAlive)) { exit 0 }
     [Console]::WriteLine('___AUTOCLICK_READY___')
     $lastClickTime = [DateTime]::MinValue
+    $lastServedWindowHandle = [IntPtr]::Zero # 2026-10-07：最终批准尝试后从下一窗口开始，持续审批的首窗不能饿死其余窗口。
 
     while (Test-ParentAlive) {
         Start-Sleep -Milliseconds $PollMs
@@ -803,73 +802,102 @@ try {
         try {
             $targetIds = Get-TargetProcessIds
             if ($targetIds.Count -eq 0) { continue }
-            $windows = $automation.FindAll([System.Windows.Automation.TreeScope]::Children, $winCondition)
+            $windows = @($automation.FindAll([System.Windows.Automation.TreeScope]::Children, $winCondition))
             $didClick = $false
+            # 2026-10-07：每轮保留窗口快照并按上次动作窗口轮转，失效句柄只跳过自身。
+            $windowStart = 0
+            for ($index = 0; $index -lt $windows.Count; $index++) {
+                try {
+                    if ([IntPtr]$windows[$index].Current.NativeWindowHandle -eq $lastServedWindowHandle) {
+                        $windowStart = ($index + 1) % $windows.Count
+                        break
+                    }
+                }
+                catch { }
+            }
 
-            foreach ($win in $windows) {
+            for ($offset = 0; $offset -lt $windows.Count; $offset++) {
                 if ($didClick) { break }
-                # 2026-10-05：窗口仅按已验证路径的进程 ID 归属，窗口标题不影响识别。
-                $windowProcessId = $win.Current.ProcessId
-                if (-not $targetIds.ContainsKey($windowProcessId)) { continue }
-                $windowHandle = [IntPtr]$win.Current.NativeWindowHandle
-                if ($windowHandle -eq [IntPtr]::Zero) { continue }
+                $win = $windows[($windowStart + $offset) % $windows.Count]
+                # 2026-10-07：单窗控件树在扫描时关闭或失效，不阻断同轮其它窗口。
+                try {
+                    # 2026-10-05：窗口仅按已验证路径的进程 ID 归属，窗口标题不影响识别。
+                    $windowProcessId = $win.Current.ProcessId
+                    if (-not $targetIds.ContainsKey($windowProcessId)) { continue }
+                    $windowHandle = [IntPtr]$win.Current.NativeWindowHandle
+                    if ($windowHandle -eq [IntPtr]::Zero) { continue }
 
-                # 2026-10-05：新版本次审批卡片优先处理，完成后统一进入原点击冷却。
-                # 2026-10-06：浏览器域名卡片使用同卡片本次允许，窄栏菜单不能交给普通按钮匹配。
-                if (Invoke-BrowserPermissionCards $win $windowProcessId $windowHandle) {
-                    $didClick = $true
-                    $lastClickTime = [DateTime]::Now
-                    break
-                }
-                if (Invoke-ApprovalCards $win $windowProcessId $windowHandle) {
-                    $didClick = $true
-                    $lastClickTime = [DateTime]::Now
-                    break
-                }
-
-                $buttons = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
-
-                foreach ($btn in $buttons) {
-                    if ($didClick) { break }
-                    $btnName = $btn.Current.Name
-                    if (-not $btn.Current.IsEnabled) { continue }
-                    if ($btn.Current.IsOffscreen) { continue }
-                    $rect = $btn.Current.BoundingRectangle
-                    if ($null -eq (Get-ButtonCenter $rect)) { continue }
-                    if (-not (Test-ButtonMatch $btnName)) { continue }
-
-                    try {
-                        $ip = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-                        # 2026-10-05：调用前重读按钮并复核宿主归属，扫描期间父进程退出时不执行动作。
-                        $btnName = $btn.Current.Name
-                        if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen -or -not (Test-ButtonMatch $btnName)) { continue }
-                        if ($win.Current.NativeWindowHandle -ne $windowHandle.ToInt64() -or $win.Current.ProcessId -ne $windowProcessId) { continue }
-                        if (-not (Get-TargetProcessIds).ContainsKey($windowProcessId)) { continue }
-                        if (-not (Test-ParentAlive)) { break }
-                        $ip.Invoke()
-                        [Console]::WriteLine("___CLICK_INVOKE___:$btnName")
+                    # 2026-10-05：新版本次审批卡片优先处理，完成后统一进入原点击冷却。
+                    # 2026-10-06：浏览器域名卡片使用同卡片本次允许，窄栏菜单不能交给普通按钮匹配。
+                    if (Invoke-BrowserPermissionCards $win $windowProcessId $windowHandle) {
                         $didClick = $true
+                        $lastClickTime = [DateTime]::Now
+                        $lastServedWindowHandle = $windowHandle # 2026-10-07：两类卡片均参与窗口轮转。
+                        break
                     }
-                    catch {
-                        # 2026-10-05：回退前重读按钮与窗口，坐标被遮挡、宿主退出或按钮失效均不点击。
-                        if (-not (Test-ParentAlive)) { break }
-                        if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen) { continue }
-                        $btnName = $btn.Current.Name
-                        if (-not (Test-ButtonMatch $btnName)) { continue }
-                        if ($win.Current.NativeWindowHandle -ne $windowHandle.ToInt64() -or $win.Current.ProcessId -ne $windowProcessId) { continue }
-                        if (-not (Get-TargetProcessIds).ContainsKey($windowProcessId)) { continue }
-                        $center = Get-ButtonCenter $btn.Current.BoundingRectangle
-                        if ($null -eq $center) { continue }
-                        if ([MouseHelper]::Click($center.X, $center.Y, $restoreCursorEnabled, $windowHandle, [uint32]$windowProcessId)) {
-                            [Console]::WriteLine("___CLICK_PHYSICAL___:$btnName at ($($center.X),$($center.Y))")
-                            $didClick = $true
-                        }
+                    if (Invoke-ApprovalCards $win $windowProcessId $windowHandle) {
+                        $didClick = $true
+                        $lastClickTime = [DateTime]::Now
+                        $lastServedWindowHandle = $windowHandle # 2026-10-07：终端提交尝试后优先服务其它窗口。
+                        break
                     }
 
-                    if ($didClick) {
-                        $lastClickTime = [DateTime]::Now
+                    $buttons = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
+                    foreach ($btn in $buttons) {
+                        if ($didClick) { break }
+                        # 2026-10-07：单个按钮失效或调用报错仅跳过该按钮，调用后报错不能再物理重试。
+                        try {
+                            $btnName = $btn.Current.Name
+                            if (-not $btn.Current.IsEnabled) { continue }
+                            if ($btn.Current.IsOffscreen) { continue }
+                            $rect = $btn.Current.BoundingRectangle
+                            if ($null -eq (Get-ButtonCenter $rect)) { continue }
+                            if (-not (Test-ButtonMatch $btnName)) { continue }
+                            $ip = $null
+                            try { $ip = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) }
+                            catch { }
+                            if ($null -ne $ip) {
+                                # 2026-10-05：调用前重读按钮并复核宿主归属，扫描期间父进程退出时不执行动作。
+                                # 2026-10-07：宿主查询放在最终按钮复核前，查询期间变化的名称及可见性不会沿用。
+                                if (-not (Get-TargetProcessIds).ContainsKey($windowProcessId)) { continue }
+                                if ($win.Current.NativeWindowHandle -ne $windowHandle.ToInt64() -or $win.Current.ProcessId -ne $windowProcessId) { continue }
+                                $btnName = $btn.Current.Name
+                                if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen -or -not (Test-ButtonMatch $btnName)) { continue }
+                                if (-not (Test-ParentAlive)) { break }
+                                # 2026-10-07：提供者可能在动作后抛错，先占用本轮和窗口轮换；慢调用的冷却从结束时计时。
+                                $didClick = $true
+                                $lastServedWindowHandle = $windowHandle
+                                try {
+                                    $ip.Invoke()
+                                    [Console]::WriteLine("___CLICK_INVOKE___:$btnName")
+                                }
+                                finally { $lastClickTime = [DateTime]::Now }
+                            }
+                            else {
+                                # 2026-10-05：回退前重读按钮与窗口，坐标被遮挡、宿主退出或按钮失效均不点击。
+                                # 2026-10-07：只有未取得调用模式才物理回退，最后坐标及状态查询后再检查父宿主。
+                                if (-not (Get-TargetProcessIds).ContainsKey($windowProcessId)) { continue }
+                                if ($win.Current.NativeWindowHandle -ne $windowHandle.ToInt64() -or $win.Current.ProcessId -ne $windowProcessId) { continue }
+                                $center = Get-ButtonCenter $btn.Current.BoundingRectangle
+                                if ($null -eq $center) { continue }
+                                $btnName = $btn.Current.Name
+                                if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen -or -not (Test-ButtonMatch $btnName)) { continue }
+                                if (-not (Test-ParentAlive)) { break }
+                                # 2026-10-07：物理回退同样只尝试一次，失败或动作后抛错都从动作结束时开始冷却。
+                                $didClick = $true
+                                $lastServedWindowHandle = $windowHandle
+                                try {
+                                    if ([MouseHelper]::Click($center.X, $center.Y, $restoreCursorEnabled, $windowHandle, [uint32]$windowProcessId)) {
+                                        [Console]::WriteLine("___CLICK_PHYSICAL___:$btnName at ($($center.X),$($center.Y))")
+                                    }
+                                }
+                                finally { $lastClickTime = [DateTime]::Now }
+                            }
+                        }
+                        catch { Write-ApprovalDiagnostic "button scan failed type=$($_.Exception.GetType().Name)" 'button-error' }
                     }
                 }
+                catch { Write-ApprovalDiagnostic "window scan failed type=$($_.Exception.GetType().Name)" 'window-error' }
             }
         }
         catch {

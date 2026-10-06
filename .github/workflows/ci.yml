@@ -1,21 +1,110 @@
+# 2026-10-07：两种实际 PowerShell 引擎独立验证，打包只在全部回归通过后执行。
 name: Windows validation
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    name: Test (${{ matrix.label }})
     runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows PowerShell 5.1
+            shell: powershell
+            executable: powershell.exe
+            major: 5
+          - label: PowerShell 7
+            shell: pwsh
+            executable: pwsh.exe
+            major: 7
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run package
+      - name: Verify selected engine
+        shell: ${{ matrix.shell }}
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne ${{ matrix.major }}) { throw 'Unexpected PowerShell engine' }
+          Write-Output "PowerShell=$($PSVersionTable.PSVersion) edition=$($PSVersionTable.PSEdition)"
+      - name: Install locked dependencies
+        shell: ${{ matrix.shell }}
+        run: npm ci
+      - name: Compile and typecheck
+        shell: ${{ matrix.shell }}
+        run: |
+          npm run compile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run typecheck
+      - name: Validate repository and extension lifecycle
+        shell: ${{ matrix.shell }}
+        run: |
+          npm run test:repository
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:lifecycle
+      - name: Scanner regression on one engine
+        shell: ${{ matrix.shell }}
+        run: |
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/scanner.test.ps1'))
+          $tokens = $null
+          $parseErrors = $null
+          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw 'Scanner test parse errors' }
+          & ($testAst.GetScriptBlock()) -PowerShellEngines @('${{ matrix.executable }}')
+      - name: Concurrent scanner handoff without desktop clicks
+        shell: ${{ matrix.shell }}
+        run: |
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/scanner-concurrency.test.ps1'))
+          $tokens = $null
+          $parseErrors = $null
+          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw 'Concurrency test parse errors' }
+          & ($testAst.GetScriptBlock()) -PowerShellEngines @('${{ matrix.executable }}')
+
+  package:
+    name: Verified VSIX
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Package extension
+        run: npm run package
+      - name: Verify packaged runtime and metadata
+        id: vsix
+        run: |
+          $manifest = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          $vsix = "$($manifest.name)-$($manifest.version).vsix"
+          & ./tests/validate-vsix.ps1 -VsixPath $vsix
+          $hash = (Get-FileHash -LiteralPath $vsix -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $PWD "$vsix.sha256"), "$hash  $vsix`n", [Text.UTF8Encoding]::new($false))
+          "path=$vsix" >> $env:GITHUB_OUTPUT
+      - name: Upload verified installable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: antigravity-auto-accept-${{ github.sha }}
+          path: |
+            ${{ steps.vsix.outputs.path }}
+            ${{ steps.vsix.outputs.path }}.sha256
+          if-no-files-found: error
+          retention-days: 14
