@@ -251,11 +251,19 @@ function Test-ApprovalOptionSelected($Option) {
 }
 
 # 2026-10-05：读取审批卡片的实时控件特征，普通问答表单和全局提交按钮不会命中。
-function Test-LiveApprovalCard($Card) {
+function Test-LiveApprovalCard($Card, $ExpectedTarget = $null) {
     $edits = $Card.FindAll([System.Windows.Automation.TreeScope]::Descendants, $editCondition)
     $radios = $Card.FindAll([System.Windows.Automation.TreeScope]::Descendants, $radioCondition)
     $buttons = $Card.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
-    return Test-ApprovalCardShape @($edits | ForEach-Object { $_.Current.Name }) @($radios | ForEach-Object { $_.Current.AutomationId }) @($radios | ForEach-Object { $_.Current.Name }) @($buttons | ForEach-Object { $_.Current.Name })
+    # 2026-10-06：滚动和宿主查询后同时验证目标控件身份与原始值，命令变化时不能沿用旧批准。
+    if (-not (Test-ApprovalCardShape @($edits | ForEach-Object { $_.Current.Name }) @($radios | ForEach-Object { $_.Current.AutomationId }) @($radios | ForEach-Object { $_.Current.Name }) @($buttons | ForEach-Object { $_.Current.Name }))) { return $false }
+    if ($null -ne $ExpectedTarget) {
+        $target = @($edits | Where-Object { $_.Current.Name -eq 'Edit permission target' })[0]
+        if (($target.GetRuntimeId() -join '.') -ne $ExpectedTarget.Id) { return $false }
+        $value = $target.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value
+        if (-not [string]::Equals($value, $ExpectedTarget.Value, [StringComparison]::Ordinal)) { return $false }
+    }
+    return $true
 }
 
 # 2026-10-06：审批卡片的诊断最多每十秒输出一次，便于排查宿主 UI 变化且避免刷屏。
@@ -469,13 +477,13 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
 
 # 2026-10-05：新版卡片只选本次允许并提交同一卡片，不修改终端或权限的持久设置。
 function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHandle) {
-    $conversation = $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $conversationCondition)
-    if ($null -eq $conversation) { return $false }
-    $options = $conversation.FindAll([System.Windows.Automation.TreeScope]::Descendants, $radioCondition)
+    # 2026-10-06：专用权限表单也会位于会话兄弟输入区，候选来自宿主窗口，批准仍限定同一个真实表单。
+    $options = $Window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $radioCondition)
     foreach ($option in $options) {
+        $stage = 'candidate'
         try {
             if ($option.Current.AutomationId -notmatch '^ask-opt-.+-1$' -or -not (Test-OneTimeApprovalName $option.Current.Name)) { continue }
-            if (-not $option.Current.IsEnabled -or $option.Current.IsOffscreen) { continue }
+            if (-not $option.Current.IsEnabled) { continue }
             $card = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
             if ($null -eq $card) { continue }
             $card = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($card)
@@ -483,23 +491,64 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 Write-ApprovalDiagnostic 'permission-card shape mismatch'
                 continue
             }
+            # 2026-10-06：保存当前表单归属，滚动导致控件移到其他表单时不能继续选择或提交。
+            $cardId = $card.GetRuntimeId() -join '.'
+            $stage = 'target-pattern'
+            $target = @($card.FindAll([System.Windows.Automation.TreeScope]::Descendants, $editCondition) | Where-Object { $_.Current.Name -eq 'Edit permission target' })[0]
+            try {
+                $valueAvailable = $target.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty)
+                Write-ApprovalDiagnostic "permission target value-pattern=$valueAvailable" 'permission-target-pattern'
+            }
+            catch { }
+            $expectedTarget = @{ Id = ($target.GetRuntimeId() -join '.'); Value = $target.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value }
+            # 2026-10-06：仅对已核验表单报告固定模式布尔值，候选日志不抢占滚动和错误诊断。
+            try {
+                $selectionAvailable = $option.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty)
+                $scrollAvailable = $option.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty)
+                Write-ApprovalDiagnostic "permission option enabled=$($option.Current.IsEnabled) offscreen=$($option.Current.IsOffscreen) selection=$selectionAvailable scrollitem=$scrollAvailable" 'permission-candidate'
+            }
+            catch { }
+            if ($option.Current.IsOffscreen) {
+                $stage = 'option-scroll-pattern'
+                $scroll = $option.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
+                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
+                $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
+                $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
+                if ($null -eq $optionCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not $option.Current.IsEnabled -or -not (Test-OneTimeApprovalName $option.Current.Name)) { continue }
+                if (-not (Test-ParentAlive)) { return $false }
+                $stage = 'option-scroll'
+                $scroll.ScrollIntoView()
+                Write-ApprovalDiagnostic "permission option-scroll returned=True visible=$(-not $option.Current.IsOffscreen)" 'permission-option-scroll'
+            }
+            if ($option.Current.IsOffscreen) { continue }
             if (-not (Test-ApprovalOptionSelected $option)) {
-                try {
-                    $selection = $option.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern)
-                    $selection.Select()
-                }
+                # 2026-10-06：只在取得模式后再次核验同表单、可见性和宿主，模式降级不重复执行选择动作。
+                $stage = 'selection-pattern'
+                $selectionMethod = 'select'
+                try { $selection = $option.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern) }
                 catch {
                     try {
-                        $invoke = $option.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-                        $invoke.Invoke()
+                        $selection = $option.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                        $selectionMethod = 'invoke'
                     }
                     catch {
-                        $legacy = $option.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)
-                        $legacy.DoDefaultAction()
+                        $selection = $option.GetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern)
+                        $selectionMethod = 'legacy'
                     }
                 }
+                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
+                $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
+                $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
+                if ($null -eq $optionCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not $option.Current.IsEnabled -or $option.Current.IsOffscreen -or $option.Current.AutomationId -notmatch '^ask-opt-.+-1$' -or -not (Test-OneTimeApprovalName $option.Current.Name)) { continue }
+                if (-not (Test-ParentAlive)) { return $false }
+                $stage = 'selection'
+                if ($selectionMethod -eq 'select') { $selection.Select() }
+                elseif ($selectionMethod -eq 'invoke') { $selection.Invoke() }
+                else { $selection.DoDefaultAction() }
             }
-            if (-not (Test-ApprovalOptionSelected $option) -or -not (Test-LiveApprovalCard $card)) {
+            if (-not (Test-ApprovalOptionSelected $option) -or -not (Test-LiveApprovalCard $card $expectedTarget)) {
                 Write-ApprovalDiagnostic 'permission-card one-time selection unavailable'
                 continue
             }
@@ -508,10 +557,42 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
             $buttons = $card.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
             foreach ($submit in $buttons) {
                 if ($submit.Current.Name -notmatch '^(Submit|提交)(\s*[↵⏎])?$') { continue }
-                if (-not $submit.Current.IsEnabled -or $submit.Current.IsOffscreen) { continue }
+                if (-not $submit.Current.IsEnabled) { continue }
+                try {
+                    $invokeAvailable = $submit.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty)
+                    $scrollAvailable = $submit.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty)
+                    Write-ApprovalDiagnostic "permission submit enabled=$($submit.Current.IsEnabled) offscreen=$($submit.Current.IsOffscreen) invoke=$invokeAvailable scrollitem=$scrollAvailable" 'permission-submit-pattern'
+                }
+                catch { }
+                # 2026-10-06：长表单只滚动同表单 Submit；顶部一次允许因本次滚动离屏时仍读取选中状态。
+                $submitScrolled = $false
+                if ($submit.Current.IsOffscreen) {
+                    $stage = 'submit-scroll-pattern'
+                    $scroll = $submit.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
+                    if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                    if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
+                    $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
+                    $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
+                    $submitCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($submit)
+                    if ($null -eq $optionCard -or $null -eq $submitCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or ($submitCard.GetRuntimeId() -join '.') -ne $cardId -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not $submit.Current.IsEnabled -or $submit.Current.Name -notmatch '^(Submit|提交)(\s*[↵⏎])?$' -or -not $option.Current.IsEnabled -or $option.Current.IsOffscreen -or -not (Test-ApprovalOptionSelected $option)) { continue }
+                    if (-not (Test-ParentAlive)) { return $false }
+                    $stage = 'submit-scroll'
+                    $scroll.ScrollIntoView()
+                    $submitScrolled = $true
+                    Write-ApprovalDiagnostic "permission submit-scroll returned=True visible=$(-not $submit.Current.IsOffscreen)" 'permission-submit-scroll'
+                }
+                $stage = 'submit-pattern'
                 $invoke = $submit.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                # 2026-10-06：模式和宿主查询完成后，再核验最终按钮状态及两端控件仍归属原权限表单。
+                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
+                $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
+                $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
+                $submitCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($submit)
+                if ($null -eq $optionCard -or $null -eq $submitCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or ($submitCard.GetRuntimeId() -join '.') -ne $cardId) { continue }
+                if (-not $submit.Current.IsEnabled -or $submit.Current.IsOffscreen -or $submit.Current.Name -notmatch '^(Submit|提交)(\s*[↵⏎])?$') { continue }
                 # 2026-10-05：提交前最后复核本次允许，避免宿主检查期间选项变成始终允许或拒绝。
-                if (-not $option.Current.IsEnabled -or $option.Current.IsOffscreen -or -not (Test-LiveApprovalCard $card) -or -not (Test-ApprovalOptionSelected $option)) { continue }
+                if (-not $option.Current.IsEnabled -or ($option.Current.IsOffscreen -and -not $submitScrolled) -or $option.Current.AutomationId -notmatch '^ask-opt-.+-1$' -or -not (Test-OneTimeApprovalName $option.Current.Name) -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not (Test-ApprovalOptionSelected $option)) { continue }
                 # 2026-10-05：所有控件查询结束后最后检查父宿主，退出期间不提交权限卡片。
                 if (-not (Test-ParentAlive)) { return $false }
                 $invoke.Invoke()
@@ -519,7 +600,7 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 return $true
             }
         }
-        catch { Write-ApprovalDiagnostic "permission-card error: $($_.Exception.Message)" }
+        catch { Write-ApprovalDiagnostic "permission-card error stage=$stage type=$($_.Exception.GetType().Name)" 'permission-error' } # 2026-10-06：错误日志只含固定阶段和类型，不输出命令正文。
     }
     return $false
 }

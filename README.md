@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.1
+# 🚀 Antigravity Auto Accept v5.3.2
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -23,7 +23,7 @@ Antigravity's [IDE settings documentation](https://antigravity.google/docs/setti
 - Installation enables scanning by default; a **trusted workspace, local Windows host, and accessible IDE window** are required. The extension does not change the IDE's permission settings.
 - **Strict Mode, explicit denials, enterprise policies, sandbox restrictions, and browser denylist entries remain enforced by Antigravity.** This is not a guarantee that every command can execute.
 - Workspace trust prompts and generic `Save`, `OK`, `Yes`, or `Retry` buttons are not agent approvals and are excluded. English and Chinese approval labels are supported.
-- Command permission cards select **Yes, allow this time** and submit the same card. Browser domain cards select **Allow Once**, including the menu inside **More actions** in a narrow sidebar. The scanner does not select **Always Allow** or expand historical command records.
+- Command permission cards select **Yes, allow this time** and submit the same card. Browser domain cards select **Allow Once**, including the menu inside **More actions** in a narrow sidebar. Command cards in the conversation or input area keep the same strict form checks; long cards scroll only the verified action control into view. The scanner does not select **Always Allow** or expand historical command records.
 - `InvokePattern` can work without moving the cursor. Physical fallback only clicks when the target point still belongs to the verified Antigravity window; covered windows are skipped.
 - One scanner covers the desktop session's Antigravity windows from the same installation path. Other enabled windows wait to take over. Stop disables this window's scanner; another enabled window may continue scanning, including buttons in the stopped window. Workspace trust gates the scanner's host; scanning is not isolated per workspace.
 
@@ -104,7 +104,7 @@ The extension declares `extensionKind: ["ui"]`, forcing it to **always run on yo
 
 在 VS Code / Antigravity 的扩展面板 (`Ctrl+Shift+X`) 中搜索 **`Antigravity Auto Accept`**（开发者: **fhgffy**），点击安装即可。
 
-本次浏览器审批修复位于 **v5.3.1**，请核对商店显示的版本。若商店仍显示旧版本，请使用 GitHub Release 中对应版本的 VSIX。
+浏览器审批修复位于 **v5.3.1**，会话外终端审批与长表单滚动修复位于 **v5.3.2**，请核对商店显示的版本。若商店仍显示旧版本，请使用 GitHub Release 中对应版本的 VSIX。
 
 - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=fhgffy.antigravity-auto-accept)
 - [Open VSX Registry](https://open-vsx.org/extension/fhgffy/antigravity-auto-accept)
@@ -148,6 +148,12 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.2 — Terminal Approval Form Placement (2026-10-06)
+
+- Recognize dedicated command permission forms rendered outside the conversation.
+- Scroll the verified one-time option and same-form Submit into view for long commands.
+- Recheck the permission target, selection, form identity and owning host before acting; keep ordinary questions excluded.
 
 ### v5.3.1 — Browser Approval Cards (2026-10-06)
 
