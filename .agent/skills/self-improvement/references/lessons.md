@@ -212,3 +212,8 @@
 
 - **已跑观察：** 当前 Computer Use 环境仅刷新文本后，索引点击反复报告 geometry unavailable；激活目标并刷新 include_screenshot=true 后，同一可见命令点击成功。同进程多窗口还可能让缓存索引过期。
 - **下次做法：** 按目标窗口重新观察，必要时同时获取截图；操作失败后不重复旧索引。浏览器 URL 无法核实时结束该次电脑操作，不换接口执行被拒动作；独立授权的构建、测试及 GitHub CLI 工作继续使用专用工具。
+## 2026-10-07 Asia/Shanghai - YAML 解析不等于 Actions 表达式校验
+
+- **已跑复现：** 本地 YAML 和 PowerShell AST 都通过，但 GitHub run 37515131660 在启动 job 之前失败；六个 step.shell 中的 matrix.shell 被远端判为 Unrecognized named-value，未生成任何测试结果。
+- **下次做法：** 按 GitHub Contexts reference 的具体键位置检查可用上下文；job.defaults.run 支持 matrix，不能把 workflow 根 defaults.run 或步骤 shell 当作同一规则。工作流变更使用 Actions 表达式校验器，并以新提交在远端实际创建和完成所有 job 作为最终证据。
+- **检查：** 没有 runner/job 的配置失败与测试失败分开记录；本地解析成功或旧提交 CI 成功都不能替代这次精确 SHA 的远端结果。

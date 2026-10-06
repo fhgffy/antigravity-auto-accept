@@ -65,3 +65,7 @@ GitHub CI 将 Windows PowerShell 5.1 与 PowerShell 7 分成独立 job，要求�
 本次实机覆盖 Windows Antigravity IDE 2.5.5、两个任务窗口、一个受限目录窗口及其它应用同时打开。非 IDE 应用排除、失效控件、关闭窗口、反复启停、参数和通知设置、旧子进程尾输出、动作后抛错、慢调用冷却及并发接管由生产函数回归补充验证。真实审批主要走 UIA Invoke，物理回退的遮挡保护与负坐标由回归验证；本轮没有实际双显示器、WSL/SSH/容器或所有 IDE 版本的运行证据。
 
 提交前再次全量 npm test 实际退出 0，结果为仓库 3、生命周期 28、扫描回归 111、每引擎自测 95、并发接管 22；随后文档补齐已完成的实机结果，再次执行编码及 diff 检查。远端构建结果会在 PR 正文中给出运行链接和精确 SHA，源码文档不以 CI 配置落盘代替远端成功。
+
+首次 GitHub run 37515131660 在启动前报告六处 step.shell 中 matrix 上下文不可用，未生成测试 job。按官方 Contexts reference 将 shell 表达式移到 jobs.test.defaults.run，保持 PS5/PS7 各自引擎不变。官方 actionlint 1.7.12 改前退出 1 并复现六处错误，改后退出 0；这层校验与 YAML/PowerShell AST 解析分别记录。最终远端成功以修复后 PR 检查为准。
+
+实机清理阶段关闭本次创建、已完成 B533 的空白窗口（当时是扫描器拥有者），原用户窗口于 03:01:12 再次自动接管并显示 ON；随后关闭本次未授信目录窗口，全程保持 Restricted Mode、未操作信任选项。窗口枚举确认只剩原用户 IDE 窗口，未关闭用户原有 Chrome 或 Codex。
