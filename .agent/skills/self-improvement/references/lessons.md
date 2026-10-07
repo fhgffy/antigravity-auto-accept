@@ -464,3 +464,17 @@
 - **诊断推进：** 自有child向捕获stderr写ENTERED、ENCODING_SET、READY_WRITTEN三个含PID阶段协议；成功路径要求完整内容精确等于三行，额外stderr仍失败，原10s及125项断言不变。空输出尚不能直接断言冷启动、AMSI或Console编码设置就是根因。
 - **已跑本机：** 三阶段正常协议PS5/PS7各125项通过；真实child分别在编码设置前、READY写入前延迟15s，诊断只报告已到达阶段并保留超时，均验证进程退出；独立审查实际协议比较7项内存重放通过。
 - **下次做法：** 从下一次CI真实阶段标记定位，不因当前推测改超时或增加自动重跑，不把纯测试协议修改当作插件后台审批修复。
+
+## 2026-10-08 Asia/Shanghai - 默认空值、ReservedNotSupported 与日志错误信息
+
+- **已跑本机：** 完整绑定目标的默认 UniqueId 为 S_OK 空 string，而 Ex(ignoreDefault=true) 返回 S_OK COM ReservedNotSupported 且 CheckNotSupported=true；两查询合看才能确认当前目标不提供该注册属性。只读拒绝的 173 个 Note 稳定样本不等于审批通过。
+- **下次做法：** 新增脱敏诊断用 ThrowExceptionForHR(hr, IntPtr(-1)) 忽略线程 IErrorInfo，否则调用方打印映射后的标准异常仍可能带出 provider 自定义消息；保留原身份校验的异常。PS5/7 完整方法及故障日志红绿验证不可省略。
+- **工具：** 当前 Sky element_index 输入仍需 screenshot-backed geometry；geometry unavailable 后先刷新确认开关未动，再恢复一次。异步旧 OFF/ON 由日志与持有 PID 判定，不能盲重复切换。观察启动早于工具恢复不保证覆盖实际 scanner Start；明确排除过期捕获并为实际静置另开观察。
+- **源码边界：** 新 C API/helper 完整单元放到既有 AOW 注释之前，不能插在注释与声明中间；归档后重新固定源码哈希。固定 Chromium 的页面 SetFocusedElement 不能独自证明 Windows SetForegroundWindow 或实际版本相同。
+- **毫秒筛选：** PS7.6 ConvertFrom-Json 默认自动转日期再隐式转 string 可能丢毫秒，导致区间误收边界样本；用 -DateKind String 或保留原 ISO 字符串后显式解析。本轮独立原始观测复算 173，与 Node JSON.parse 字符串筛选相同。
+
+## 2026-10-08 Asia/Shanghai - 根节点 core 编号失败不能当全树无目标
+
+- **已跑本机：** 绑定目标和native root路径推进到UiaGetRuntimeId，首节点返回E_NOINTERFACE、nodes1/core-fail，未继续后代遍历。不能称native树没有目标，也不能把客户端pattern QI某个provider IID当公开身份桥；官方控制模式契约区分client与provider接口。
+- **观测边界：** 新90s观察虽覆盖scanner Start，仍在案例结束前约13秒到期；仅归纳实际216个静置样本，缺失段不得用末尾快照或日志填成连续保证。下一次在实际capture覆盖内结束案例，必要时提前检查observer结束时间。
+- **恢复：** 正常Stop147588后CIM核对退出，官方CLI原包恢复并hash7F732F核验、UI OFF；只有只读拒绝证据，没有批准或焦点修复通过证据。
