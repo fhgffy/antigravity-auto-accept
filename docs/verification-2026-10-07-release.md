@@ -196,3 +196,12 @@ VSIX D69E67000BECFA612D2CC23708223015362262B9076898DF0FE8F2AB022ED0A3，官方CL
 独立60011ms/300样本/12资源记录、无错误，交接后157样本全Note，cursor1322,865/inputTick25424734稳定；SHA256 C3EE36E1F6B0684A133874134A7CC1834FECF4349E191485F348ECEE3AA4363E。观察在01:48:14结束，后续静置不补写为连续观测。01:54:30正常Stop后CIM核对121560退出。记录 native-unique-failure.json/log、离线日志与ABI布局在 C:/Temp/AntigravityAA-browser-unique-536-4c517afb2e664042a4154363a0ce7c98。
 
 原包7ffae95通过官方CLI恢复exit0，磁盘source=7F732F0CAB9FEA2A9F8A3FCB029820A4BC36FE6D98A3F6C8EA6CBF89D18ADC0A、JS=2F85FBE50F0DF4EF35CC7C688602EA2B5D822951777B0159040057AE392EA1AD均一致。scanner保持OFF，未重启未通过候选，原待批准卡片与Note197字符保留。正式源码仍678e741，5.3.6不合并发布；下一步先查UniqueId取值/映射的实际语义，及MSAA代理与Native UIA对象是否可按公开接口保留同一身份。
+
+### 2026-10-08：CI 首次失败、一次重跑与诊断范围
+
+- 证据等级：已跑CI与本机验证，CI启动超时根因尚未确认。
+- df29655 的 PR run 37663462359、push run 37663454075 首次PS5均在READY10s失败；同SHA各只重跑失败作业一次后，PR attempt2成功（含VSIX校验），push attempt2仍失败。PS7均通过。首轮与重复失败日志已保存在本轮Temp证据目录，不能只报告PR成功。
+- 诊断补丁仅改tests/host-process.test.ps1的owned-child READY超时分支。生产scanner、工作流、READY/退出超时与125项身份断言未改；超时仍失败，只补充持有child的engine/PID/bitness/任务状态及终止后输出，等待均有限，清理只操作本测试持有的Process。
+- 本机原正常路径PS5/PS7各125项通过；真实自有child延迟15s READY重放旧版因缺少边界诊断失败，新版PS5/PS7×child32/64四项均保留超时，诊断完整且子进程退出。独立审查补充4项内存重放和双引擎解析检查通过。
+- 诊断有效不等于原CI根因已修复。本机浏览器后台审批仍未验收通过，PR保持草稿，5.3.6未合并发布。
+- 本轮完整npm test退出0：编译/typecheck、repository3、publication26、selftest95、lifecycle28、scanner152、host双引擎各125、mouse双引擎各81、concurrency22均通过。该自动验证不能替代仍失败的真实浏览器后台审批。

@@ -333,7 +333,22 @@ foreach ($fixture in @(@{ Engine = $native64; Expected = $system32; Bits = 8 }, 
         if (-not $child.Start()) { throw 'Owned child did not start' }
         $pendingReady = $child.StandardOutput.ReadLineAsync()
         $pendingError = $child.StandardError.ReadToEndAsync()
-        if (-not $pendingReady.Wait(10000)) { throw 'Owned child ready timeout' }
+        <# 2026-10-08：超时先记录自有子进程与两条读取任务状态，终止后保存有限输出，避免重跑掩盖启动或管道问题。 #>
+        if (-not $pendingReady.Wait(10000)) {
+            $exitedBeforeStop = $child.HasExited
+            $readyState = $pendingReady.Status
+            $errorState = $pendingError.Status
+            $stopError = ''
+            try { if (-not $exitedBeforeStop) { $child.Kill(); [void]$child.WaitForExit(5000) } }
+            catch { $stopError = $_.Exception.GetType().FullName }
+            $readyAfterStop = '<pending>'
+            $errorAfterStop = '<pending>'
+            try { if ($pendingReady.Wait(1000)) { $readyAfterStop = $pendingReady.GetAwaiter().GetResult() } }
+            catch { $readyAfterStop = '<read-failed:' + $_.Exception.GetType().FullName + '>' }
+            try { if ($pendingError.Wait(1000)) { $errorAfterStop = $pendingError.GetAwaiter().GetResult() } }
+            catch { $errorAfterStop = '<read-failed:' + $_.Exception.GetType().FullName + '>' }
+            throw "Owned child ready timeout: engine=$($fixture.Engine) pid=$($child.Id) caller=$([IntPtr]::Size * 8) expected=$($fixture.Bits * 8) exitedBeforeStop=$exitedBeforeStop readyTask=$readyState errorTask=$errorState readyAfterStop=[$readyAfterStop] stderrAfterStop=[$errorAfterStop] stopError=[$stopError]"
+        }
         $ready = $pendingReady.GetAwaiter().GetResult()
         $pendingTail = $child.StandardOutput.ReadToEndAsync()
         Assert-Host ($ready -ceq "READY:$($fixture.Bits):$($child.Id)") 'owned child actual bitness and pid'
