@@ -1029,12 +1029,13 @@ try {
                         if ($didClick) { break }
                         # 2026-10-07：单个按钮失效或调用报错仅跳过该按钮，调用后报错不能再物理重试。
                         try {
+                            # 2026-10-07：先按名称排除普通按钮，避免无关控件的跨进程状态及几何查询。
                             $btnName = $btn.Current.Name
+                            if (-not (Test-ButtonMatch $btnName)) { continue }
                             if (-not $btn.Current.IsEnabled) { continue }
                             if ($btn.Current.IsOffscreen) { continue }
                             $rect = $btn.Current.BoundingRectangle
                             if ($null -eq (Get-ButtonCenter $rect)) { continue }
-                            if (-not (Test-ButtonMatch $btnName)) { continue }
                             $ip = $null
                             try { $ip = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) }
                             catch { }

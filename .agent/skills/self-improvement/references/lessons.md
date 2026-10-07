@@ -289,3 +289,41 @@
 - **检查：** 空窗口两引擎并发22项通过后，再重跑唯一完整npm test；输出出现ERROR仍判失败，不能仅看进程退出0。
 
 - **同类审查：** 单实例退出断言曾仅看exit0，受控子进程输出ERROR与stderr后仍被判通过。owner与waiter均在协议读取完成后异步收尾并拒绝错误或CLICK协议；abandoned owner也核对诊断。
+
+## 2026-10-07 Asia/Shanghai - 多窗口内存失败需区分宿主与插件
+
+- **触发：** 打开第二个公开插件 IDE 窗口后，截图和 PowerShell 全进程枚举均报内存不足。
+- **已跑验证：** 新窗口语言服务器 13:24:57 报 runtime: cannot allocate memory，宿主随后记录无响应与 renderer crashed；13:30 事后提交量 34052124672 / 35307311104 bytes（96%）。原 5.3.5 scanner 仍唯一，最后 Private 为 119431168 bytes。
+- **边界：** 事后资源读数不是出错瞬间读数；这些证据支持资源不足，但不能定位到插件泄漏，也不能把打开后立即崩溃算作稳定的双 IDE 验收。
+- **下次做法：** 扩展窗口矩阵前先读系统提交余量；遇到不足先保留失败，只关闭本轮空白测试窗口，不清理用户其它进程。GUI 无响应退出是异步操作，要刷新窗口列表确认结果；同进程模态索引失效后用重新观察的截图核对。
+
+## 2026-10-07 Asia/Shanghai - CLR 类别存在不保证可映射进程
+
+- **已跑验证：** .NET CLR Memory 的 Exists 返回 true，但 ID Process 计数器构造报 Could not locate Performance Counter，无法可靠映射固定 scanner PID。
+- **下次做法：** 区分类别存在、PID 映射和具体计数器可读三层；读取失败保留 unavailable 与原异常，不安装、不提权、不触发 GC。固定 PID 的 Private/WS/CPU 仍可记录，不能代替 CLR heap 或存活根证据。
+
+## 2026-10-07 Asia/Shanghai - 发布交付必须逐个确认 Release 和商店
+
+- **用户纠正：** PR 合并与 CI 通过没有完成发布。检查时 GitHub Release、Marketplace、Open VSX 都仍为 5.3.2；不能把本机安装成功说成商店更新。
+- **已跑验证：** 从已验证 5.3.5 VSIX 创建 GitHub Release，标签指向通过 main CI 的 0b3f21b；下载公开 Release 资产后 SHA256 与安装输入一致。双商店已登录并打开表单，但浏览器文件选择器均要求文件 URL 权限；vsce ls-publishers、仓库 secret list 和已知发布环境变量为空。
+- **下次做法：** 合并后先核对实际 Release/商店版本；只发布已验包。缺凭据不能伪造完成或自动创建 PAT。上传前读 file-uploads 文档；受限后准备好表单和确切包路径，再让用户做必需的一次操作。
+- **工具边界：** 用户请求打开 chrome://extensions 后，Browser Use 仍拒绝非 HTTP/HTTPS 地址，并明确禁止其它控制路径绕过。仅提供手动打开步骤，不通过菜单、原生窗口、CDP 或其它浏览器面重试同一结果。
+
+## 2026-10-07 Asia/Shanghai - CLR 计数器命名与测量日期精度更正
+
+- **更正：** 上项 ID Process 构造失败来自诊断脚本命名错误，不是类别存在却缺少该计数器。本机 GetCounters 元数据和微软定义均为 Process ID；24 个名称中存在 Process ID、不存在 ID Process。
+- **已跑验证：** 固定 scanner PID 1005396 在 16:10:18 和 16:11:26 均已退出；本轮不能提供其 CLR heap/Gen 读数。系统有效配对间隔 20.46269 秒，与 scanner heap 证据分别报告。
+- **下次做法：** 首先只取计数器元数据确认真实名称；以明确 PID 和启动时间映射实例，不猜测替代 PID。日期间隔从原始 ISO 字符串或 DateTimeOffset 计算；默认 JSON 日期往返再转字符串可能丢失小数秒，必须保留真实超时配对，不能强报小于 60 秒。
+
+## 2026-10-07 Asia/Shanghai - 用户修改扩展权限后重连与商店公开验证
+
+- **已跑验证：** 用户开启文件 URL 权限后，Chrome 连接3失效，fresh getState显示同profile/原tabID的新连接6；按新清单重新连接原发布表单，文件选择成功，5.3.5双商店上线。
+- **下次做法：** 连接失效先确认实际浏览器身份，不关闭或重建用户页面；不得把旧ID unavailable当作用户未授权。页面内部Settings显示latest5.3.5/Public仍可能在审，初期公开API为404；以PUBLISHED队列、公开版本控件/历史和可下载包验证完成，不能仅看通用It's live提示。
+- **边界：** 新agent与idle代理followup均曾被thread limit拒绝，避免重复创建；复用已有运行的代理与root交叉审查，不伪称新独立reviewer已运行。
+
+## 2026-10-07 Asia/Shanghai - 大型发布脚本不能塞进 Windows 命令行
+
+- **已跑验证：** 发布离线测试首次有13个用例被spawnSync ENAMETOOLONG阻止，生产发布代码尚未执行；不能把这次红灯描述为发布逻辑缺陷。
+- **根因：** 把完整工作流内联脚本与fixture通过EncodedCommand传给Windows子进程，编码后超过命令行限制。
+- **下次做法：** 小型UTF8启动引导继续使用EncodedCommand；大型PS7测试正文写入本轮独立临时目录的UTF8 ps1，以pwsh -File执行，保留实际退出码和断言日志。
+- **检查：** 修正后26项发布回归全部通过；临时清理先核对绝对目录在系统Temp内且前缀属于本轮，再使用同一文件API删除。

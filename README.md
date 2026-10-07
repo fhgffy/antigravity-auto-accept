@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.5
+# 🚀 Antigravity Auto Accept v5.3.6
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -148,6 +148,13 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.6 — Button Filtering and Release Delivery (2026-10-07)
+
+- Skip unrelated button state and geometry queries after the existing name filter; preserve action-time host, input and approval checks.
+- Add production-loop regressions for ordinary buttons with throwing getters and disabled, offscreen, invalid-geometry and valid approval candidates.
+- Publish verified main CI packages to GitHub Releases after tests pass. Marketplace and Open VSX publishing use configured credentials and report missing credentials explicitly.
+- See [publishing instructions](docs/publishing.md) for release retry and store verification.
 
 ### v5.3.5 — Window Process Queries (2026-10-07)
 

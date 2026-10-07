@@ -637,10 +637,10 @@ Write-Output 'PASS browser permission shape and global Always Allow exclusion'
 function New-TestScanWindow([int]$Handle, [string]$Mode = '') {
     $button = [pscustomobject]@{
         Current = [pscustomobject]@{ Name = 'Run'; IsEnabled = $true; IsOffscreen = $false; BoundingRectangle = @{ X = 0; Y = 0; Width = 100; Height = 40 } }
-        Invocations = 0; PhysicalClicks = 0; Mode = $Mode
+        Invocations = 0; PhysicalClicks = 0; PatternReads = 0; Mode = $Mode # 2026-10-07：记录模式查询次数，普通按钮不得触及动作模式。
     }
     $button | Add-Member ScriptMethod GetRuntimeId { return @(6001) } # 2026-10-07：原按钮身份快照具有实际 UIA 接口。
-    $button | Add-Member ScriptMethod GetCurrentPattern { param($pattern) if ($this.Mode -eq 'physical-parent-exit') { throw 'Invoke pattern unavailable in test' }; return $this }
+    $button | Add-Member ScriptMethod GetCurrentPattern { param($pattern) $this.PatternReads++; if ($this.Mode -eq 'physical-parent-exit') { throw 'Invoke pattern unavailable in test' }; return $this } # 2026-10-07
     $button | Add-Member ScriptMethod Invoke { $this.Invocations++; if ($this.Mode -eq 'invoke-throws') { throw 'Provider failed after Invoke in test' } }
     $window = [pscustomobject]@{ Current = [pscustomobject]@{ ProcessId = 123; NativeWindowHandle = $Handle }; Buttons = @($button); Action = $button; Mode = $Mode }
     $window | Add-Member ScriptMethod FindFirst { param($scope, $condition) if ($this.Mode -eq 'stale-window') { throw 'Stale window provider in test' }; return $null }
@@ -649,6 +649,32 @@ function New-TestScanWindow([int]$Handle, [string]$Mode = '') {
         $stale = [pscustomobject]@{}
         $stale | Add-Member ScriptProperty Current { throw 'Stale button provider in test' }
         $window.Buttons = @($stale, $button)
+    }
+    # 2026-10-07：记录普通按钮的每个属性读取，并用会抛错的提供者验证名称初筛先于无关状态和矩形查询。
+    if ($Mode -like 'ordinary-*' -or $Mode -like 'candidate-*') {
+        $current = [pscustomobject]@{
+            Mode = $Mode; NameValue = $(if ($Mode -like 'ordinary-*') { 'Save' } else { 'Run' })
+            EnabledValue = ($Mode -ne 'candidate-disabled'); OffscreenValue = ($Mode -eq 'candidate-offscreen')
+            RectangleValue = @{ X = 0; Y = 0; Width = $(if ($Mode -eq 'candidate-invalid-geometry') { 0 } else { 100 }); Height = 40 }
+            NameReads = 0; EnabledReads = 0; OffscreenReads = 0; RectangleReads = 0
+        }
+        $current | Add-Member ScriptProperty Name { $this.NameReads++; return $this.NameValue }
+        $current | Add-Member ScriptProperty IsEnabled {
+            $this.EnabledReads++
+            if ($this.Mode -eq 'ordinary-enabled-throws') { throw 'Unrelated enabled provider failed in test' }
+            return $this.EnabledValue
+        }
+        $current | Add-Member ScriptProperty IsOffscreen {
+            $this.OffscreenReads++
+            if ($this.Mode -eq 'ordinary-offscreen-throws') { throw 'Unrelated offscreen provider failed in test' }
+            return $this.OffscreenValue
+        }
+        $current | Add-Member ScriptProperty BoundingRectangle {
+            $this.RectangleReads++
+            if ($this.Mode -eq 'ordinary-rectangle-throws') { throw 'Unrelated rectangle provider failed in test' }
+            return $this.RectangleValue
+        }
+        $button.Current = $current
     }
     return $window
 }
@@ -723,6 +749,48 @@ finally {
     $script:scanMutationWindow = $null
 }
 if ($scanFailures.Count -gt 0) { throw "Scanner boundary failures: $($scanFailures -join '; ')" }
+
+# 2026-10-07：运行真实主循环并保留实际几何函数，只让名称匹配的候选查询状态、矩形和模式。
+$filterFailures = @()
+try {
+    function Get-TargetProcessIds([int]$ProcessId) { if ($ProcessId -eq 123) { return @{ 123 = $true } }; return @{} }
+    function Get-ButtonCenter($Rectangle) { $script:filterCenterReads++; return & $originalButtonCenter $Rectangle }
+    foreach ($mode in @('ordinary-counted', 'ordinary-enabled-throws', 'ordinary-offscreen-throws', 'ordinary-rectangle-throws', 'candidate-disabled', 'candidate-offscreen', 'candidate-invalid-geometry', 'candidate-valid')) {
+        $script:testParentAlive = $true
+        $script:filterCenterReads = 0
+        $window = New-TestScanWindow 42 $mode
+        $automation = [pscustomobject]@{ Window = $window; Scans = 0 }
+        $automation | Add-Member ScriptMethod FindAll {
+            param($scope, $condition)
+            $this.Scans++
+            if ($this.Scans -gt 1) { $script:testParentAlive = $false; return @() }
+            return @($this.Window)
+        }
+        . ([scriptblock]::Create($noClickLifecycle))
+        $button = $window.Action
+        $current = $button.Current
+        $expected = switch ($mode) {
+            'candidate-disabled' { @(1, 1, 0, 0, 0, 0, 0) }
+            'candidate-offscreen' { @(1, 1, 1, 0, 0, 0, 0) }
+            'candidate-invalid-geometry' { @(1, 1, 1, 1, 1, 0, 0) }
+            'candidate-valid' { @(2, 2, 2, 1, 1, 1, 1) }
+            default { @(1, 0, 0, 0, 0, 0, 0) }
+        }
+        $actual = @($current.NameReads, $current.EnabledReads, $current.OffscreenReads, $current.RectangleReads, $script:filterCenterReads, $button.PatternReads, $button.Invocations)
+        $description = "mode=$mode name=$($actual[0]) enabled=$($actual[1]) offscreen=$($actual[2]) rect=$($actual[3]) center=$($actual[4]) pattern=$($actual[5]) invoke=$($actual[6]) physical=$($button.PhysicalClicks)"
+        if (($actual -join ',') -cne ($expected -join ',') -or $button.PhysicalClicks -ne 0) {
+            $filterFailures += $description
+            Write-Output "FAIL scanner name filter: $description"
+        }
+        else { Write-Output "PASS scanner name filter: $description" }
+        $checks++
+    }
+}
+finally {
+    Set-Item Function:\Get-TargetProcessIds $originalTargetLookup
+    Set-Item Function:\Get-ButtonCenter $originalButtonCenter
+}
+if ($filterFailures.Count -gt 0) { throw "Scanner name filter failures: $($filterFailures -join '; ')" }
 
 # 2026-10-07：动作已经发生却抛错时，同轮后续按钮不得执行，并按配置等待下一轮。
 $attemptFailures = @()
