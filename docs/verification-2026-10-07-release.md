@@ -205,3 +205,10 @@ VSIX D69E67000BECFA612D2CC23708223015362262B9076898DF0FE8F2AB022ED0A3，官方CL
 - 本机原正常路径PS5/PS7各125项通过；真实自有child延迟15s READY重放旧版因缺少边界诊断失败，新版PS5/PS7×child32/64四项均保留超时，诊断完整且子进程退出。独立审查补充4项内存重放和双引擎解析检查通过。
 - 诊断有效不等于原CI根因已修复。本机浏览器后台审批仍未验收通过，PR保持草稿，5.3.6未合并发布。
 - 本轮完整npm test退出0：编译/typecheck、repository3、publication26、selftest95、lifecycle28、scanner152、host双引擎各125、mouse双引擎各81、concurrency22均通过。该自动验证不能替代仍失败的真实浏览器后台审批。
+
+### 2026-10-08：新增 CI 边界诊断的首轮结果
+
+- 51ca1a4的PR run 37667085933及push run 37667078678首轮失败：分别PS5与PS7在caller64的child32 READY10s失败。该child未退出、两个读取任务WaitingForActivation；终止后READY/stderr为空、stopError为空。child64已通过。未发起再次重跑。
+- 空输出将范围缩小到READY前，但不能独自证明冷启动、Console设置或安全扫描为根因。下一诊断仅增加捕获stderr阶段协议ENTERED/ENCODING_SET/READY_WRITTEN，成功必须精确匹配三条PID行，额外错误仍拒绝；时间与身份断言未放宽。
+- 新协议本机双引擎各125项通过，真实child在编码设置前和READY写入前分别延迟15s的两项重放均正确定位已到达阶段、保留超时并验证退出。独立审查7项协议内存重放、解析、编码及diff检查通过。
+- 所有本轮CI诊断与协议都位于测试代码，正式scanner仍为678e741的相同字节。真实浏览器后台审批仍未通过，因此不合并发布5.3.6。

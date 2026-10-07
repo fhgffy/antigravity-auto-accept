@@ -315,7 +315,8 @@ $native64 = if ([IntPtr]::Size -eq 4) { Join-Path $env:WINDIR 'Sysnative\Windows
 $native32 = Join-Path $env:WINDIR 'SysWOW64\WindowsPowerShell\v1.0\powershell.exe'
 foreach ($fixture in @(@{ Engine = $native64; Expected = $system32; Bits = 8 }, @{ Engine = $native32; Expected = $native32; Bits = 4 })) {
     if (-not [IO.File]::Exists($fixture.Engine)) { throw "Owned child engine missing: $($fixture.Engine)" }
-    $childCommand = '[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Console]::WriteLine("READY:"+[IntPtr]::Size+":"+$PID); [void][Console]::ReadLine(); exit 259'
+    <# 2026-10-08：自有子进程仅向捕获的stderr写阶段协议，区分脚本入口、编码设置与READY写入，成功时精确校验全协议。 #>
+    $childCommand = '[Console]::Error.WriteLine("HOST_CHILD_ENTERED:"+$PID); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Console]::Error.WriteLine("HOST_CHILD_ENCODING_SET:"+$PID); [Console]::WriteLine("READY:"+[IntPtr]::Size+":"+$PID); [Console]::Error.WriteLine("HOST_CHILD_READY_WRITTEN:"+$PID); [void][Console]::ReadLine(); exit 259'
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $fixture.Engine
     $start.Arguments = '-NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childCommand))
@@ -362,7 +363,10 @@ foreach ($fixture in @(@{ Engine = $native64; Expected = $system32; Bits = 8 }, 
         Assert-Host ($child.ExitCode -eq 259) 'owned child normal exit 259'
         Assert-Host ([MouseHelper]::WaitForSingleObject($retained, 0) -eq 0) 'owned exited child handle signaled'
         Assert-Host ($null -eq [MouseHelper]::GetProcessImagePath([uint32]$child.Id)) 'owned exited 259 child rejected with retained handle'
-        Assert-Host ($pendingTail.GetAwaiter().GetResult().Length -eq 0 -and $pendingError.GetAwaiter().GetResult().Length -eq 0) 'owned child output streams complete'
+        <# 2026-10-08：成功路径只允许自有child的三个阶段标记，任何额外stderr内容仍为失败。 #>
+        $expectedChildError = @("HOST_CHILD_ENTERED:$($child.Id)", "HOST_CHILD_ENCODING_SET:$($child.Id)", "HOST_CHILD_READY_WRITTEN:$($child.Id)") -join [Environment]::NewLine
+        $expectedChildError += [Environment]::NewLine
+        Assert-Host ($pendingTail.GetAwaiter().GetResult().Length -eq 0 -and $pendingError.GetAwaiter().GetResult() -ceq $expectedChildError) 'owned child output streams complete'
         Write-Output "PASS owned child: caller=$([IntPtr]::Size * 8) child=$($fixture.Bits * 8) alive-path=yes exited-259=rejected"
     }
     finally {
