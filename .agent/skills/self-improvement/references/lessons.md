@@ -524,3 +524,29 @@
 - **已跑红绿：** 独立A/B脚本ledger写入/输出持续失败时，catch内备用Console.WriteLine再次失败会盖掉原owned-child timeout；仅已有startupFailure分支给备用输出try/catch{}，无原异常仍throw，peer用实际catch和持续stdout故障复验两边界。不能用输出恢复失败替换原启动错误。
 - **引擎边界：** 工具请求shell路径仍可能以外层PS7运行；用准确System32 PS5 exe启动被测caller并验证major/bitness，守卫在child前拒绝保留，不能归因候选。正式CRLF归一须更新候选hash并核对除换行外文本相同，原frozenhost hash不变。
 - **范围：** 独立fresh-runner A/B只提取21项，不能替代原131required回归或把一次绿灯称机制定位；不预热、不rerun、不延长原10秒。
+
+## 2026-10-08 Asia/Shanghai - A/B 两输入同绿不能定位间歇机制
+
+- **已跑远端：** de056a3 A/B四freshrunner与PR/push均首轮通过，四artifact各21/原host与scanner hash/确认退出和准确清理核对通过，无重跑。两输入均绿只能证明这轮执行结果，不隔离原f79 READY10s未知故障；CI通过也不替代pending后台审批/焦点/连续输入/多IDE实测，发布仍跳过。
+- **正文比较：** 原模板hash相同，但自有GUID/nonce/路径不同使actualbody hash各异；只称语义模板同源，不称实际正文逐字相同。
+
+## 2026-10-08 Asia/Shanghai - 公开转换成功与捕获覆盖分别核验
+
+- **已跑本机：** 188F候选root/first-child各341条公开IAccessible转换均六HR S_OK/fullSamefalse/cleanuptrue，零CLICK；证明两个非目标元素可转换，不证明整树无目标，也不能改用relative编号或名称坐标放行。原目标完整身份仍须实际命中。Stop183028/CIM退出、CLI原包hash7F/JS2F85、OFFpending、Note197exact均核对。
+- **兼容坑：** 新QueryInterface完整方法在PS7 .NET10的CS9191与PS5未知pragma CS1691分别实跑失败；只在新增方法局部1691/9191成对disable/restore后完整双引擎编译通过，不能全局IgnoreWarnings或把早期候选hash当最终包。
+- **观测：** 实际120秒捕获启动后509样本含183 IDE与326 Note，不能写全Note或无input handsoff；到Stop约3分16秒尾段未覆盖。后续在同一受限单元记录短区间、立即完成Stop/恢复再分析，避免收尾分析耗尽observer。实时目录Length显示0时实际文件读到234105字节，状态用真实读取/start-stop记录确认，不据元数据认定空观察。
+
+## 2026-10-08 Asia/Shanghai - 协作预算停止不是 provider HRESULT 失败
+
+- **已跑本机：** ACF只读sweep START1/71node，前70完整len4均不同于targetlen6，第71在ElementFromIAccessible S_OK之后预算检查中断，RuntimeId/Compare未调用；readHr80131509是managed预算异常，END1583ms/wall-budget。不能把日志format element-convert-throw当原生转换HRESULT失败，不由局部长度差异称全tree无目标。73prepare不等于73遍历，client一次消费阻止重复query。
+- **覆盖：** 手离10.448秒/52样本全Note且逐字197保留，但实际单轮查询更早在IDE前台；只证明后续拒绝路径静置稳定。Capture结束到Stop27.731秒排除，预算包含sweep内层清理但非outerbinding/finally、不取消COM。
+- **交接：** 所有root台账字段定稿后再交peer固定hash；本次peer读取期间root追加handsoffAudit使ledger hash变化，原始log/observer保持，复算按新冻结hash完成。不得将此交接顺序问题归因候选。
+- **工具：** Marketplace extensionquery必须带api-version，缺失请求被服务拒绝，3.0-preview.1实际核验成功；用Stop保留原API异常，不让后续null集合检查遮盖。Windows rg的通配文件名使用-g作用于目录，不把docs/verification-*.md当LiteralPath。
+
+## 2026-10-08 Asia/Shanghai - 可见性重读与实际宿主根分别验证
+
+- **已跑动态红绿：** 前置IsOffscreen=false不能封住旧if第二读变true的ScrollIntoView。Temp5848在旧offscreen body首句continue，保留旧body；PS5/7各3例9项确认旧Scroll1/query1到新Scroll0/query0、稳定可见collapsed query1。CandidateDiagnostic也读属性，首fixture没有触发真实旧分支；需从实际模式取得后控制时序，不把恒定属性case当race覆盖。普通路线未禁，只有browser动作拒绝边界。
+- **夹具与执行上下文：** failed Simple out不能把此前成功Fragment RCW包装混计；首次PS5日志异常后仍写PASS不算通过，最终外层catch/exit和具体pointer修正保留红绿。UTF8 ScriptBlock没有原文件PSScriptRoot，必须显式传目录；不能把这些夹具/loader错误归因native provider。
+- **已跑本机：** 实际FragmentRoot标准QI/selfSame/options226/Host/UiaNodeFromProvider全S_OK，RuntimeId仍80004002/arrayNULL，type/Compare not-called、cleanuptrue、marker1而prepare100、0CLICK。只证明root core入口成功，完整目标身份未命中，不能拿root或Host作为原More授权。
+- **UI恢复与边界：** 原history选择空白后只Reload一次，再正常history选择出现workspace picker，Open in current window恢复原审批；不是未验证的隐藏面板隔离或盲重试。Stop199752/原包hash7F/JS2F85/OFFpending/Note197exact与3repo8hash保持核对；本轮无observer，不补造后台焦点或持续输入证明。
+- **SDK 枚举须查源：** ProviderOwnsSetFocus=0x10(16)，128是HasNativeIAccessible，实际root options226不含OwnsSetFocus；不能按记忆猜bit值或从根flag直接推More动作抢焦点的根因。公开UiaNavigate返回cache SAFEARRAY/BSTR，转换函数准确名为UiaHUiaNodeFromVariant，不是直接out HUIANODE。

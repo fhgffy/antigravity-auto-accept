@@ -109,3 +109,47 @@ Microsoft [Control Patterns Overview](https://learn.microsoft.com/en-us/windows/
 作者本机四组各21通过，四组受控15秒延迟保留原10秒timeout/exit1并回收自有child；12项有限边界通过。独立review四组各21/exit0/stderr空、三stage删除/空目录删除、File输入删除通过，自有四PID均退出。独立正常首个PS5 Encoded用旧SHA32262B、其余三用日志保护修后0708107，没有重跑填绿；另外单独以持续stdout故障验证旧异常覆盖红→修后保留原异常绿，无原异常仍抛输出失败。修正仅增加一条2026-10-08中文说明及备用Console.WriteLine的try/catch{}，原函数/reader/assert/cleanup逐字保持；peer最终无P1/P2。Temp候选UTF8无BOM/LF，正式新文件依项目归一CRLF、内容除此一致：脚本D435CFF806983319BF6FBCF682E0C8AA4B9D3033BAF99246536EEE7B65D4670F，workflow DF932632E514EC3CCFF27D67DB2BA0C7CAEC25861AC31A21B1EF1A2961B88679。ROOT准确PS5/7解析均0，repository三项（strictUTF8/noBOM/CRLF、manifest、diff）通过；正式scanner CDB3AB...2EAEC1保持。
 
 证据目录C:/Temp/AntigravityAA-ci-startup-ab-536-ecb8c35e2059461eade13b33c47e2d9f（作者handoff、每例result/stdout/stderr、root-formal-copy.json），独立审查C:/Temp/AntigravityAA-ci-ab-readonly-review-536-23ee03b3298d4a468f694570495a7750。原f79 PR首轮绿/push首轮PS5失败均保留，尚未定位原CI根因；A/B本机绿灯或未来单次runner差异都不能直接证明AMSI/base64/冷启动机制。此次不改变发布门禁，不合并或发布5.3.6。
+
+## de056a3 首轮远端结果
+
+证据等级：已跑远端验证。2026-10-07T21:45Z 核对提交de056a306bb141187301f3edf17ec1c309b54642三条run均completed/success且run_attempt=1：A/B37691138405、PR37691143382、push37691138314。PR双引擎113031329647/113031329780和Verified VSIX113031956217通过，发布113032698978跳过；push双引擎113031311677/113031311902和包113031945523通过，发布113032585476跳过。未rerun。
+
+A/B四个独立job均首次success：PS5 Encoded113031312459/File113031312796，PS7 Encoded113031312803/File113031313044。实际artifact四个result.json逐项核对Passedtrue/21断言、caller64、major5或7、原host776F/scannerCDB3一致、同一bodytemplate4A300F、NormalExitWaitCompletedtrue、最终HasExitedtrue、三stage删除/空dir移除、File输入deleted、DiagnosticErrors空。PS5实际5.1.26100.33438、PS7实际7.6.6。Encoded参数4350字符、File127字符，两种输入都通过；不能认定输入方式导致原间歇超时或已修复。各job的GUID/nonce/路径不同，actualbody hash不同而template相同，不能声称实际正文byte-identical。证据在A/B Temp/de056a3-startup-ab-attempt1-artifacts及de056a3-startup-ab-attempt1-ledger-audit.json，原f79红灯记录保留。后台真实审批仍pending，CI绿灯不是本机验收或发布通过。
+
+## 2026-10-08 公开 IAccessible 转换的本机结果
+
+证据等级：已跑本机验证、已跑隔离验证、已读接口契约。Temp 只读候选 scanner SHA256=188F2D167FB2048F11DC5B361DEE2EDCC901638BB562F6384AC66AA53F20154B，VSIX=988E0F289B3478049A0D3CF78300CBC2DC20742D89E3E5851D64FE0C04AC7261。借用 native Fragment，经标准 IAccessible QI、ElementFromIAccessible(CHILDID_SELF=0)、client GetRuntimeId 返回完整 opaque 数组，仅通过原 CompareRuntimeIds 与原绑定目标比较。未拼相对编号，也未返回动作包装或执行模式。有限完整方法、失败非空 out/清理分支、准确 PS5/7 完整编译、独立审查及三架构真实 ABI 通过；ABI 只证明本进程所测接口布局与引用归属，不代表真实 IDE 身份或审批通过。新增方法在 .NET 10 的 QueryInterface 调用触发 CS9191，简单单条 pragma 又触发 PS5 CS1691；最终仅该新增完整方法局部按 1691/9191 disable/restore 兼容，未全局忽略编译警告。
+
+官方 CLI 安装 exit0、安装源码 hash 一致；scanner PID183028、parent36856，06:06:37.976093+08 启动，06:11:35.798+08 用 Sky 正常 Stop，随后 CIM 确认退出。实际 682 条公开转换记录（root341、first-child341）六个 HRESULT 均 S_OK、VT_I4/dim1/len4、compared=true、fullSame=false、cleanup=true；CLICK_INVOKE/CLICK_PHYSICAL 日志为0。证明这两个 provider 的公开转换接口可用且不是原绑定目标，不证明整树没有目标。原 TypeScript 审批仍 pending、More actions 折叠，正式 scanner 未改。下一步只读有限后代遍历，不由非目标结果放宽完整身份。
+
+120s observer 实际22:06:19.875Z—22:08:19.875Z，600 sample/24条固定 IDE35596 resource；启动前91 sample排除，启动后509完整sample中前183为IDE133218/PID35596（22:06:38.069Z—22:07:14.481Z），随后326为Note329822/PID33200（22:07:14.685Z—22:08:19.687Z）。509的cursor1322,865与lastInput40960187保持，foreground有一次IDE到Note变化；采样不能判断变化责任或证明瞬时无变化。没有单独记录handsoff区间，捕获结束至Stop约3分16秒明确未覆盖，不补成全程前台保证。目录元数据一度显示Length=0，但同一现存文件实际读取234105字节、498行；用实际读取及start/stop记录核验，而不以该元数据断言观察空。
+
+原包官方 CLI 恢复 exit0，安装 source7F732F...8ADC0A、JS2F85...2EA1AD核对，UI OFF，无scanner child，原卡片pending；Sky恢复Note前台，原197字符逐字保留。证据目录C:/Temp/AntigravityAA-browser-provider-public-convert-536-d1048275a4184ef98d2f1f1a9cf60c9c，包含native-runtime-ledger.json、native-plugin-excerpt.log、native-aggregate.json及HANDOFF。此次为只读拒绝诊断，不能称后台审批、连续输入或多IDE验收通过，仍不合并发布5.3.6。
+
+## 2026-10-08 有限公开编号遍历的本机结果
+
+证据等级：已跑本机验证、已跑有限离线验证、已读源码与独立审查。新Temp source ACF0F76926C636B979DC164A99B8DDB4243FC3B06BBC09E47F2E3ACB6C5FAEBF、VSIX077A605D199EF58F9A77F4987C650B25608898D3E4384A6CD8B906AF26EE6FBC。首次完整目标/窗口/RECT/RawView绑定后消费客户端唯一诊断机会；此后在原参数校验后、任何原生绑定前固定拒绝。有限native Fragment只读遍历保留node256/depth32，新增1500ms协作预算，所有终态拒绝动作。新导航裸out仅S_OK才包装；失败输出和循环alias各自独立清理，不能用名称/坐标/相对编号作为身份。PS5完整生产C#10记录及26必要mock通过，未重复旧288/ABI；独立代码审查核SDK槽位、4唯一新增单元移除后还原188F全字节、UTF8无BOM/CRLF、8ZIPentries中other7逐字一致，无安装阻塞。预算只覆盖新sweep与它的内层清理，不包括原外层binding/finally，且不能取消阻塞COM或保证整个Prepare小于1500ms。
+
+官方CLI安装exit0且安装source一致；scanner176988/parent36856于06:30:43.522686+08启动，06:31:43.361+08通过Sky正常Stop，CIM确认退出。实际START1/NODE71/END1；原目标完整ID长度6，前70个node公开完整ID长度4、六HR均S_OK/comparedtrue/fullSamefalse/cleanuptrue。第71的ElementFromIAccessible已S_OK，随后预算检查抛错，runtimeHr与compareHr为not-called；readHr80131509来自预算异常，不能写成provider GetRuntimeId失败。END nodes71/maxDepth15/elapsed1583ms/terminalwall-budget/fullSamefalse/patternAvailablefalse/cleanuptrue；未完成全树，长度差异不证明身份桥对全部元素不可能。CLICK日志0，实际73次prepare-before不等于73次sweep，只有一轮。没有取得或调用匹配目标模式，审批仍pending。
+
+60s捕获22:30:15.619Z—22:31:15.630Z，共300sample/12条固定IDE35596resource。明确手离区间22:30:57.285Z—22:31:07.733Z完全覆盖，52完整样本（57.429Z—07.617Z）均Note329822/PID33200、有效且读取前后稳定，cursor1322,865与tick42405718各一个值；Note197字符逐字保留。单轮实际查询发生在06:30:46—47，早于手离段，对应秒桶10个样本均IDE前台，因此该稳定段只覆盖后续拒绝轮询，不证明Note前台native查询或真实审批体验。捕获结束到StopAction的27.731秒明确排除，不补成全程保证。
+
+原包官方CLI恢复exit0、source7F732F...8ADC0A/JS2F85...2EA1AD核对，OFFpending、无PS child、Note197exact并恢复前台，正式scanner CDB3保持。证据目录C:/Temp/AntigravityAA-browser-provider-public-sweep-536-2ac388ac1f534fe88176af7239ad3227（HANDOFF/26mock/编码范围包核对；native-root内runtime-ledger/log/aggregate/handsoff-audit）。独立原始日志审计C:/Temp/AntigravityAA-sweep-native-audit-102f65ab1ac74a3daea0fdb35a1f6922，确认上述数量和区间；审计未fresh核验恢复UI/安装文件，其恢复描述仅引用ROOT台账。ROOT完善台账时的hash更新已记录，原log/observer不变。
+
+22:25:42Z—22:26:09Z再次核对公开API：GitHub最新v5.3.5、OpenVSX最新5.3.5、Marketplace exact publisher/name最新5.3.5且列表15个版本不含5.3.6。首次Marketplace请求漏api-version而被拒绝，补3.0-preview.1后查询成功；不是上传/发布失败。对应三JSON在188F Temp目录。5.3.6仍未合并发布，后台浏览器焦点、持续输入及多IDE验收尚未完成。
+
+## 2026-10-08 实际宿主 FragmentRoot 的本机结果
+
+证据等级：已跑本机验证、已跑有限双引擎验证、已读源码与独立审查。Temp 最终 scanner5848D1DA49DC313732BD2ACC033C3BE690C121D6B89F059CDA832E50B06CA11A，VSIX167DB55519FFAA4B43B0454F303FB736C0ABC2CA08EC7D0124047A8CDE92E568，manifest仍5.3.6。新增完整 root helper 与调用、三处 browser guard；删除五个唯一完整单元还原 ACF 原字节。借用 Fragment.get_FragmentRoot 后，标准 Root/Fragment/Simple QI、actual root self 的 canonical IUnknown 相同、Host 非空才查询 actual root core；Host 本身不传给 core。全终态固定拒绝，没有相对编号拼接或动作包装。
+
+独立复核发现前置 IsOffscreen=false 后旧 if 再读取变 true 仍可 ScrollIntoView；最终仅 Temp 在原 offscreen body 首句加无条件 continue，旧 body 保留。真实生产 PS 函数的动态红绿在 PS5/PS7 各3例9项exit0：1E99旧候选Scroll1/query1，5848同两次读取Scroll0/query0，稳定可见collapsed仍query1/Scroll0，Expand/Invoke/AllowOnce均0。第一次动态夹具被 CandidateDiagnostic 提前读取影响而未触发旧滚动，日志保留，不当红证据；校正实际模式取得后的读取时序才取得上述红绿。正式 scanner 尚未改，普通路线未禁，不能称全 scanner 零动作。
+
+新增 C# 完整双引擎编译与30例各897项最终通过；guard 前后全 C#138989字符字节相同，因此没有重复该矩阵或旧ABI。此前7例静态 browser fixture是1E99的14项证据，不冒充5848全量回归。首次Simple QI失败out夹具误计此前成功Fragment包装，PS7红而PS5异常后错误写PASS；生产helper未改，修fixture具体pointer与外层catch/exit后最终绿。UTF8 ScriptBlock首版缺PSScriptRoot上下文的失败也保留。strict UTF8/noBOM/CRLF、PS AST与8 ZIP entries中other7原字节一致、peer复核通过；这些验证不等于native/provider验收。
+
+本轮开始原 Agent 经三种正常历史选择仍空白。正常 Developer: Reload Window 只一次后，extensionHost从36856变202308；再选择同一a0deb3b3历史任务出现公开workspace选择框，选Open in current window后D536_BROWSER_PROVIDER_001、TypeScript原URL、Waiting和More恢复。此前仅短时隐藏面板仍见AX不能推论长期隐藏；新建空会话才暂时移除原AX。Reload前Save All菜单disabled，未执行保存/丢弃/取消任务；三个用户repo HEAD/status和原8项文件hash前后逐项相同。
+
+官方CLI安装exit0/source5848核对，scanner199752/parent202308于07:23:48.493791+08启动。实际07:24:33仅1条HOSTED_PROVIDER_ROOT_538，100次prepare-before不是100次probe。root取得、三个标准QI、自身FragmentRoot/IUnknown、options226、Host、UiaNodeFromProvider均S_OK，selfSame/hostNonNull/nodeNonNull=true；UiaGetRuntimeId返回80004002、arrayNonNull=false，type/Compare为8000000A未调用占位，fullSame=false/readHr80004002/cleanup=true。它证明actual root core入口成功，未证明完整目标身份，也不证明下一导航必然可用。CLICK_INVOKE/CLICK_PHYSICAL为0，原审批保留。
+
+07:25:47用Sky正常Stop，CIM确认199752退出；原包CLI恢复exit0、installedsource7F732F...8ADC0A/JS2F85...2EA1AD核对，freshUI OFF/pending，Note197逐字完整并主动恢复前台。没有observer/独立hands-off段，不声称后台native查询焦点稳定或资源验收。正式CDB3 scanner与776F宿主测试保持，未安装正式CDB3 VSIX，未merge/发布5.3.6。
+
+候选/失败/最终验证在C:/Temp/AntigravityAA-browser-provider-hosted-root-538-b3d26a3d053f46e8b0acc4bc5bc10310，独立候选审查在C:/Temp/AntigravityAA-hosted-root-independent-review-538-ffb244282dbc49b8bfe68699994b9bf5。本机原日志、CLI安装恢复、native-aggregate、冻结runtime-ledger和HOSTED-NATIVE-HANDOFF在C:/Temp/AntigravityAA-formal-multitask-536-54bbb63f265e4bde88eb924429143f51；目录名称不代表正式多任务验收通过。
