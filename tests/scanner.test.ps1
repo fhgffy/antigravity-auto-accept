@@ -74,7 +74,8 @@ $requiredFragments = @(
     'if (!IsPointOwnedByWindow(x, y, target, expectedProcessId)) { return false; }',
     '!IsPointOwnedByWindow(x, y, target, expectedProcessId)',
     'currentPoint.X != x || currentPoint.Y != y',
-    'if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen) { continue }',
+    # 2026-10-07：最新回退同时复核静态标签，旧版 API 分支也保留该最终状态保护。
+    'if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen -or -not (Test-ButtonMatch $btnName)) { continue }',
     'if (-not (Get-TargetProcessIds).ContainsKey($windowProcessId)) { continue }'
 )
 foreach ($fragment in $requiredFragments) {
@@ -305,6 +306,8 @@ finally {
     $script:testParentAlive = $true
 }
 
+$realApprovalCards = (Get-Item Function:\Invoke-ApprovalCards).ScriptBlock # 2026-10-07：保留已加载的真实卡片函数，后续尾段回归恢复它而不是沿用空桩。
+
 # 2026-10-05：只提取实际父进程及互斥生命周期代码，目标进程返回空集合以阻止扫描和点击。
 $parentFunction = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-ParentAlive' }, $true)
 if ($parentFunction.Count -ne 1) { throw 'Parent lifecycle function not found' }
@@ -531,6 +534,210 @@ foreach ($case in @(
 if (Test-ButtonMatch 'Always Allow') { throw 'Global Always Allow matcher must remain disabled' }
 $checks++
 Write-Output 'PASS browser permission shape and global Always Allow exclusion'
+
+# 2026-10-07：执行实际扫描尾段覆盖多窗口公平性、失效节点及动作竞态，物理回退仅累计内存计数。
+function New-TestScanWindow([int]$Handle, [string]$Mode = '') {
+    $button = [pscustomobject]@{
+        Current = [pscustomobject]@{ Name = 'Run'; IsEnabled = $true; IsOffscreen = $false; BoundingRectangle = @{ X = 0; Y = 0; Width = 100; Height = 40 } }
+        Invocations = 0; PhysicalClicks = 0; Mode = $Mode
+    }
+    $button | Add-Member ScriptMethod GetCurrentPattern { param($pattern) if ($this.Mode -eq 'physical-parent-exit') { throw 'Invoke pattern unavailable in test' }; return $this }
+    $button | Add-Member ScriptMethod Invoke { $this.Invocations++; if ($this.Mode -eq 'invoke-throws') { throw 'Provider failed after Invoke in test' } }
+    $window = [pscustomobject]@{ Current = [pscustomobject]@{ ProcessId = 123; NativeWindowHandle = $Handle }; Buttons = @($button); Action = $button; Mode = $Mode }
+    $window | Add-Member ScriptMethod FindFirst { param($scope, $condition) if ($this.Mode -eq 'stale-window') { throw 'Stale window provider in test' }; return $null }
+    $window | Add-Member ScriptMethod FindAll { param($scope, $condition) if ($condition -eq 'button') { return $this.Buttons }; return @() }
+    if ($Mode -eq 'stale-button') {
+        $stale = [pscustomobject]@{}
+        $stale | Add-Member ScriptProperty Current { throw 'Stale button provider in test' }
+        $window.Buttons = @($stale, $button)
+    }
+    return $window
+}
+$originalTargetLookup = (Get-Item Function:\Get-TargetProcessIds).ScriptBlock
+$originalButtonCenter = (Get-Item Function:\Get-ButtonCenter).ScriptBlock
+$scanFailures = @()
+$physicalCall = '[MouseHelper]::Click($center.X, $center.Y, $restoreCursorEnabled, $windowHandle, [uint32]$windowProcessId)'
+if (-not $lifecycleSource.Contains($physicalCall)) { throw 'Physical fallback boundary not found' }
+$noClickLifecycle = $lifecycleSource.Replace($physicalCall, '(Invoke-TestPhysicalClick $btn)')
+function Invoke-TestPhysicalClick($Button) {
+    $Button.PhysicalClicks++
+    if ($Button.Mode -like 'slow-physical-*') { Start-Sleep -Milliseconds 300 }
+    if ($Button.Mode -like '*physical-*' -and $Button.Mode -ne 'physical-parent-exit') { $script:testFirstActionTime = [DateTime]::UtcNow }
+    if ($Button.Mode -like '*physical-throws') { throw 'Provider failed after physical action in test' }
+    if ($Button.Mode -eq 'physical-false') { return $false }
+    return $true
+}
+try {
+    foreach ($mode in @('fairness', 'stale-window', 'stale-button', 'renamed-during-host', 'disabled-during-host', 'offscreen-during-host', 'invoke-throws', 'physical-parent-exit')) {
+        $script:testParentAlive = $true
+        $script:scanMutationWindow = New-TestScanWindow 42 $mode
+        $otherWindow = New-TestScanWindow 43
+        $nonHostWindow = New-TestScanWindow 44
+        $nonHostWindow.Current.ProcessId = 999
+        $scanWindows = if ($mode -in @('fairness', 'stale-window')) { @($script:scanMutationWindow, $nonHostWindow, $otherWindow) } else { @($script:scanMutationWindow) }
+        $script:scanHostLookups = 0
+        function Get-TargetProcessIds {
+            $script:scanHostLookups++
+            $mutation = $script:scanMutationWindow
+            if ($script:scanHostLookups -gt 1 -and $mutation.Mode -eq 'renamed-during-host') { $mutation.Action.Current.Name = 'Save' }
+            elseif ($script:scanHostLookups -gt 1 -and $mutation.Mode -eq 'disabled-during-host') { $mutation.Action.Current.IsEnabled = $false }
+            elseif ($script:scanHostLookups -gt 1 -and $mutation.Mode -eq 'offscreen-during-host') { $mutation.Action.Current.IsOffscreen = $true }
+            return @{ 123 = $true }
+        }
+        $script:centerReads = 0
+        function Get-ButtonCenter($Rectangle) {
+            $script:centerReads++
+            if ($script:scanMutationWindow.Mode -eq 'physical-parent-exit' -and $script:centerReads -gt 1) { $script:testParentAlive = $false }
+            return @{ X = 50; Y = 20 }
+        }
+        $automation = [pscustomobject]@{ Windows = $scanWindows; Scans = 0; Rounds = $(if ($mode -eq 'fairness') { 3 } else { 1 }) }
+        $automation | Add-Member ScriptMethod FindAll {
+            param($scope, $condition)
+            $this.Scans++
+            if ($this.Scans -gt $this.Rounds) { $script:testParentAlive = $false; return @() }
+            return $this.Windows
+        }
+        . ([scriptblock]::Create($noClickLifecycle))
+        $first = $script:scanMutationWindow.Action
+        $passed = switch ($mode) {
+            'fairness' { $first.Invocations -gt 0 -and $otherWindow.Action.Invocations -gt 0 }
+            'stale-window' { $otherWindow.Action.Invocations -eq 1 }
+            'stale-button' { $first.Invocations -eq 1 }
+            'invoke-throws' { $first.Invocations -eq 1 -and $first.PhysicalClicks -eq 0 }
+            default { $first.Invocations -eq 0 -and $first.PhysicalClicks -eq 0 }
+        }
+        $description = "mode=$mode first=$($first.Invocations) other=$($otherWindow.Action.Invocations) physical=$($first.PhysicalClicks)"
+        if (-not $passed -or $nonHostWindow.Action.Invocations -ne 0) { $scanFailures += $description; Write-Output "FAIL scanner boundary: $description" }
+        else { Write-Output "PASS scanner boundary: $description" }
+        $checks++
+    }
+}
+finally {
+    Set-Item Function:\Get-TargetProcessIds $originalTargetLookup
+    Set-Item Function:\Get-ButtonCenter $originalButtonCenter
+    $script:scanMutationWindow = $null
+}
+if ($scanFailures.Count -gt 0) { throw "Scanner boundary failures: $($scanFailures -join '; ')" }
+
+# 2026-10-07：动作已经发生却抛错时，同轮后续按钮不得执行，并按配置等待下一轮。
+$attemptFailures = @()
+foreach ($mode in @('invoke-throws', 'physical-throws', 'physical-false', 'slow-invoke-throws', 'slow-invoke-success', 'slow-physical-throws', 'slow-physical-success')) {
+    $script:testParentAlive = $true
+    $script:testFirstActionTime = $null
+    $firstWindow = New-TestScanWindow 42 $mode
+    $secondAction = (New-TestScanWindow 43).Action
+    $firstWindow.Buttons += $secondAction
+    if ($mode -like '*invoke-*') {
+        $firstWindow.Action | Add-Member ScriptMethod Invoke {
+            $this.Invocations++
+            if ($this.Mode -like 'slow-*') { Start-Sleep -Milliseconds 300 }
+            $script:testFirstActionTime = [DateTime]::UtcNow
+            if ($this.Mode -ne 'slow-invoke-success') { throw 'Provider failed after Invoke in test' }
+        } -Force
+    }
+    else {
+        $firstWindow.Action | Add-Member ScriptMethod GetCurrentPattern { param($pattern) throw 'Invoke pattern unavailable in test' } -Force
+    }
+    $automation = [pscustomobject]@{ Window = $firstWindow; Scans = 0; GapMs = 0 }
+    $automation | Add-Member ScriptMethod FindAll {
+        param($scope, $condition)
+        $this.Scans++
+        if ($this.Scans -gt 1) {
+            if ($null -ne $script:testFirstActionTime) { $this.GapMs = ([DateTime]::UtcNow - $script:testFirstActionTime).TotalMilliseconds }
+            $script:testParentAlive = $false
+            return @()
+        }
+        return @($this.Window)
+    }
+    $savedCooldown = $CooldownMs
+    $CooldownMs = 250
+    $savedConsole = [Console]::Out
+    $attemptWriter = New-Object IO.StringWriter
+    try {
+        [Console]::SetOut($attemptWriter)
+        . ([scriptblock]::Create($noClickLifecycle))
+    }
+    finally { $CooldownMs = $savedCooldown; [Console]::SetOut($savedConsole) }
+    $successProtocol = $attemptWriter.ToString() -match '___CLICK_(INVOKE|PHYSICAL)___'
+    $expectedSuccess = $mode -like '*-success'
+    $attemptWriter.Dispose()
+    $firstAction = $firstWindow.Action
+    $actualFirst = $firstAction.Invocations + $firstAction.PhysicalClicks
+    $description = "mode=$mode first=$actualFirst second=$($secondAction.Invocations) gap-ms=$([int]$automation.GapMs) success-protocol=$successProtocol"
+    if ($actualFirst -ne 1 -or $secondAction.Invocations -ne 0 -or $automation.GapMs -lt 200 -or $successProtocol -ne $expectedSuccess) {
+        $attemptFailures += $description
+        Write-Output "FAIL scanner action cooldown: $description"
+    }
+    else { Write-Output "PASS scanner action cooldown: $description" }
+    $checks++
+}
+if ($attemptFailures.Count -gt 0) { throw "Scanner action cooldown failures: $($attemptFailures -join '; ')" }
+
+# 2026-10-07：最终批准抛错仍消耗本轮；选择、展开和滚动失败只跳过候选，不能冒充批准成功。
+Set-Item Function:\Invoke-ApprovalCards $realApprovalCards
+$cardAttemptFailures = @()
+foreach ($mode in @('browser-wide', 'browser-menu', 'terminal-submit', 'terminal-select', 'browser-expand', 'browser-scroll')) {
+    $script:testParentAlive = $true
+    $script:testFirstActionTime = $null
+    $finalApproval = $mode -in @('browser-wide', 'browser-menu', 'terminal-submit')
+    if ($mode -like 'terminal-*') {
+        $cardWindow = New-TestApprovalWindow $true ($mode -eq 'terminal-submit') $true
+        $approvalAction = $cardWindow.Card.Buttons[0]
+        if ($mode -eq 'terminal-submit') {
+            $approvalAction | Add-Member ScriptMethod Invoke { $this.Invocations++; Start-Sleep -Milliseconds 300; $script:testFirstActionTime = [DateTime]::UtcNow; throw 'Provider failed after terminal approval in test' } -Force
+        }
+        else {
+            $cardWindow.Card.Radios[0].Selection | Add-Member ScriptMethod Select { $this.Selects++; throw 'Provider failed during selection in test' } -Force
+        }
+    }
+    else {
+        $shape = if ($mode -eq 'browser-wide') { 'wide' } elseif ($mode -eq 'browser-scroll') { 'scroll-expand' } else { 'labeled-menu' }
+        $cardWindow = New-TestBrowserWindow $shape
+        $approvalAction = $cardWindow.Once
+        if ($finalApproval) {
+            $approvalAction | Add-Member ScriptMethod Invoke { $this.Invocations++; Start-Sleep -Milliseconds 300; $script:testFirstActionTime = [DateTime]::UtcNow; throw 'Provider failed after browser approval in test' } -Force
+        }
+        elseif ($mode -eq 'browser-expand') {
+            $cardWindow.More | Add-Member ScriptMethod Expand { $this.Expansions++; throw 'Provider failed during expansion in test' } -Force
+        }
+        else {
+            $cardWindow.More | Add-Member ScriptMethod ScrollIntoView { $this.Scrolls++; throw 'Provider failed during scrolling in test' } -Force
+        }
+    }
+    $otherWindow = New-TestScanWindow 43
+    $automation = [pscustomobject]@{ Windows = @($cardWindow, $otherWindow); Scans = 0; GapMs = 0 }
+    $automation | Add-Member ScriptMethod FindAll {
+        param($scope, $condition)
+        $this.Scans++
+        if ($this.Scans -gt 1) {
+            if ($null -ne $script:testFirstActionTime) { $this.GapMs = ([DateTime]::UtcNow - $script:testFirstActionTime).TotalMilliseconds }
+            $script:testParentAlive = $false
+            return @()
+        }
+        return $this.Windows
+    }
+    $savedCooldown = $CooldownMs
+    $CooldownMs = 250
+    $savedConsole = [Console]::Out
+    $attemptWriter = New-Object IO.StringWriter
+    try {
+        [Console]::SetOut($attemptWriter)
+        . ([scriptblock]::Create($noClickLifecycle))
+    }
+    finally { $CooldownMs = $savedCooldown; [Console]::SetOut($savedConsole) }
+    $successProtocol = $attemptWriter.ToString() -match '___CLICK_(INVOKE|PHYSICAL)___'
+    $attemptWriter.Dispose()
+    $expectedApproval = if ($finalApproval) { 1 } else { 0 }
+    $expectedOther = if ($finalApproval) { 0 } else { 1 }
+    $description = "mode=$mode approve=$($approvalAction.Invocations) other=$($otherWindow.Action.Invocations) gap-ms=$([int]$automation.GapMs) success-protocol=$successProtocol"
+    if ($approvalAction.Invocations -ne $expectedApproval -or $otherWindow.Action.Invocations -ne $expectedOther -or ($finalApproval -and ($automation.GapMs -lt 200 -or $successProtocol))) {
+        $cardAttemptFailures += $description
+        Write-Output "FAIL final approval attempt: $description"
+    }
+    else { Write-Output "PASS final approval attempt: $description" }
+    $checks++
+}
+if ($cardAttemptFailures.Count -gt 0) { throw "Final approval attempt failures: $($cardAttemptFailures -join '; ')" }
 
 $stub = $parentFunction[0].Extent.Text + "`nfunction Get-TargetProcessIds { return @{} }`n"
 $engine = $engines[0]

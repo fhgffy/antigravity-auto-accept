@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.2
+# 🚀 Antigravity Auto Accept v5.3.3
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -31,7 +31,7 @@ Antigravity's [IDE settings documentation](https://antigravity.google/docs/setti
 
 Current maintenance: **fhgffy**, with **Codex** assisting fixes and tests. See [CONTRIBUTING.md](CONTRIBUTING.md) to help maintain the project. Historical Git commit authorship is preserved.
 
-Verification notes are maintained in [docs/verification-2026-10-05.md](docs/verification-2026-10-05.md). A result on one IDE version does not establish compatibility with every permission type or future release.
+Latest multi-window and CI verification: [docs/verification-2026-10-07.md](docs/verification-2026-10-07.md). Earlier runtime notes remain in [docs/verification-2026-10-05.md](docs/verification-2026-10-05.md). A result on one IDE version does not establish compatibility with every permission type or future release.
 
 ---
 
@@ -141,13 +141,21 @@ The defaults still work with zero configuration. Advanced users can tune these i
 |---------|---------|---------|
 | `antigravityAutoAccept.autoStart` | `true` | Start scanning automatically when the extension activates |
 | `antigravityAutoAccept.pollMs` | `500` | UIAutomation scan interval |
-| `antigravityAutoAccept.cooldownMs` | `1500` | Minimum delay after one click before the next click |
+| `antigravityAutoAccept.cooldownMs` | `1500` | Minimum delay after an approval action attempt |
 | `antigravityAutoAccept.restoreCursor` | `true` | Restore your mouse position after fallback physical clicks |
 | `antigravityAutoAccept.showNotifications` | `false` | Show start/stop/restart notifications |
 
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.3 — Multi-window Reliability (2026-10-07)
+
+- Rotate approval attempts across IDE windows so a busy first window does not delay others indefinitely.
+- Isolate stale window/control failures, recheck action state after host lookups, and avoid a second physical click after an Invoke error.
+- Keep the scanner running when notification preferences change; preserve a deliberate OFF during a workspace-trust transition.
+- Validate both PowerShell engines, concurrent scanner ownership and handoff, source encoding, and VSIX contents in GitHub CI.
+- Permission forms require a readable SelectionItem selection; unsupported legacy-only controls are skipped.
 
 ### v5.3.2 — Terminal Approval Form Placement (2026-10-06)
 

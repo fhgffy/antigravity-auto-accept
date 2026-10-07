@@ -12,7 +12,7 @@ npm test
 npm run package
 ```
 
-The tests cover lifecycle races, button matching, scanner ownership and click boundaries without running arbitrary commands or clicking other applications. Type checking does not replace an IDE integration test.
+The tests cover lifecycle races, button matching, scanner ownership and click boundaries without running arbitrary commands or clicking other applications. The default suite also checks concurrent scanner ownership and handoff, repository encoding, and manifest consistency. GitHub CI runs scanner regressions separately in Windows PowerShell 5.1 and PowerShell 7, then verifies and uploads a VSIX and checksum. Type checking and desktop-free fixtures do not replace an IDE integration test.
 
 For a real IDE test, install the generated VSIX with the Antigravity IDE CLI, reload the test window, and use an empty temporary workspace. First disable the scanner and record a pending harmless command approval; enable it and compare the scanner log and command result. Do not test against a directory containing private or important files.
 

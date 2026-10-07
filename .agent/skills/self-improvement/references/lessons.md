@@ -174,3 +174,51 @@
 
 - **已跑验证：** Arrow 最终提交的 27 项检查为 26 成功、1 依赖下载失败；完整 run 结束后执行 gh run rerun --failed，明确被拒绝：Must have admin rights to Repository。贡献者能推自己的 fork，不代表能重跑上游工作流。
 - **下次做法：** 保留同一提交的成功测试及实际失败日志，在 PR 正文说明需要维护者重跑环境失败项；不要降低门槛、反复无权限重试或制造空提交。发布 CLI 没有现成发布者/token 时，应交接已验证 VSIX 的逐文件选择，不自动创建凭证。
+
+## 2026-10-07 Asia/Shanghai - 多窗口扫描必须隔离失效节点并轮换成功窗口
+
+- **触发：** 首个 IDE 窗口持续出现审批，或者在枚举后关闭窗口。
+- **已跑复现：** 固定顺序三轮扫描首窗获批三次、次窗零次；首窗 UIA 异常让次窗整个轮次得不到扫描。
+- **下次做法：** 在窗口和控件边界隔离临时异常，每次成功后让后续窗口优先；用实际扫描尾段与固定计数断言复现，避免只测字符串匹配。
+
+## 2026-10-07 Asia/Shanghai - IDE 产品版本和 CLI 名称分别核对
+
+- **触发：** 假定安装目录中的 CLI 名称是 antigravity.cmd。
+- **现象：** 当前 Antigravity IDE 安装实际使用 antigravity-ide.cmd；CLI --version 输出基础编辑器 1.107.0。
+- **下次做法：** 先枚举 bin，IDE 兼容版本读取 product.json 的 ideVersion，记录两者，不把基础编辑器版本写成 IDE 产品版本。
+
+## 2026-10-07 Asia/Shanghai - 显式 UTF-8 加载还要保留脚本文件上下文
+
+- **触发：** CI 为 PS5 通过 ScriptBlock.Create(ReadAllText()) 执行测试文件。
+- **已跑复现：** 原始引导丢失 PSScriptRoot，测试定位相邻源文件时 Join-Path 失败。
+- **下次做法：** Parser.ParseInput 传 UTF-8 正文及绝对文件名，再执行 AST.GetScriptBlock；精确 CI 命令须在 PS5/PS7 分别验证。插值变量后紧跟冒号时使用 ${变量}，避免 PowerShell 将它当作用域语法。
+
+## 2026-10-07 Asia/Shanghai - 动作已发生后抛错也必须消耗扫描冷却
+
+- **已跑复现：** 第一按钮 Invoke 先产生副作用再抛错，后续按钮在同轮约 35ms 内又获调用，虽配置冷却为 1000ms。
+- **下次做法：** 只读查询失败可跳过；开始动作后，不论结果是否已知，本轮必须进入冷却且不能物理重试。成功日志与动作尝试分别记录，不以未抛错作为唯一限速入口。
+
+## 2026-10-07 Asia/Shanghai - 进程 exit 与输出 close 分别验证
+
+- **触发：** 子进程 exit 后 stdout/stderr 仍有尾部数据。
+- **下次做法：** 保留带退出实例标识的诊断，不能解析旧 READY/WAITING 更新新状态；close 后拒绝旧输出。停止或卸载后不再追加诊断，卸载验证无 child/timer，不要求已释放状态栏刷新。
+
+## 2026-10-07 Asia/Shanghai - 富文本输入不能只信 set_value 成功
+
+- **已跑观察：** Antigravity 消息组合框 set_value 返回后仍空、Send disabled；点击并 type_text 后实际子文本和 Send 状态才更新。
+- **下次做法：** 重新观察实际文本子节点；UIA 点击缺少几何信息时先激活目标并重新观察，不复用旧索引。Value 与实际子文本不一致时，以截图及当前子文本核对，不能盲发重复消息。
+
+## 2026-10-07 Asia/Shanghai - UI 点击还要有当前截图几何
+
+- **已跑观察：** 当前 Computer Use 环境仅刷新文本后，索引点击反复报告 geometry unavailable；激活目标并刷新 include_screenshot=true 后，同一可见命令点击成功。同进程多窗口还可能让缓存索引过期。
+- **下次做法：** 按目标窗口重新观察，必要时同时获取截图；操作失败后不重复旧索引。浏览器 URL 无法核实时结束该次电脑操作，不换接口执行被拒动作；独立授权的构建、测试及 GitHub CLI 工作继续使用专用工具。
+## 2026-10-07 Asia/Shanghai - YAML 解析不等于 Actions 表达式校验
+
+- **已跑复现：** 本地 YAML 和 PowerShell AST 都通过，但 GitHub run 37515131660 在启动 job 之前失败；六个 step.shell 中的 matrix.shell 被远端判为 Unrecognized named-value，未生成任何测试结果。
+- **下次做法：** 按 GitHub Contexts reference 的具体键位置检查可用上下文；job.defaults.run 支持 matrix，不能把 workflow 根 defaults.run 或步骤 shell 当作同一规则。工作流变更使用 Actions 表达式校验器，并以新提交在远端实际创建和完成所有 job 作为最终证据。
+- **检查：** 没有 runner/job 的配置失败与测试失败分开记录；本地解析成功或旧提交 CI 成功都不能替代这次精确 SHA 的远端结果。
+
+## 2026-10-07 Asia/Shanghai - Actions 运行时与项目 Node 分开维护
+
+- **已跑观察：** checkout/setup-node/upload-artifact v4 的远端 job 成功，但提示 Node 20 Action 运行时已弃用并强制 Node 24；项目实际测试的 Node 仍为 22。
+- **下次做法：** 升级前通过官方 release 和 action.yml 核对稳定版本、runs.using 及输入兼容，独立审查并以新 SHA 重跑整个流程；不能只改 node-version 来消除 Action 自身运行时警告。

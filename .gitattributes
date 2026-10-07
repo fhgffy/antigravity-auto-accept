@@ -1,0 +1,4 @@
+# 2026-10-07：代码和维护文档按原项目 CRLF 检出，二进制资源保留原字节。
+* text=auto eol=crlf
+*.png binary
+*.vsix binary

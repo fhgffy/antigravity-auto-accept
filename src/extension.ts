@@ -15,6 +15,7 @@ let extensionContext: vscode.ExtensionContext;
 let isActive = false;
 let restartTimer: ReturnType<typeof setTimeout> | undefined;
 let scannerState: 'starting' | 'waiting' | 'ready' | 'retrying' | undefined;
+let startAfterTrust = false; // 2026-10-07：用户停止时取消尚未授信的自动启动。
 
 // 2026-07-28 运行参数集中读取，避免启动/重启/状态栏各自散落默认值 //***
 interface AutoAcceptConfig {
@@ -92,14 +93,16 @@ export function activate(context: vscode.ExtensionContext) {
     const configWatcher = vscode.workspace.onDidChangeConfiguration((event) => {
         if (!event.affectsConfiguration('antigravityAutoAccept')) { return; }
         updateStatusBar();
-        if (isEnabled) {
+        /* 2026-10-07：展示和下次激活选项不影响当前扫描，只有运行参数变化才重启。 */
+        if (isEnabled && ['pollMs', 'cooldownMs', 'restoreCursor'].some(key =>
+            event.affectsConfiguration(`antigravityAutoAccept.${key}`))) {
             restartAutoClicker('settings changed');
         }
     });
 
     /* 2026-10-05：首次授予工作区信任后重新检查自动启动条件，受限模式中不运行扫描器。 */
     const trustWatcher = vscode.workspace.onDidGrantWorkspaceTrust(() => {
-        if (isActive && !isEnabled && getConfig().autoStart) {
+        if (isActive && startAfterTrust && !isEnabled && getConfig().autoStart) { // 2026-10-07
             isEnabled = true;
             startAutoClicker();
         }
@@ -128,12 +131,14 @@ function startAutoClicker() {
             ? 'This extension only runs inside Antigravity IDE.'
             : !vscode.workspace.isTrusted ? 'Workspace trust is required before auto-accept can start.' : undefined;
     if (unavailableReason) {
+        startAfterTrust = !vscode.workspace.isTrusted; // 2026-10-07：记录被信任边界暂缓的启动意图。
         log('ℹ️', unavailableReason);
         isEnabled = false;
         scannerState = undefined;
         updateStatusBar();
         return;
     }
+    startAfterTrust = false; // 2026-10-07：已通过宿主边界，无须等待后续信任事件。
     if (restartTimer !== undefined) { clearTimeout(restartTimer); restartTimer = undefined; }
 
     const config = getConfig();
@@ -179,17 +184,23 @@ function startAutoClicker() {
     scannerState = 'starting';
     updateStatusBar();
     let stdoutBuffer = '';
+    let hasExited = false; // 2026-10-07：进程退出后只接收管道尾部诊断，直到 close。
     scannerProcess.stdout?.setEncoding('utf8');
     scannerProcess.stderr?.setEncoding('utf8');
 
     /* 2026-10-05：只接收当前扫描器的协议，分段输出由当前进程自己的缓冲区拼接。 */
     scannerProcess.stdout?.on('data', (data: Buffer | string) => {
-        if (psProcess !== scannerProcess || !isActive) { return; }
+        if ((psProcess !== scannerProcess && !hasExited) || !isActive || !isEnabled) { return; } // 2026-10-07
         stdoutBuffer += data.toString();
         const parts = stdoutBuffer.split(/\r?\n/);
         stdoutBuffer = parts.pop() ?? '';
         const lines = parts.filter(l => l.trim());
         for (const line of lines) {
+            /* 2026-10-07：死亡实例输出明确标识为收尾诊断，READY/WAITING 等旧协议不能更新当前状态。 */
+            if (hasExited) {
+                log('📡', `Exited scanner: ${line.trim()}`);
+                continue;
+            }
             if (line.includes('___CLICK_INVOKE___:')) {
                 const btnName = line.split('___CLICK_INVOKE___:')[1];
                 log('✅', `Auto-accepted (Invoke): "${btnName}"`);
@@ -217,16 +228,35 @@ function startAutoClicker() {
     });
 
     scannerProcess.stderr?.on('data', (data: Buffer | string) => {
-        if (psProcess !== scannerProcess || !isActive) { return; } // 2026-10-05
+        if ((psProcess !== scannerProcess && !hasExited) || !isActive || !isEnabled) { return; } // 2026-10-07
         const msg = data.toString().trim();
         if (msg) {
-            log('❌', `PowerShell error: ${msg}`);
+            log('❌', `${hasExited ? 'Exited scanner error' : 'PowerShell error'}: ${msg}`); // 2026-10-07
         }
     });
+
+    /* 2026-10-07：close 后停止收尾，保留退出前后没有换行的最后一条诊断。 */
+    scannerProcess.on('close', () => {
+        if (hasExited && isActive && isEnabled && stdoutBuffer.trim()) {
+            log('📡', `Exited scanner: ${stdoutBuffer.trim()}`);
+        }
+        hasExited = false;
+        stdoutBuffer = '';
+    });
+
+    /* 2026-10-07：管道错误由当前扫描器接管，避免未处理事件中断宿主，旧实例错误不影响新会话。 */
+    const handleStreamError = (error: Error) => {
+        if (psProcess !== scannerProcess || !isActive) { return; }
+        log('❌', `Scanner output failed: ${error.message}`);
+        restartAutoClicker('scanner output failed');
+    };
+    scannerProcess.stdout?.on('error', handleStreamError);
+    scannerProcess.stderr?.on('error', handleStreamError);
 
     /* 2026-10-05：退出只释放所属实例，异常重启可由停止、配置重启或卸载取消。 */
     scannerProcess.on('exit', (code) => {
         if (psProcess !== scannerProcess || !isActive) { return; }
+        hasExited = true; // 2026-10-07：exit 不代表 stdout/stderr 已全部关闭。
         log('⏹️', `Scanner process exited (code: ${code})`);
         psProcess = undefined;
         // 如果仍启用则自动重启
@@ -253,6 +283,7 @@ function startAutoClicker() {
 }
 
 function stopAutoClicker() {
+    startAfterTrust = false; // 2026-10-07：停止同时撤销尚未授信的启动意图。
     /* 2026-10-05：先撤销计时器和实例所有权，再结束进程，异步 exit 不再修改后续实例。 */
     if (restartTimer !== undefined) { clearTimeout(restartTimer); restartTimer = undefined; }
     scannerState = undefined;

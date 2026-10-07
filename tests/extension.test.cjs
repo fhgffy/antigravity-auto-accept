@@ -107,7 +107,11 @@ function createHarness(options = {}) {
         },
         changeConfig: (changes, relevant = true) => {
             Object.assign(config, changes);
-            configListener({ affectsConfiguration: () => relevant });
+            /* 2026-10-07：按实际变更键模拟 VS Code 配置事件，区分扫描参数和展示选项。 */
+            const changedKeys = Object.keys(changes);
+            configListener({ affectsConfiguration: section => relevant && (
+                section === 'antigravityAutoAccept' || changedKeys.some(key => section === `antigravityAutoAccept.${key}`)
+            ) });
         },
         grantTrust: () => { workspace.isTrusted = true; trustListener?.(); },
     };
@@ -355,4 +359,125 @@ test('真实 PowerShell 启动协议通过扫描器自测且 stderr 为空', { s
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /___SELFTEST_DONE___:passed=[1-9][0-9]*/);
     assert.equal(result.stderr, '');
+});
+/* 2026-10-07：授信、展示配置和管道故障不能覆盖用户停止意图或中断宿主。 */
+test('用户停止后授予工作区信任仍保持 OFF', () => {
+    const harness = createHarness({ trusted: false });
+    harness.command('stop');
+    harness.grantTrust();
+    harness.flushTimers();
+    assert.equal(harness.children.length, 0);
+    assert.match(harness.status.text, /OFF/);
+});
+
+test('通知和自动启动设置变化不会重启当前扫描器', () => {
+    const harness = createHarness();
+    const child = harness.children[0].child;
+    child.stdout.emit('data', Buffer.from('___AUTOCLICK_READY___\n'));
+    harness.changeConfig({ showNotifications: true });
+    harness.changeConfig({ autoStart: false });
+    assert.equal(child.killCalls, 0);
+    assert.equal(harness.timers.size, 0);
+    assert.equal(harness.children.length, 1);
+    assert.match(harness.status.text, /ON/);
+});
+
+test('每项实际扫描参数变化都会使用最新配置重启', () => {
+    for (const [key, value, expected] of [
+        ['pollMs', 950, /-PollMs 950\b/],
+        ['cooldownMs', 2300, /-CooldownMs 2300\b/],
+        ['restoreCursor', false, /-RestoreCursor 'false'/],
+    ]) {
+        const harness = createHarness();
+        harness.changeConfig({ [key]: value });
+        assert.equal(harness.children[0].child.killCalls, 1);
+        assert.equal(harness.timers.size, 1);
+        harness.flushTimers();
+        assert.match(getScannerCommand(harness.children[1]), expected);
+    }
+});
+
+test('stdout 和 stderr 管道错误不会逃逸宿主且能重启', () => {
+    for (const stream of ['stdout', 'stderr']) {
+        const harness = createHarness();
+        const first = harness.children[0].child;
+        assert.doesNotThrow(() => first[stream].emit('error', new Error('pipe failed')));
+        assert.equal(first.killCalls, 1);
+        assert.equal(harness.timers.size, 1);
+        assert.match(harness.status.text, /RETRYING/);
+        harness.flushTimers();
+        const second = harness.children[1].child;
+        first.emit('exit', 1);
+        assert.doesNotThrow(() => first[stream].emit('error', new Error('stale pipe failed')));
+        second.stdout.emit('data', Buffer.from('___AUTOCLICK_READY___\n'));
+        assert.equal(harness.children.length, 2);
+        assert.equal(harness.timers.size, 0);
+        assert.match(harness.status.text, /ON/);
+    }
+});
+
+test('管道故障重启仍能被用户停止和卸载取消', () => {
+    for (const action of ['stop', 'deactivate']) {
+        const harness = createHarness();
+        const child = harness.children[0].child;
+        assert.doesNotThrow(() => child.stdout.emit('error', new Error('pipe failed')));
+        if (action === 'stop') { harness.command('stop'); }
+        else { harness.exports.deactivate(); }
+        assert.doesNotThrow(() => child.stderr.emit('error', new Error('late pipe failure')));
+        harness.flushTimers();
+        assert.equal(harness.children.length, 1);
+        assert.equal(harness.timers.size, 0);
+        if (action === 'stop') { assert.match(harness.status.text, /OFF/); } // 2026-10-07：卸载后的状态栏由宿主释放。
+    }
+});
+
+/* 2026-10-07：exit 之后管道仍可收尾，尾部诊断不得使已死亡扫描器重新显示 ON。 */
+test('exit 到 close 之间保留尾部诊断但不接收过期 READY 和 WAITING 状态', () => {
+    const harness = createHarness();
+    const child = harness.children[0].child;
+    child.stdout.emit('data', Buffer.from('___CLICK_INVOKE___:FIN'));
+    child.emit('exit', 1);
+    child.stdout.emit('data', Buffer.from('AL\n___AUTOCLICK_READY___\n___SCANNER_WAITING___\n'));
+    child.stderr.emit('data', Buffer.from('final pipe diagnostic'));
+    assert.equal(harness.logs.some(line => line.includes('Exited scanner: ___CLICK_INVOKE___:FINAL')), true);
+    assert.equal(harness.logs.some(line => line.includes('Exited scanner error: final pipe diagnostic')), true);
+    assert.match(harness.status.text, /RETRYING/);
+    assert.equal(harness.logs.some(line => line.includes('scanner ready')), false);
+    child.emit('close', 1);
+    assert.equal(harness.timers.size, 1);
+});
+
+test('旧进程收尾按退出诊断标识，close 后输出被忽略', () => {
+    const harness = createHarness();
+    const first = harness.children[0].child;
+    first.emit('exit', 1);
+    harness.flushTimers();
+    const second = harness.children[1].child;
+    second.stdout.emit('data', Buffer.from('___AUTOCLICK_READY___\n'));
+    first.stdout.emit('data', Buffer.from('___AUTOCLICK_READY___\nfinal unterminated diagnostic'));
+    first.emit('close', 1);
+    assert.match(harness.status.text, /ON/);
+    assert.equal(harness.logs.some(line => line.includes('Exited scanner: final unterminated diagnostic')), true);
+    const logCount = harness.logs.length;
+    first.stdout.emit('data', Buffer.from('STALE AFTER CLOSE\n'));
+    first.stderr.emit('data', Buffer.from('STALE STDERR AFTER CLOSE'));
+    assert.equal(harness.logs.length, logCount);
+    assert.equal(harness.timers.size, 0);
+});
+
+test('用户停止或卸载后不会再输出死亡实例的尾部诊断', () => {
+    for (const action of ['stop', 'deactivate']) {
+        const harness = createHarness();
+        const child = harness.children[0].child;
+        child.stdout.emit('data', Buffer.from('unflushed diagnostic'));
+        child.emit('exit', 1);
+        if (action === 'stop') { harness.command('stop'); }
+        else { harness.exports.deactivate(); }
+        const logCount = harness.logs.length;
+        child.stdout.emit('data', Buffer.from('tail\n'));
+        child.stderr.emit('data', Buffer.from('tail error'));
+        child.emit('close', 1);
+        assert.equal(harness.logs.length, logCount);
+        assert.equal(harness.timers.size, 0);
+    }
 });

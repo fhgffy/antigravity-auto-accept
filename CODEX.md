@@ -8,7 +8,7 @@ VSCode/Antigravity 插件，自动点击 Antigravity IDE 的权限弹窗（Run/A
 - 仓库：https://github.com/fhgffy/antigravity-auto-accept
 - 安装量与评分以两个扩展商店的实时页面为准。
 
-## 当前版本：v5.3.2（会话外终端审批兼容修复，2026-10-06）
+## 当前版本：v5.3.3（多窗口可靠性与 CI 验证，2026-10-07）
 
 ### 架构变更
 v4.0.0 及之前使用 PowerShell + UIAutomation + user32.dll 物理鼠标点击方案。
