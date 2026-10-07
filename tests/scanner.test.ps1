@@ -73,7 +73,8 @@ $requiredFragments = @(
     'IntPtr root = GetAncestor(hit, 2);',
     'if (!IsPointOwnedByWindow(x, y, target, expectedProcessId)) { return false; }',
     '!IsPointOwnedByWindow(x, y, target, expectedProcessId)',
-    'currentPoint.X != x || currentPoint.Y != y',
+    # 2026-10-07：同批输入前校验用户指针仍在最初位置，不要求提前移到审批坐标。
+    'currentPoint.X != oldPoint.X || currentPoint.Y != oldPoint.Y',
     # 2026-10-07：最新回退同时复核静态标签，旧版 API 分支也保留该最终状态保护。
     'if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen -or -not (Test-ButtonMatch $btnName)) { continue }',
     'if (-not (Get-TargetProcessIds).ContainsKey($windowProcessId)) { continue }'
@@ -105,7 +106,8 @@ foreach ($name in $testFunctions) {
 foreach ($name in @('Test-BrowserPermissionText', 'Test-BrowserPermissionCardShape', 'Test-LiveBrowserPermissionCard', 'Test-BrowserMenuAnchor', 'Get-VisibleBrowserMenus', 'Write-BrowserCandidateDiagnostic', 'Invoke-BrowserPermissionCards')) {
     $definition = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     if ($definition.Count -eq 0) { continue }
-    $functionText = $definition[0].Extent.Text.Replace('[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($allow)', '(Get-TestParent $allow)')
+    # 2026-10-07：浏览器新增归属复核继续只替代外部父链读取，保留全部真实身份判断。
+    $functionText = $definition[0].Extent.Text -replace '\[System\.Windows\.Automation\.TreeWalker\]::ControlViewWalker\.GetParent\((\$\w+)\)', '(Get-TestParent $1)'
     . ([scriptblock]::Create($functionText))
 }
 function Get-TestParent($Node) { return $Node.Parent }
@@ -128,6 +130,22 @@ function Get-TargetProcessIds {
             if ($mutation.State -eq 'card') { $mutation.Window.Card.Texts[0].Current.Name = 'Ordinary card' }
             elseif ($mutation.State -eq 'once-offscreen') { $mutation.Window.Once.Current.IsOffscreen = $true }
             elseif ($mutation.State -eq 'menu-offscreen') { $mutation.Window.Menu.Current.IsOffscreen = $true }
+            # 2026-10-07：宿主查询中模拟目标和控件归属变更，动作仍只累计内存计数。
+            elseif ($mutation.State -eq 'browser-target') { $mutation.Window.Card.Texts[0].Current.Name = 'Agent needs permission to act on example.org' }
+            elseif ($mutation.State -eq 'browser-target-replaced') { $mutation.Window.Card.Texts[0].Key = 3102 }
+            elseif ($mutation.State -eq 'browser-card-replaced') { $mutation.Window.Card.Key = 3101 }
+            elseif ($mutation.State -eq 'browser-allow-parent') {
+                $mutation.Window.Once.Parent = [pscustomobject]@{ Key = 3999 }
+                $mutation.Window.Once.Parent | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
+                $mutation.Window.Card.Buttons = @($mutation.Window.Card.Buttons | Where-Object { $_ -ne $mutation.Window.Once })
+            }
+            elseif ($mutation.State -eq 'browser-item-parent') {
+                $mutation.Window.Once.Parent = [pscustomobject]@{ Key = 3999 }
+                $mutation.Window.Once.Parent | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
+                $replacement = [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Allow Once'; IsEnabled = $true; IsOffscreen = $false }; Key = 3103; Parent = $mutation.Window.Menu }
+                $replacement | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
+                $mutation.Window.Menu.Once = $replacement
+            }
         }
     }
     return @{ 123 = $true }
@@ -349,7 +367,9 @@ $textCondition = 'text'
 $menuCondition = 'menu'
 $menuItemCondition = 'menuitem'
 function New-TestBrowserWindow([string]$Mode) {
-    $once = [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Allow Once'; IsEnabled = $true; IsOffscreen = $false; ProcessId = 123 }; Invocations = 0; Menu = $null; Relabel = $false; OtherTrigger = $null }
+    $once = [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Allow Once'; IsEnabled = $true; IsOffscreen = $false; ProcessId = 123 }; Invocations = 0; Menu = $null; Relabel = $false; OtherTrigger = $null; Key = 3003 } # 2026-10-07
+    # 2026-10-07：卡片、目标文案和本次动作都具有稳定身份，替换同值对象也必须被拒绝。
+    $once | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
     $once | Add-Member ScriptMethod Invoke { $this.Invocations++ }
     $once | Add-Member ScriptMethod GetCurrentPattern { param($pattern) if ($this.Relabel) { $this.Menu.Current.LabeledBy = $this.OtherTrigger }; return $this }
     $once | Add-Member ScriptMethod GetCurrentPropertyValue { param($property) return $true }
@@ -394,9 +414,20 @@ function New-TestBrowserWindow([string]$Mode) {
         [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Configure'; IsEnabled = $true; IsOffscreen = $false; BoundingRectangle = @{ X = 0; Y = 200; Width = 40; Height = 30 } } },
         [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Deny'; IsEnabled = $true; IsOffscreen = $false; BoundingRectangle = @{ X = 50; Y = 200; Width = 40; Height = 30 } } }, $always, $more)
     if ($Mode -like 'wide*') { $once.Current | Add-Member NoteProperty BoundingRectangle @{ X = 100; Y = 200; Width = 80; Height = 30 }; $buttons += $once }
-    $card = [pscustomobject]@{ Current = [pscustomobject]@{ ControlType = [System.Windows.Automation.ControlType]::Group }; Texts = @([pscustomobject]@{ Current = [pscustomobject]@{ Name = $permissionText } }); Buttons = $buttons }
+    # 2026-10-07：直属控件全部提供真实 UIA 身份接口，归属复核不能依赖缺失方法的测试对象。
+    $buttonKey = 4000
+    foreach ($button in $buttons) {
+        if ($null -eq $button.PSObject.Methods['GetRuntimeId']) {
+            $button | Add-Member NoteProperty Key $buttonKey
+            $button | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
+            $buttonKey++
+        }
+    }
+    $card = [pscustomobject]@{ Current = [pscustomobject]@{ ControlType = [System.Windows.Automation.ControlType]::Group }; Texts = @([pscustomobject]@{ Current = [pscustomobject]@{ Name = $permissionText }; Key = 3002 }); Buttons = $buttons; Key = 3001 }
+    $card | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
+    $card.Texts[0] | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
     $card | Add-Member ScriptMethod FindAll { param($scope, $condition) if ($condition -eq 'text') { return $this.Texts }; if ($condition -eq 'button') { return $this.Buttons }; return @() }
-    $once | Add-Member NoteProperty Parent $card
+    $once | Add-Member NoteProperty Parent $(if ($Mode -like 'wide*') { $card } else { $menu }) # 2026-10-07：窄布局菜单项归属实际门户菜单。
     $more.Parent = $card
     $conversation = [pscustomobject]@{ Card = $card }
     $conversation | Add-Member ScriptMethod FindAll { param($scope, $condition) if ($condition -eq 'button') { return $this.Card.Buttons }; return @() }
@@ -517,6 +548,70 @@ foreach ($case in @(
 }
 if ($hostMutationFailures.Count -gt 0) { throw "Browser host lookup state regressions: $($hostMutationFailures -join '; ')" }
 
+# 2026-10-07：旧版真实浏览器函数曾沿用已变化目标、父链和菜单项，精确标识的已打开菜单却无法接管。
+$browserIdentityFailures = @()
+foreach ($case in @(
+    @{ Mode = 'wide'; State = 'browser-target'; Lookup = 1; Expected = 0 },
+    @{ Mode = 'labeled-menu'; State = 'browser-target'; Lookup = 2; Expected = 0 },
+    @{ Mode = 'scroll-expand'; State = 'browser-target'; Lookup = 1; Expected = 0 },
+    @{ Mode = 'wide'; State = 'browser-target-replaced'; Lookup = 1; Expected = 0 },
+    @{ Mode = 'wide'; State = 'browser-card-replaced'; Lookup = 1; Expected = 0 },
+    @{ Mode = 'wide'; State = 'browser-allow-parent'; Lookup = 1; Expected = 0 },
+    @{ Mode = 'wide'; State = 'action-read-target'; Lookup = 0; Expected = 0 }, # 2026-10-07：动作身份读取后仍需检查最新目标文案。
+    @{ Mode = 'labeled-menu'; State = 'browser-item-parent'; Lookup = 2; Expected = 0 },
+    @{ Mode = 'labeled-menu'; State = 'card-query-item-parent'; Lookup = 0; Expected = 0 }, # 2026-10-07：最终卡片读取仍可能使先前核验的菜单项脱离。
+    @{ Mode = 'labeled-menu'; State = 'preopened-labeled'; Lookup = 0; Expected = 1 }
+)) {
+    $script:testParentAlive = $true
+    $browserWindow = New-TestBrowserWindow $case.Mode
+    # 2026-10-07：目标文案比较之后的动作身份查询可以改变目标，重放独立审查的实际函数读取顺序。
+    if ($case.State -eq 'action-read-target') {
+        $browserWindow.Once | Add-Member NoteProperty IdReads 0
+        $browserWindow.Once | Add-Member NoteProperty AuditCard $browserWindow.Card
+        $browserWindow.Once | Add-Member ScriptMethod GetRuntimeId {
+            $this.IdReads++
+            if ($this.IdReads -eq 2) { $this.AuditCard.Texts[0].Current.Name = 'Agent needs permission to act on example.org' }
+            return @($this.Key)
+        } -Force
+    }
+    # 2026-10-07：重放独立审查的精确竞态，卡片查询保留原结构却迁移旧菜单项，替代项暂未提供调用模式。
+    if ($case.State -eq 'card-query-item-parent') {
+        $browserWindow.Card | Add-Member NoteProperty AuditWindow $browserWindow
+        $browserWindow.Card | Add-Member NoteProperty Mutated $false
+        $browserWindow.Card | Add-Member ScriptMethod FindAll {
+            param($scope, $condition)
+            if ($condition -eq 'text' -and $this.AuditWindow.Opened -and -not $this.Mutated) {
+                $this.Mutated = $true
+                $otherMenu = [pscustomobject]@{ Key = 9000; Parent = $null }
+                $otherMenu | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
+                $this.AuditWindow.Once.Parent = $otherMenu
+                $replacement = [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Allow Once'; IsEnabled = $true; IsOffscreen = $false }; Key = 5003; Parent = $this.AuditWindow.Menu }
+                $replacement | Add-Member ScriptMethod GetRuntimeId { return @($this.Key) }
+                $replacement | Add-Member ScriptMethod GetCurrentPattern { param($pattern) throw 'Replacement pattern not ready during tree mutation' }
+                $this.AuditWindow.Menu.Once = $replacement
+            }
+            if ($condition -eq 'text') { return $this.Texts }
+            if ($condition -eq 'button') { return $this.Buttons }
+            return @()
+        } -Force
+    }
+    if ($case.State -eq 'preopened-labeled') {
+        $browserWindow.Opened = $true
+        $browserWindow.More.Current.ExpandCollapseState = [System.Windows.Automation.ExpandCollapseState]::Expanded
+    }
+    $script:browserHostLookupCount = 0
+    $script:browserHostLookupWindow = @{ Window = $browserWindow; Lookup = $case.Lookup; State = $case.State }
+    try { $actual = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42) }
+    finally { $script:browserHostLookupWindow = $null }
+    $description = "$($case.Mode) $($case.State) once=$($browserWindow.Once.Invocations) result=$actual expands=$($browserWindow.More.Expansions)"
+    if ($browserWindow.Once.Invocations -ne $case.Expected -or $browserWindow.Always.Invocations -ne 0 -or ($case.State -eq 'preopened-labeled' -and $browserWindow.More.Expansions -ne 0) -or ($case.State -eq 'card-query-item-parent' -and -not $browserWindow.Card.Mutated) -or ($case.State -eq 'action-read-target' -and $browserWindow.Once.IdReads -lt 2)) {
+        $browserIdentityFailures += $description
+        Write-Output "FAIL browser identity: $description"
+    }
+    else { $checks++; Write-Output "PASS browser identity: $description" }
+}
+if ($browserIdentityFailures.Count -gt 0) { throw "Browser identity regressions: $($browserIdentityFailures -join '; ')" }
+
 # 2026-10-06：调用真实卡片规则验证文案和同卡片按钮，不用复制的匹配逻辑作断言。
 foreach ($case in @(
     @{ Text = 'Agent needs permission to act on github.com'; Buttons = @('Configure', 'Deny', 'Always Allow', 'More actions'); Expected = $true },
@@ -541,6 +636,7 @@ function New-TestScanWindow([int]$Handle, [string]$Mode = '') {
         Current = [pscustomobject]@{ Name = 'Run'; IsEnabled = $true; IsOffscreen = $false; BoundingRectangle = @{ X = 0; Y = 0; Width = 100; Height = 40 } }
         Invocations = 0; PhysicalClicks = 0; Mode = $Mode
     }
+    $button | Add-Member ScriptMethod GetRuntimeId { return @(6001) } # 2026-10-07：原按钮身份快照具有实际 UIA 接口。
     $button | Add-Member ScriptMethod GetCurrentPattern { param($pattern) if ($this.Mode -eq 'physical-parent-exit') { throw 'Invoke pattern unavailable in test' }; return $this }
     $button | Add-Member ScriptMethod Invoke { $this.Invocations++; if ($this.Mode -eq 'invoke-throws') { throw 'Provider failed after Invoke in test' } }
     $window = [pscustomobject]@{ Current = [pscustomobject]@{ ProcessId = 123; NativeWindowHandle = $Handle }; Buttons = @($button); Action = $button; Mode = $Mode }
@@ -556,7 +652,7 @@ function New-TestScanWindow([int]$Handle, [string]$Mode = '') {
 $originalTargetLookup = (Get-Item Function:\Get-TargetProcessIds).ScriptBlock
 $originalButtonCenter = (Get-Item Function:\Get-ButtonCenter).ScriptBlock
 $scanFailures = @()
-$physicalCall = '[MouseHelper]::Click($center.X, $center.Y, $restoreCursorEnabled, $windowHandle, [uint32]$windowProcessId)'
+$physicalCall = '[MouseHelper]::Click($center.X, $center.Y, $restoreCursorEnabled, $windowHandle, [uint32]$windowProcessId, $physicalValidator)' # 2026-10-07：按最新六参数边界替换，生产验证委托不调用桌面。
 if (-not $lifecycleSource.Contains($physicalCall)) { throw 'Physical fallback boundary not found' }
 $noClickLifecycle = $lifecycleSource.Replace($physicalCall, '(Invoke-TestPhysicalClick $btn)')
 function Invoke-TestPhysicalClick($Button) {

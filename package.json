@@ -2,7 +2,7 @@
   "name": "antigravity-auto-accept",
   "displayName": "Antigravity Auto Accept",
   "description": "Automatically accept supported Antigravity IDE agent approval buttons on Windows. No debug port or command allowlist setup.",
-  "version": "5.3.3",
+  "version": "5.3.4",
   "license": "MIT",
   "icon": "icon.png",
   "publisher": "fhgffy",
@@ -86,7 +86,7 @@
         "antigravityAutoAccept.restoreCursor": {
           "type": "boolean",
           "default": true,
-          "description": "Restore the mouse cursor to its previous position after a fallback physical click."
+          "description": "Include a cursor restore in the same verified input batch as a fallback physical click."
         },
         "antigravityAutoAccept.showNotifications": {
           "type": "boolean",
@@ -107,7 +107,8 @@
     "test:concurrency": "powershell.exe -NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -Command \"$ProgressPreference='SilentlyContinue'; $testPath=[IO.Path]::GetFullPath('./tests/scanner-concurrency.test.ps1'); $tokens=$null; $errors=$null; $ast=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($testPath,[Text.Encoding]::UTF8),$testPath,[ref]$tokens,[ref]$errors); if($errors.Count){throw 'Concurrency test parse failed'}; & $ast.GetScriptBlock()\"",
     "test:lifecycle": "node --test tests/extension.test.cjs",
     "test:scanner": "powershell.exe -NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -Command \"$ProgressPreference='SilentlyContinue'; $testPath=[IO.Path]::GetFullPath('./tests/scanner.test.ps1'); $tokens=$null; $errors=$null; $ast=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($testPath,[Text.Encoding]::UTF8),$testPath,[ref]$tokens,[ref]$errors); if($errors.Count){throw 'Scanner test parse failed'}; & $ast.GetScriptBlock()\"",
-    "test": "npm run compile && npm run typecheck && npm run test:repository && npm run selftest && npm run test:lifecycle && npm run test:scanner && npm run test:concurrency",
+    "test:mouse": "powershell.exe -NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -Command \"$ProgressPreference='SilentlyContinue'; $testPath=[IO.Path]::GetFullPath('./tests/mouse-helper.test.ps1'); $tokens=$null; $errors=$null; $ast=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($testPath,[Text.Encoding]::UTF8),$testPath,[ref]$tokens,[ref]$errors); if($errors.Count){throw 'Mouse helper test parse failed'}; & $ast.GetScriptBlock()\"",
+    "test": "npm run compile && npm run typecheck && npm run test:repository && npm run selftest && npm run test:lifecycle && npm run test:scanner && npm run test:mouse && npm run test:concurrency",
     "package": "npx --yes @vscode/vsce@4.0.0 package --no-dependencies"
   },
   "devDependencies": {
