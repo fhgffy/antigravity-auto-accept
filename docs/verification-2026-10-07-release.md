@@ -45,3 +45,49 @@ npm run package退出0；validate-vsix读取实际归档，核对8文件、完�
 原始本机证据保存在C:\Temp\AntigravityAA-runtime-536-ddc64f6a9d1d4557ad97b6b8fb5ce32a，含安装验证、scanner-events-536.txt、两个只读观察脚本、三份JSONL及actual-ide-536-approval.png。scanner事件归档SHA256为2A4CE3649D47EFA3B03BAFB3088E9546247C83521F6AF835F23BD9709B57D9B9；保留截图SHA256为9B3EA433B9D81D5509AE0E2F4525CF25AFA28BEBA8FC06C5CFFD93BBE367723A。
 
 精确7ffae95b5a66b3246f2b4ec0462eb896cee5a6b3的push run37596617849和PR run37596629241均已success，PS5/PS7及Verified VSIX通过，发布作业在分支/PR按设计skipped。PR12暂不合并，先定位真实前台切换；5.3.6尚未发布，5.3.5仍为已核三个渠道的公开版本。这一回合真实实测不等于整体体验验收完成。
+
+## 阶段诊断与原包恢复（2026-10-07 17:50–18:13 Asia/Shanghai）
+
+为区分动作阶段，在系统Temp目录构建了同版本、明确标记LOCAL DIAGNOSTIC的独立安装包；它不是发布5.3.6的验收输入。10处既有Select/Invoke/Scroll/Expand动作保留原最终校验、顺序、冷却和异常传播，只在校验前与动作后读取前台，并以内存时刻记录call begin/return。诊断scanner SHA256为0088F6385A46B41BC62A1904AC565AD5F08407CADF33D1788224B6E2D3506827、VSIX为8912F50ADF39605BD5B5CF17D738AA9E945FA53CDD071E4A8284874D12675F57，extension.js保持原包字节。
+
+诊断预检的PS5完整160项包装断言、95项SelfTest、134项scanner通过。PS7包装断言与相关动作回归通过，但完整scanner最后的abandoned mutex READY在原8秒界限超时；后续同界限的单独协议复现通过，不替代完整PS7成功证据。大型诊断fixture只在Temp副本改为UTF8文件与短启动引导，生产及仓库测试未因此改动。
+
+17:53:36的单次终端审批中，before-validation在.371读取Note HWND32639358，Invoke begin=.413、return=.449，after在.450读取IDE HWND331346。独立只读观察在.414–.415区间仍读取Note，之后.617已IDE；前台切换因而被缩小到约35–36ms的观测包络，覆盖Invoke后半段或刚返回的极短区间。本次没有Select、Scroll、Expand或物理批准动作。pointer保持1427,618，lastInput tick变化不能识别输入来源；这些记录不能独自证明provider或审批后宿主哪一个发起了激活。
+
+18:10提交下一张D536_DIAG_CHROME_001自然终端任务并尝试切至自有Example Domain窗口。Computer Use随后因无法可靠确认当前浏览器URL停止；没有继续原生/浏览器界面操作，完整Chrome交互验收未完成。已在运行的只读观测仍记录到实际Chrome前台：18:10:56.301的before-validation为Chrome HWND328922，Invoke begin=.363、return=.389，after=.389为IDE；独立样本.305为Chrome、.474为IDE，pointer1434,825保持。该记录证明第二个前台来源的切换，不能将被中止的界面测试说成通过，也未测持续浏览器输入。
+
+官方CLI恢复已归档原始5.3.6包后，核对scanner为7F732F0CAB9FEA2A9F8A3FCB029820A4BC36FE6D98A3F6C8EA6CBF89D18ADC0A、extension.js为2F85FBE50F0DF4EF35CC7C688602EA2B5D822951777B0159040057AE392EA1AD。仅在PID1041608、精确启动时间17:50:50.5100200、父进程1039888及解码启动脚本安装路径全部匹配后停止本轮诊断scanner；扩展按原3秒策略启动原包scanner PID832324，18:13:52 ready。没有结束用户IDE或其它应用，也没有残留运行中的诊断scanner。
+
+新增日志scanner-events-diagnostic-and-restore-536.txt SHA256为C013DAD0517CB95171F7480D9B87FDE74AE14979342A83A2084598E2082E8B4D；Chrome观测observe-foreground-1023228-20261007T101028106-354805c0cf054eb4a6b3ca1f8d7041cb.jsonl SHA256为0AC981C938BF60D0E2C8C8FE1AE922B00A60CFB4474798C9EE53BD61CFD89AA3，120030ms、548样本、24次固定IDE资源记录、无观测错误。全部保存在前述独立Temp证据目录，diagnostic-restoration-20261007.json记录恢复身份与时间。
+
+精确17135bca550e13fc8da1e5d746c5bf5462f1439a的PR run37600826061与push run37600822037最终均success：第一次分别在PS7的32bit owned-child READY10s与生命周期SelfTest20s处超时，失败日志保留；同SHA失败作业各仅重跑一次，未改界限或断言。重跑成功不能证明首次超时根因或长期CI稳定性。PR12仍为draft且未合并，5.3.6仍未发布；本轮没有修复前台切换。
+
+## 自动设焦点的官方客户端契约（2026-10-07）
+
+证据等级：已读官方文档，尚未验证修复。微软[IUIAutomation2::put_AutoSetFocus文档](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomation2-put_autosetfocus)说明，默认多数执行动作的UIA方法会在Invoke、SetValue等动作前设焦点；原生COM客户端实例可设AutoSetFocus=false阻止这一自动步骤。该属性从Windows8支持，符合项目Windows10/11前提。现有托管InvokePattern未暴露这个实例选项，创建另一COM实例并设false也不能假定会改变原托管调用。后续受控差分必须从同一个已配置COM客户端取得动作pattern，在原最终校验完成后调用，并分别验证一次批准、前台保持、浏览器窄菜单、用户输入及原错误/冷却语义。本文记录官方契约提供的可测假设，不把它写成此次实机切换已经定责或修复。
+
+## 原生无焦点客户端候选实测失败（2026-10-07 20:00–20:22 Asia/Shanghai）
+
+证据等级：已跑验证，候选未修复前台切换。基于原诊断scanner，只将Submit pattern获取改为同一CUIAutomation8/IUIAutomation2客户端的AutoSetFocus=false路径：窗口句柄定位、RuntimeId条件查找、再次比较、GetCurrentPatternAs取得Invoke，保留原最终表单、一次允许、宿主退出校验及冷却；本轮没有替换选择、滚动、展开或普通按钮动作。候选源码SHA256为C206DD9199D19E0FD2BCC3F51A6D290EA469E501877EC79A0F333823ED70E954、VSIX为676A8255887FC92243CC5F250955A63CBB75EA1B829C1AD62E9DEB9A96FFE8C6，extension.js与原包相同。
+
+预检在PS5和PS7编译候选内嵌C#、创建自己的COM客户端、读回AutoSetFocus=false，严格核对三种无效参数的异常类型及内容；均exit0，没有桌面查询或控件动作。纯内存测试真实生产Submit函数经过外部pattern边界，原版默认焦点副作用模型失败、候选通过；这是路由验证，不能替代前台验收。审查发现GetTypedObjectForIUnknown要求COM class，候选在安装前已改为GetObjectForIUnknown后接口转换；转换失败释放自己的RCW，raw pointer独立释放一次。顺序清理异常遮盖原异常的风险仍需在任何正式实现前处理。
+
+启动时真实Agent提示认证失效，本轮没有自动操作登录；用户手动恢复后，正常发送单个D536_NOFOCUS_APPROVAL_001本地只读检查任务，并将新建自有Note页置前台。候选于20:09:00 ready，20:12:22实际创建无焦点客户端并完成原生绑定。before-validation=.110读取Note HWND329822，Invoke begin=.151、return=.196、after=.197读取IDE HWND133218，调用正常返回且一次性Submit被批准。本次只有Submit，无Select、Scroll、Expand或物理批准。
+
+独立只读观察120006ms、600个200ms前台样本、24次固定IDE资源记录，无观察错误；20:12:22.150–.151仍Note，.372已IDE，pointer1429,546保持。观察文件observe-foreground-35596-20261007T121042225-2cfb0555b072471781d5efedfa18e1e5.jsonl SHA256为41389498F5B4C28F6E87C6DAD33E29818D48FF0A89CC526F6557785DF129E23A。关闭UIA客户端默认设焦点未消除这次切换，不能因此认定真实宿主或provider已经定责。
+
+Computer Use随后展开已完成工具记录，读到task-8结果“command exited with code 0”；Agent回报当前工作目录，系统时间属于Agent环境元数据，不能说成终端独立测时。审批后自有Note的D536_NOFOCUS_TEXT_001中文/英文/数字基准文本保持原45字符，仅为单次输入保留，未验证持续键入。UI返回记录保存在独立Temp目录的native-task-result-and-note.json；用户工作区仍显示原8项待提交改动，未编辑这些文件。
+
+本轮证据与候选保存在C:\Temp\AntigravityAA-focus-client-536-413788f4d5a44e63abdf7a7bc8256173。测试后官方CLI恢复原5.3.6源码7F732F0CAB9FEA2A9F8A3FCB029820A4BC36FE6D98A3F6C8EA6CBF89D18ADC0A，并仅在PID28744、启动时间20:08:56.157476、父PID36856及解码安装路径匹配后停止候选scanner，保持用户IDE与应用。原包scanner PID43736于20:22:02.245849启动，原输出20:22:02 ready，恢复后的日志归档SHA256为FA248E7A8A2EEDF777A42664FA4820C8CBE68B9D18F1C1CAC841E812EAE9E6BA。该实验未修改生产源码、未合并PR12、未发布5.3.6。多IDE和完整浏览器持续输入矩阵仍未完成，不能从短时样本宣称体验验收完成。
+
+## 标准pattern路径复测与内核版本核实（2026-10-07 20:35–20:50 Asia/Shanghai）
+
+证据等级：已跑验证，标准路径候选仍失败。Computer Use通过Help > About读取真实运行版本：Antigravity IDE 2.5.5、Electron 39.2.3、Chromium 142.0.7444.175、Node 22.21.1；因此此前固定Chromium源码已能映射本机版本，但页面焦点机制仍不能独自确定Windows前台变化的调用者。
+
+只在Temp生成第三个候选，将同一已配置COM客户端的GetCurrentPatternAs/raw pointer转换换为GetCurrentPattern标准IUnknown输出；保持原窗口、RuntimeId和最终审批校验，在绑定后、最终校验前重新读取AutoSetFocus。源码SHA256为15C8956BDC19FC7055732C5DF9A8C58A4195612B9A2260309ACECEF21300EFDB，VSIX为321CD461B7DEC6C079F5F46B60A2EA2199383DB3ACBFAD8850620DFBCA6153D4，extension.js仍与原版相同。PS5/PS7内嵌C#编译、客户端false标志、三种无效参数的提前拒绝、纯内存实际审批路由和VSIX字节身份校验均exit0；这些不替代原生focus验收。
+
+第一项目录任务D536_STANDARD_APPROVAL_001使用list_dir完成，没有产生审批或Invoke，只记录为未触发。第二项自然任务D536_STANDARD_APPROVAL_002要求实际测量可用物理内存和测量时间；用户未手动点击审批，正常Agent生成只读系统检查，产品自身提交一次许可。20:46:59日志在绑定后再次显示AutoSetFocus=False；before-validation=.322读取Note HWND329822，Invoke begin=.337、return=.364、after=.364已IDE HWND133218，无Select、Scroll、Expand或物理审批。因而标准pattern获取路径没有修复焦点变化，且排除了此次绑定过程中标志恢复为true的解释；尚不能独自区分provider或宿主的激活行为。
+
+独立观察120007ms、600个200ms前台样本、24次固定IDE资源记录、无观测错误：20:46:59.165–.166为Note，.369为IDE；pointer1429,570保持，lastInput变化不识别输入来源。observe-foreground-35596-20261007T124631304-b9a45abd697e46be95c5da9d92b25313.jsonl SHA256为A7E35862EEAFC8651DC2D9485063411AEFDFEBEED38B83B91F984F9AA1285B6A。Computer Use展开工具输出，实际读到Available Memory (KB): 3734588和Current Time: 2026-10-07 20:47:01；该界面未显示退出码，不补写exit0。自有Note的D536_STANDARD_TEXT_001中文/英文/数字44字符基准保持；未验证持续键入、第二IDE或完整浏览器矩阵。
+
+官方CLI恢复原始5.3.6包，再通过正常Restart Scanner命令重启产品；磁盘scanner恢复7F732F0CAB9FEA2A9F8A3FCB029820A4BC36FE6D98A3F6C8EA6CBF89D18ADC0A，候选PID48472已退出，原包PID48236、父PID36856、启动20:49:59.2795700，20:49:59 ready。证据保存在上述focus-client Temp目录：candidate3-native-task-and-note.json、actual-ide-about-20261007.json、candidate3-runtime-ledger.json；日志candidate3-native-failure-and-restore.log SHA256为2554A01C67AAE23F48AC5BAE1A9033E0D56970CB726368298D3857C8346F1BA7。生产源码、IDE安装文件与用户原8项工作区改动均未编辑，PR12仍draft，不合并或发布未通过本机体验验收的候选。

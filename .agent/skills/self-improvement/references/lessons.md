@@ -340,3 +340,33 @@
 - **已跑验证：** 最小化的自有Note不能抓状态；AX-only后两次click报coordinate input geometry is unavailable，动作未确认。恢复自有窗口并用fresh screenshot后输入成功，不把工具几何错误当插件故障。
 - **下次做法：** 实机输入使用当前截图与返回的窗口句柄；控件索引失效先观察，必要时一次截图坐标回退。插件启动异步，click回调仍显示旧OFF时先看fresh ready/日志，不能立刻判定点击无效或重复切换。
 - **日志定位：** 最新Antigravity logs目录可能仅有CLI安装日志；按近期真实window/exthost输出的5.3.6激活与ready定位，不把rg无命中说成scanner不存在。
+
+## 2026-10-07 Asia/Shanghai - 阶段诊断本身、日期解析与恢复身份必须验证
+
+- **已跑失败：** 诊断Console.WriteLine中的多参数-f表达式未整体括起，异常被日志自身catch吞掉；纯内存包装断言发现缺日志，修正后再安装。不能把静态解析通过当实际诊断输出通过。
+- **日期：** ConvertFrom-Json后的时间字段可能已变为DateTime，再与ISO字符串比较会得到空筛选或丢失精度；先按原始JSONL的ISO文本或数值elapsedMs定位，再报告样本读取区间，不能把时间戳当原子前台读数。
+- **恢复：** 同版本CLI安装只替换磁盘文件，旧scanner仍运行。先核对原包hash，再用本轮已记录PID、精确启动时间、父PID和解码启动路径证明所属实例，才停止该诊断进程，随后按原重启日志确认原包ready。Windows安装路径驱动器大小写不同，身份比较使用OrdinalIgnoreCase，不缩减为文件名匹配。
+- **工具边界：** Computer Use因无法可靠确认浏览器URL停止后，本轮停止所有界面输入，不换CUA/CDP/原生路线重试。已运行的只读观测记录可以保存，但不能冒充被中止的完整交互验收；非UI官方CLI可恢复本轮诊断安装。
+- **边界：** Note→IDE切换被缩小到Invoke调用后半段或返回后的极短区间，Chrome也出现对应前台切换；这仍不能区分provider与异步宿主激活，不能盲加焦点恢复或放宽最终批准校验。
+
+## 2026-10-07 Asia/Shanghai - 同SHA首次超时与重跑成功分别保留
+
+- **已跑验证：** 17135bc的PR/push首轮PS7分别在owned-child READY10s、SelfTest20s超时；原失败日志保留，同SHA各重跑失败作业一次后成功，未改断言和超时。
+- **下次做法：** 在不修改生产代码的证据提交上，先区分runner协议启动超时与功能断言失败，精确核对SHA/attempt；GET失败且未提交重跑请求时先查原run状态，再补发一次请求。不能把重跑成功说成根因已确定或CI无不稳定。
+- **检查：** 独立8秒mutex协议重放通过也不能替代诊断包完整PS7最后一项超时记录；测试范围与证据等级分别写明。
+
+## 2026-10-07 Asia/Shanghai - 客户端标志通过不等于后台焦点修复
+
+- **已跑验证：** 同一原生UIA客户端AutoSetFocus=false，真实窗口/RuntimeId绑定和Invoke正常返回，Submit仍令Note转到IDE。600个独立样本确认切换，45字符文本保留和工具exit0不能抵消这一体验失败；不合并未奏效候选。
+- **原生契约：** GetTypedObjectForIUnknown的Type要求COM imported class，不是COM接口；预检只创建client不会覆盖pattern转换。改为GetObjectForIUnknown再QI到接口，并分别释放自己的RCW与原始pointer；清理不能遮盖动作原异常，也不使用FinalReleaseComObject清空共享引用。
+- **生成ABI：** SDK SAL宏可含内部下划线，不能用过窄正则删注解后把BOOL*/接口输出误当IntPtr；完整SDK vtable顺序、GUID、out/SAFEARRAY独立校验。多个C#文件用Add-Type -Path数组；避免将第二文件顶层using拼到前一namespace之后。不要复用PowerShell内建PROFILE变量。
+- **测试：** 无效参数测试必须核对异常类型与内容，catch任意异常可把真实桌面失败误算成早期拒绝。没有插值的双引号here-string可能被解析为StringConstantExpressionAst；校验应接受两种字符串AST并拒绝真实NestedExpressions。
+- **界面：** launch_app超时先刷新窗口，不重复启动；AX-only click几何缺失时补fresh截图。离屏按钮的AX索引不能替代可见区域核验，先滚动到实际可见工具记录，再展开；不要将未展开的Agent总结当原始工具输出。
+- **证据边界：** Chromium固定版本默认动作中的页面focus不是本机Windows前台定责；实际IDE内核尚未映射。认证必须用户手动恢复，第三方Panel的TFA告警也不能独自推出主Agent仍无法工作。
+
+## 2026-10-07 Asia/Shanghai - 标准pattern与真实触发范围必须分别核验
+
+- **已跑验证：** GetCurrentPattern标准IUnknown路径在绑定后读回AutoSetFocus=false，真实一次Submit仍使Note转IDE；不能通过更换获取API宣称修复。Help > About确认Chromium 142.0.7444.175后，才能将固定upstream源码映射本机；页面焦点仍不是Windows前台的定责。
+- **触发：** 自然任务可选择list_dir等无需审批工具；没有卡片/Invoke的观察记为未触发。实际只读系统测量产生一次审批后，再看原始工具输出、前台记录和文本保留，三类证据不能互相替代。
+- **输入：** set_value返回成功但本轮草稿未变；必须检查实际可见内容。聚焦自有草稿后Ctrl+A，核对selected_text严格等于自有文本，再替换，不能把RootWebArea焦点直接当用户代码可编辑区。
+- **生成：** Temp生成器原为LF，候选源为CRLF，应逐文件检测；PowerShell正则替换中的字面反斜杠r/n不会生成换行。使用明确CR/LF字符值并以唯一完整代码块、hash及AST为守卫；边界不匹配时不得写文件。
