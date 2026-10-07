@@ -478,3 +478,27 @@
 - **已跑本机：** 绑定目标和native root路径推进到UiaGetRuntimeId，首节点返回E_NOINTERFACE、nodes1/core-fail，未继续后代遍历。不能称native树没有目标，也不能把客户端pattern QI某个provider IID当公开身份桥；官方控制模式契约区分client与provider接口。
 - **观测边界：** 新90s观察虽覆盖scanner Start，仍在案例结束前约13秒到期；仅归纳实际216个静置样本，缺失段不得用末尾快照或日志填成连续保证。下一次在实际capture覆盖内结束案例，必要时提前检查observer结束时间。
 - **恢复：** 正常Stop147588后CIM核对退出，官方CLI原包恢复并hash7F732F核验、UI OFF；只有只读拒绝证据，没有批准或焦点修复通过证据。
+
+## 2026-10-08 Asia/Shanghai - 空 stderr 与读取任务状态不能判定脚本未进入
+
+- **已跑 CI：** f18ed6a 首次 push 双引擎与包校验通过，首次 PR 的 PS7 在 caller64→child32 PID764 READY10s 失败，PS5 通过；没有重跑。终止后空输出和 stopError 空仍不能代替真实 WaitForExit 返回值及 HasExited 核验。
+- **已跑受控验证：** 真实自有 child 在脚本入口先 sleep、尚未取得 Console.Error getter 时，stderr 仍为空；写 marker 后 sleep 的 child 在 Kill 后则保留 marker，读取任务超时前同为 WaitingForActivation。不能由空 stderr 声称脚本未执行，也不能由该任务状态声称零字节已读；本轮不是 Console/AMSI/cold-start/ThreadPool 的根因证明。
+- **下次做法：** 第一条旁证写在任何 Console getter 前，用独占 GUID 目录、nonce/PID 与三个精确 CreateNew+close 文件；成功仍要求原精确 stderr 协议。missing/partial/读失败只记未知，READY null EOF 与空行分开，终止返回值和最终存活分别记录；诊断及文件清理失败不得盖掉原超时。
+
+## 2026-10-08 Asia/Shanghai - 首根跳过不能放宽后代身份或填补观察尾段
+
+- **已跑本机：** 精确首根runtime E_NOINTERFACE经三即时资源全清理成功后可进入FirstChild；本机186轮首后代仍runtime-core E_NOINTERFACE/nodes2。不能继续泛化跳过后代错误、手拼RuntimeId或将未比较的元素称目标；批准仍未发生。正常Stop161408后核对退出，原包CLI恢复和hash通过，OFF且Note197exact。
+- **采样坑复现：** 120s仍在案例最终读取前到期，232个实际覆盖样本Note稳定，尾段8.581s明确排除。工具返回、分析及新调用都有墙钟成本，预设120s不保证覆盖收尾；下一次将短观察区间的起止与只读结束核验放在同一受限执行单元，按实际deadline中止并保留超时，不修改案例结束时间迁就捕获。
+
+## 2026-10-08 Asia/Shanghai - 阶段旁证的异常、清理与 UTF8 边界
+
+- **已跑验证：** 冻结host源码776F1BBC双引擎各131项，实际故障边界各24及六个真实阶段延迟通过，原READY/退出10s、125项身份断言和严格stderr协议全部保留。文件missing/partial只是未证实阶段，明确区分null EOF和空READY；未定位CI原超时根因。
+- **新坑与修正：** PowerShell点属性在异常getter夹具中可返回null而不进catch，改显式同一get_HasExited并真实验证。原typed catch在完整PS5故障夹具中将路径/读取错误误分为missing，机制未定；single catch只在路径已验证且实际base exception为File/DirectoryNotFound时记missing，其它保ownership/read-error。诊断helper或JSON失败必须保护原timeout。
+- **清理：** 先确认最终绝对目录、恰好原三个basename与顺序，再做任何删除；确认自有child退出才删除三个文件及空目录。读/删/终止失败各保留状态，不能误删同目录foreign文件，不能把empty stopError当已退出。
+- **Temp编码：** PS5直接-File读取无BOM中文夹具可能误解码；固定显式UTF8 AST与major验证launcher后重放，旧解析失败日志保留。项目原UTF8 AST入口不受此次临时launcher问题影响。
+
+## 2026-10-08 Asia/Shanghai - raw 有返回仍不等于完整目标身份
+
+- **已跑本机：** 0E2519隔离候选94对root/FirstChild均raw S_OK、VT_I4一维len4/append、cleanup成功，但core仍E_NOINTERFACE且first-child原拒绝；没有批准动作。不能由core错误推论全部公开provider不可用，也不能将relative array拼接为目标full RuntimeId。
+- **观察修正：** 在同一受限单元记录10秒无输入起止与结束核验，本次52个样本完整在实际120s观察期限内，Note197逐字保留；600全记录与24 IDE资源类型由原JSON确认。零动作稳定仅限拒绝路径，不是审批体验通过。
+- **恢复：** 正常Stop168704核对退出，官方CLI原包restore0/hash7F732F、UI OFF，再恢复Note前台；正式scanner未改。

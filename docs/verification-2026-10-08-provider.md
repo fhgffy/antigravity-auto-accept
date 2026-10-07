@@ -4,6 +4,10 @@
 
 ## 当前 CI 与发布边界
 
+提交 f18ed6a9efaa058d139399f7fcb61dea6194c1e0 的首次 push run 37678092637 通过双引擎与 Verified VSIX；首次 PR run 37678101006 的 PS5 通过、PS7 在宿主身份步骤失败，Verified VSIX 和发布均跳过。失败为 caller64 → child32 PID764 的 READY10s 超时；超时前 child 存活，READY/stderr 两任务 WaitingForActivation，终止后捕获输出为空、stopError 为空。没有再次重跑。源码随后审计确认 WaitForExit(5000) 返回值被丢弃，stopError 为空不能独自证明已退出；ReadLine 的 null EOF 与空行也曾被同一空字符串格式合并。
+
+独立受控真实 child 重放表明：脚本可以在第一条 Console.Error 写入前已经执行，仍留下空 stderr；ReadToEndAsync 的 WaitingForActivation 也不代表没有读取任何字节。这是观测边界，不是 Console、冷启动、AMSI 或 ThreadPool 根因定责。本次新增独占 GUID/nonce 的三个 CreateNew+close 阶段文件，ENTERED 在任何 Console getter 前写入。保留原10s、精确三行 stderr 与125项身份断言，双引擎正常执行新增6项共131项。冻结测试源码776F1BBCD759D5DE3518CD44933FE0A1E1C7034A2F6DC13B4229846FF4FDB9D9，PS5/PS7各24个实际 reader/timeout/finally 边界和六个真实延迟子进程全部通过；独立审查各131及24也通过。只对验证完成且已确认退出的精确三个绝对文件路径清理，诊断异常保留原超时，EOF null与空行分开。ROOT随后在同一冻结测试源码运行 npm test，exit0：compile/typecheck、repository3、publication26、selftest95、lifecycle28、scanner152、host双引擎各131、mouse双引擎各81、concurrency22全通过。完整日志位于C:/Temp/AntigravityAA-ci-stage-files-536-71042d8b1bac469d8cbb1db868459c3e/root-full-suite.log；新提交首轮CI单独核验，不重跑掩盖失败。尚未证明原间歇超时根因已修复。
+
 提交 3d557feea4a0d88ca4bfd09996eb4d5c243f4e9f 的 PR run 37668572394、push run 37668565299 均首次通过，包含双 PowerShell 引擎和 Verified VSIX。未重跑。新增 READY 阶段 stderr 协议仍要求精确三行与 PID，原 10s 超时和 125 项宿主身份断言不变；前两提交的 READY 超时失败与一次重跑记录保留在 verification-2026-10-07-release.md。本次绿灯不能证明间歇超时根因已修复。发布作业在当前分支跳过，不能把 VSIX 校验称为已上线。
 
 ## UniqueId 的本机返回
@@ -55,3 +59,29 @@ Scanner PID147588、parent36856、启动03:41:40.017201+08:00。实际推进到r
 03:43:37正常Stop，CIM147588已退出，CLI原包恢复exit0且安装scanner重新为7F732F...8ADC0A，UI OFF，原卡片仍Waiting for user input；原工作区8项未提交内容保持。证据目录C:/Temp/AntigravityAA-browser-provider-id-536-60136a904305411ba14fa1bbd732f880，包含native-runtime-ledger.json、native-plugin-excerpt.log、完整79分支与native ABI红绿记录。弃用C API仍只用于隔离诊断，未进正式源码。
 
 Microsoft [Control Patterns Overview](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-controlpatternsoverview) 明确provider接口由core使用，client拿到另一套接口；[GetCurrentPatternAs](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomationelement-getcurrentpatternas)的通用IID参数不能推出能还原稳定native provider、同一目标身份或无焦点动作。本轮未试任意provider IID、更未据此执行动作。
+
+## 首根失败后的后代只读诊断
+
+证据等级：已跑本机验证、已跑隔离验证。2026-10-08 的隔离候选仅允许首节点 nodes1、深度1、同一 fragmentRoot 在 UiaGetRuntimeId 返回 E_NOINTERFACE 时，经失败 out SAFEARRAY、coreNode、providerPointer 三项即时清理全部成功后继续 FirstChild。任一清理失败、S_FALSE 或异常仍保留原80004002且零Navigate；后代及其它阶段/错误不跳过，完整 opaque 编号、绑定守卫及原遍历界限保持。所有路径仍抛诊断拒绝，未返回动作包装。
+
+源码42607C96EC0AF49A9BC8A3E3BCD709519A063E638A3EAD7DB35A1EB2F8F7D13D，VSIX2FA703E6B58CBE68D36F589F4915A750DE31AD6B516E521B5748E11848E20632。完整111方法模式PS5/PS7/x86通过，实际PS拒绝链20项、真实本进程ABI及预检通过；独立审查复跑双引擎111、PS7拒绝20/预检10与x86 ABI，并核对原PS尾及8entries中other7字节完全不变。UTF8无BOM/全CRLF/解析通过；仅支持诊断候选，不能证明实机命中或动作无干扰。
+
+官方CLI安装exit0、安装源码hash一致；scanner PID161408、parent36856，04:25:28.761703+08启动，04:28:00正常Stop后CIM确认退出。实际186轮均先记录 root-core-interface-unsupported/80004002/nodes1/rootSkipped=true，随即首个后代 runtime-core/80004002/nodes2/match=false/core-fail。此次进入了一个后代，仍未取得可比较完整编号，不能推论其余后代或整树缺目标；无CLICK或expand-after/allow-after/trigger-after，原TypeScript卡片仍pending。
+
+120s观察实际为20:24:50.866Z—20:26:50.873Z，共600样本和24条IDE35596资源记录。无输入交接20:26:04.290Z，案例结束20:26:59.454Z；覆盖内232完整样本（20:26:04.464Z—20:26:50.668Z）均Note329822、读取前后稳定，cursor1322,865及lastInput34891093不变。案例收尾晚于观察约8.581s，明确排除未覆盖尾段，不声称全程保持。结束及恢复后的Note197字符逐字保留。
+
+原包CLI恢复exit0、source重新为7F732F...8ADC0A，UI OFF且无scanner child，随后主动恢复Note前台；正式scanner源码CDB3AB...2EAEC1未改。证据目录C:/Temp/AntigravityAA-browser-provider-root-skip-536-be6bd64b618e4cb8bd8ca6ba031cbeb6，含handoff、native-runtime-ledger.json、native-plugin-excerpt.log、package-byte-check.json、111分支/ABI/预检与CLI安装恢复日志。
+
+## 公开 Fragment 原始编号的本机对比
+
+证据等级：已跑本机验证、已跑隔离验证、已读公开契约。2026-10-08 隔离候选0E2519A41EE6406A79F8A2514FB7DCBE6496902DC9A6D9D2B27C0A19712385BB，VSIX02068C1195BAA4B8D03B6BE80477DC8394CAE8A262A90CB87D8E0C76840DD648。仅在前两次已证明失败的 exact root/实际 FirstChild 上，经原 core 三即时资源全部清理后，借用既有 Fragment.GetRuntimeId 做只读对比。失败 out 不读取；成功 SAFEARRAY 只读类型、维度、长度及 SDK append 分类，不输出编号内容，不拼完整 RuntimeId，不取得动作包装。首后代无论结果仍抛原 E_NOINTERFACE；其它后代与原完整绑定/PS尾不变。
+
+完整方法172项、实际PS拒绝链36项、完整C#预检以及真实本进程SAFEARRAY20项在PS5/PS7/x86通过；独立审查复跑双引擎172、最终拒绝36、完整编译及x86 ABI/真实数组20，并核对最终源码/包哈希、8entries仅scanner改变、UTF8无BOM/CRLF及原PS尾字节不变。隔离包只供本机诊断，不是正式发布产物。
+
+官方CLI安装exit0且安装源码hash一致。scanner PID168704、parent36856，04:51:39.312832+08启动，04:52:58正常Stop后CIM确认退出。实际94轮根与首子 raw均 S_OK、readHr=S_OK、VT_I4/dim1/len4/append=true/cleanup=true；对应core仍80004002，首子terminal=core-fail、match=false。它证明这两个provider的公开raw接口有返回，不能归结为整条provider接口不可用，也不证明相对数组可与目标完整编号直接比较。审批卡仍Waiting for user input、More actions折叠；实际CLICK_INVOKE/CLICK_PHYSICAL标记为0。
+
+观察20:52:00.671Z—20:54:00.679Z共600样本、24条observed-process-resource（固定IDE35596）。本次将短无输入区间起止放在同一执行单元：20:52:33.728Z—20:52:44.133Z完整在deadline内，52个完整样本（33.880Z—44.083Z）均Note329822/读取前后稳定，cursor1322,865与lastInput36461609各仅一个值、读取无错误。顺序查询不是原子快照或输入来源识别；零动作拒绝中的稳定不能称真实审批、持续输入或scanner资源验收通过。Note原197字符逐字保留。
+
+原包官方CLI恢复exit0、source7F732F...8ADC0A、UI OFF且无scanner child；随后主动恢复Note前台，正式scanner CDB3AB...2EAEC1和IDE原8项未提交内容未改。证据目录C:/Temp/AntigravityAA-browser-provider-raw-536-279300aafa8f4e6b8b3867278abef69d，含handoff、native-runtime-ledger.json、native-plugin-excerpt.log、native-restore-result.json、包/编码/红绿记录和实际observer绝对路径。
+
+本机IDE resources/app/package.json声明Electron39.2.3，[官方发行映射](https://releases.electronjs.org/release/v39.2.3)为Chromium142.0.7444.175；这是本地声明和官方映射，未读取实际运行process.versions。相对编号与窗口宿主NULL的[公开接口契约](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationcore/nf-uiautomationcore-irawelementproviderfragment-getruntimeid)不提供本轮手拼完整编号的授权或证据。

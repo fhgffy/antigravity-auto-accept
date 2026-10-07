@@ -300,6 +300,52 @@ try { [void][HostProcessNativeMemory]::GetProcessImagePath(123) } catch { $throw
 Assert-Host ($thrown -and [HostProcessNativeMemory]::CloseCalls -eq 0) 'open exception never closes nonexistent handle'
 Write-Output 'PASS native process flow: access, wait before/after, buffer retry, finally close'
 
+<# 2026-10-08：旁证只读取本例三个精确路径与有限字节；只有 PID/nonce 整行匹配才证明到达阶段。 #>
+function Read-HostChildStage([string]$OwnedDirectory, [string]$Stage, [string]$StagePath, [string]$ExpectedLine) {
+    $result = [pscustomobject]@{ Stage = $Stage; Exists = $null; Complete = $false; State = 'unknown'; Length = $null; ReadError = '' }
+    $stream = $null
+    $validated = $false
+    try {
+        $directory = [IO.Path]::GetFullPath($OwnedDirectory)
+        $path = [IO.Path]::GetFullPath($StagePath)
+        $name = switch ($Stage) { 'ENTERED' { 'entered.stage' }; 'ENCODING_SET' { 'encoding-set.stage' }; 'READY_WRITTEN' { 'ready-written.stage' }; default { throw 'Unknown owned child stage' } }
+        if (-not [IO.Path]::IsPathRooted($OwnedDirectory) -or -not [IO.Path]::IsPathRooted($StagePath) -or
+            -not [String]::Equals([IO.Path]::GetDirectoryName($path), $directory, [StringComparison]::OrdinalIgnoreCase) -or
+            [IO.Path]::GetFileName($path) -cne $name) { throw 'Owned stage path escaped directory' }
+        $expected = [Text.Encoding]::ASCII.GetBytes($ExpectedLine)
+        if ($expected.Length -eq 0 -or $expected.Length -gt 256) { throw 'Owned stage line size invalid' }
+        $validated = $true
+        $stream = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        $result.Exists = $true
+        $buffer = New-Object byte[] ($expected.Length + 1)
+        $count = 0
+        while ($count -lt $buffer.Length) {
+            $read = $stream.Read($buffer, $count, $buffer.Length - $count)
+            if ($read -eq 0) { break }
+            $count += $read
+        }
+        $result.Length = $stream.Length
+        $observed = [Text.Encoding]::ASCII.GetString($buffer, 0, $count)
+        if ($count -eq $expected.Length -and $result.Length -eq $expected.Length -and $observed -ceq $ExpectedLine) {
+            $result.Complete = $true; $result.State = 'complete'
+        } elseif ($result.Length -gt $expected.Length -or $count -gt $expected.Length) { $result.State = 'extra' }
+        elseif ($count -lt $expected.Length -and $ExpectedLine.StartsWith($observed, [StringComparison]::Ordinal)) { $result.State = 'partial' }
+        else { $result.State = 'mismatch' }
+    } catch {
+        # 2026-10-08：只按本次实际异常归类；路径守卫失败或其他读取错误不能被误记为 missing。
+        $stageException = $_.Exception.GetBaseException()
+        if ($validated -and ($stageException -is [IO.FileNotFoundException] -or $stageException -is [IO.DirectoryNotFoundException])) {
+            $result.Exists = $false; $result.State = 'missing'
+        } else { $result.State = if ($validated) { 'read-error' } else { 'ownership-error' }; $result.ReadError = $_.Exception.GetType().FullName }
+    }
+    finally {
+        if ($null -ne $stream) {
+            try { $stream.Dispose() } catch { $result.Complete = $false; $result.State = 'read-error'; $result.ReadError = $_.Exception.GetType().FullName }
+        }
+    }
+    return $result
+}
+
 <# 2026-10-07：真实验证当前进程及本测试启动的两个位数子进程；退出码 259 仍必须拒绝。 #>
 $current = [Diagnostics.Process]::GetCurrentProcess()
 try {
@@ -315,8 +361,38 @@ $native64 = if ([IntPtr]::Size -eq 4) { Join-Path $env:WINDIR 'Sysnative\Windows
 $native32 = Join-Path $env:WINDIR 'SysWOW64\WindowsPowerShell\v1.0\powershell.exe'
 foreach ($fixture in @(@{ Engine = $native64; Expected = $system32; Bits = 8 }, @{ Engine = $native32; Expected = $native32; Bits = 4 })) {
     if (-not [IO.File]::Exists($fixture.Engine)) { throw "Owned child engine missing: $($fixture.Engine)" }
-    <# 2026-10-08：自有子进程仅向捕获的stderr写阶段协议，区分脚本入口、编码设置与READY写入，成功时精确校验全协议。 #>
-    $childCommand = '[Console]::Error.WriteLine("HOST_CHILD_ENTERED:"+$PID); [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Console]::Error.WriteLine("HOST_CHILD_ENCODING_SET:"+$PID); [Console]::WriteLine("READY:"+[IntPtr]::Size+":"+$PID); [Console]::Error.WriteLine("HOST_CHILD_READY_WRITTEN:"+$PID); [void][Console]::ReadLine(); exit 259'
+    <# 2026-10-08：每例独占 GUID 目录和 nonce；阶段文件先于对应 Console getter/写入后的 stderr 标记。 #>
+    $ownedStageDirectory = [IO.Path]::GetFullPath([IO.Path]::Combine([IO.Path]::GetTempPath(), 'AntigravityAA-HostChild-' + [Guid]::NewGuid().ToString('N')))
+    $ownedExpectedDirectory = $ownedStageDirectory
+    $ownedStageNonce = [Guid]::NewGuid().ToString('N')
+    $ownedStagePaths = @(
+        [pscustomobject]@{ Stage = 'ENTERED'; Path = [IO.Path]::Combine($ownedStageDirectory, 'entered.stage'); Protocol = 'HOST_CHILD_ENTERED' },
+        [pscustomobject]@{ Stage = 'ENCODING_SET'; Path = [IO.Path]::Combine($ownedStageDirectory, 'encoding-set.stage'); Protocol = 'HOST_CHILD_ENCODING_SET' },
+        [pscustomobject]@{ Stage = 'READY_WRITTEN'; Path = [IO.Path]::Combine($ownedStageDirectory, 'ready-written.stage'); Protocol = 'HOST_CHILD_READY_WRITTEN' }
+    )
+    $childCommand = @'
+$nonce='__NONCE__'
+$enteredPath='__ENTERED__'
+$encodingPath='__ENCODING__'
+$readyPath='__READY__'
+$bytes=[Text.Encoding]::ASCII.GetBytes('HOST_CHILD_ENTERED:'+$PID+':'+$nonce+[Environment]::NewLine)
+$file=[IO.File]::Open($enteredPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+try{$file.Write($bytes,0,$bytes.Length)}finally{$file.Dispose()}
+[Console]::Error.WriteLine("HOST_CHILD_ENTERED:"+$PID)
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+$bytes=[Text.Encoding]::ASCII.GetBytes('HOST_CHILD_ENCODING_SET:'+$PID+':'+$nonce+[Environment]::NewLine)
+$file=[IO.File]::Open($encodingPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+try{$file.Write($bytes,0,$bytes.Length)}finally{$file.Dispose()}
+[Console]::Error.WriteLine("HOST_CHILD_ENCODING_SET:"+$PID)
+[Console]::WriteLine("READY:"+[IntPtr]::Size+":"+$PID)
+$bytes=[Text.Encoding]::ASCII.GetBytes('HOST_CHILD_READY_WRITTEN:'+$PID+':'+$nonce+[Environment]::NewLine)
+$file=[IO.File]::Open($readyPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+try{$file.Write($bytes,0,$bytes.Length)}finally{$file.Dispose()}
+[Console]::Error.WriteLine("HOST_CHILD_READY_WRITTEN:"+$PID)
+[void][Console]::ReadLine()
+exit 259
+'@
+    $childCommand = $childCommand.Replace('__NONCE__', $ownedStageNonce).Replace('__ENTERED__', $ownedStagePaths[0].Path.Replace("'", "''")).Replace('__ENCODING__', $ownedStagePaths[1].Path.Replace("'", "''")).Replace('__READY__', $ownedStagePaths[2].Path.Replace("'", "''"))
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $fixture.Engine
     $start.Arguments = '-NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childCommand))
@@ -330,25 +406,56 @@ foreach ($fixture in @(@{ Engine = $native64; Expected = $system32; Bits = 8 }, 
     $child = New-Object Diagnostics.Process
     $child.StartInfo = $start
     $retained = [IntPtr]::Zero
+    $ownedDirectoryCreated = $false
+    $childStarted = $false
+    $ownedChildId = $null
+    $exitWaitCompleted = $null
+    $hasExitedAfterStop = $null
+    $processQueryError = ''
+    $stopError = ''
     try {
+        if ([IO.Directory]::Exists($ownedStageDirectory)) { throw 'Owned stage directory collision' }
+        [void][IO.Directory]::CreateDirectory($ownedStageDirectory)
+        $ownedDirectoryCreated = $true
         if (-not $child.Start()) { throw 'Owned child did not start' }
+        $childStarted = $true; $ownedChildId = $child.Id # 2026-10-08：只保留本次启动对象的 PID。
         $pendingReady = $child.StandardOutput.ReadLineAsync()
         $pendingError = $child.StandardError.ReadToEndAsync()
-        <# 2026-10-08：超时先记录自有子进程与两条读取任务状态，终止后保存有限输出，避免重跑掩盖启动或管道问题。 #>
+        <# 2026-10-08：缺失阶段仍是未知；有限读后保留 WaitForExit 布尔值、EOF/null 和读取任务前后状态。 #>
+        # 2026-10-08：显式调用同一状态 getter，避免 PowerShell 点属性吞掉查询异常。
         if (-not $pendingReady.Wait(10000)) {
-            $exitedBeforeStop = $child.HasExited
-            $readyState = $pendingReady.Status
-            $errorState = $pendingError.Status
-            $stopError = ''
-            try { if (-not $exitedBeforeStop) { $child.Kill(); [void]$child.WaitForExit(5000) } }
-            catch { $stopError = $_.Exception.GetType().FullName }
-            $readyAfterStop = '<pending>'
-            $errorAfterStop = '<pending>'
-            try { if ($pendingReady.Wait(1000)) { $readyAfterStop = $pendingReady.GetAwaiter().GetResult() } }
-            catch { $readyAfterStop = '<read-failed:' + $_.Exception.GetType().FullName + '>' }
-            try { if ($pendingError.Wait(1000)) { $errorAfterStop = $pendingError.GetAwaiter().GetResult() } }
-            catch { $errorAfterStop = '<read-failed:' + $_.Exception.GetType().FullName + '>' }
-            throw "Owned child ready timeout: engine=$($fixture.Engine) pid=$($child.Id) caller=$([IntPtr]::Size * 8) expected=$($fixture.Bits * 8) exitedBeforeStop=$exitedBeforeStop readyTask=$readyState errorTask=$errorState readyAfterStop=[$readyAfterStop] stderrAfterStop=[$errorAfterStop] stopError=[$stopError]"
+            $exitedBeforeStop = $null
+            try { $exitedBeforeStop = $child.get_HasExited() } catch { $processQueryError = $_.Exception.GetType().FullName }
+            $readyState = $pendingReady.Status.ToString()
+            $errorState = $pendingError.Status.ToString()
+            try { if ($exitedBeforeStop -ne $true) { $child.Kill() } } catch { $stopError = $_.Exception.GetType().FullName }
+            try { if ($exitedBeforeStop -ne $true) { $exitWaitCompleted = $child.WaitForExit(5000) } } catch { $stopError = $_.Exception.GetType().FullName }
+            try { $hasExitedAfterStop = $child.get_HasExited() } catch { $processQueryError = $_.Exception.GetType().FullName }
+            $readyAfterStop = $null; $errorAfterStop = $null
+            $readyCompleted = $false; $errorCompleted = $false
+            $readyReadError = ''; $errorReadError = ''
+            try { if ($pendingReady.Wait(1000)) { $readyAfterStop = $pendingReady.GetAwaiter().GetResult(); $readyCompleted = $true } } catch { $readyReadError = $_.Exception.GetType().FullName }
+            try { if ($pendingError.Wait(1000)) { $errorAfterStop = $pendingError.GetAwaiter().GetResult(); $errorCompleted = $true } } catch { $errorReadError = $_.Exception.GetType().FullName }
+            $diagnosticStage = 'stage-read'
+            try {
+                $stages = @($ownedStagePaths | ForEach-Object { Read-HostChildStage $ownedStageDirectory $_.Stage $_.Path ($_.Protocol + ':' + $ownedChildId + ':' + $ownedStageNonce + [Environment]::NewLine) })
+                $diagnostic = [ordered]@{
+                    ExitedBeforeStop = $exitedBeforeStop; ExitWaitCompleted = $exitWaitCompleted; HasExitedAfterStop = $hasExitedAfterStop
+                    QueryError = $processQueryError; StopError = $stopError; ReadyTaskBefore = $readyState; ErrorTaskBefore = $errorState
+                    ReadyTaskAfter = $pendingReady.Status.ToString(); ErrorTaskAfter = $pendingError.Status.ToString()
+                    ReadyReadCompleted = $readyCompleted; ReadyIsNull = if ($readyCompleted) { $null -eq $readyAfterStop } else { $null }
+                    ReadyLength = if (-not $readyCompleted) { $null } elseif ($null -eq $readyAfterStop) { -1 } else { $readyAfterStop.Length }
+                    ReadyReadError = $readyReadError; StderrReadCompleted = $errorCompleted
+                    StderrLength = if (-not $errorCompleted) { $null } elseif ($null -eq $errorAfterStop) { -1 } else { $errorAfterStop.Length }
+                    StderrReadError = $errorReadError; Stages = $stages
+                }
+                $diagnosticStage = 'serialize'
+                $diagnosticJson = $diagnostic | ConvertTo-Json -Compress -Depth 5
+            } catch {
+                # 2026-10-08：旁证读取/序列化失败只保留阶段和类型，仍抛原 READY 超时。
+                $diagnosticJson = '{"DiagnosticStage":"' + $diagnosticStage + '","DiagnosticError":"' + $_.Exception.GetType().FullName + '"}'
+            }
+            throw "Owned child ready timeout: engine=$($fixture.Engine) pid=$ownedChildId caller=$([IntPtr]::Size * 8) expected=$($fixture.Bits * 8) diagnostic=$diagnosticJson"
         }
         $ready = $pendingReady.GetAwaiter().GetResult()
         $pendingTail = $child.StandardOutput.ReadToEndAsync()
@@ -359,7 +466,8 @@ foreach ($fixture in @(@{ Engine = $native64; Expected = $system32; Bits = 8 }, 
         Assert-Host ([MouseHelper]::GetProcessImagePath([uint32]$child.Id) -ieq $fixture.Expected) 'owned child native path cross bitness'
         $child.StandardInput.WriteLine('finish')
         $child.StandardInput.Flush()
-        if (-not $child.WaitForExit(10000)) { throw 'Owned child exit timeout' }
+        $exitWaitCompleted = $child.WaitForExit(10000) # 2026-10-08：保留原十秒退出等待的布尔结果。
+        if (-not $exitWaitCompleted) { throw 'Owned child exit timeout' }
         Assert-Host ($child.ExitCode -eq 259) 'owned child normal exit 259'
         Assert-Host ([MouseHelper]::WaitForSingleObject($retained, 0) -eq 0) 'owned exited child handle signaled'
         Assert-Host ($null -eq [MouseHelper]::GetProcessImagePath([uint32]$child.Id)) 'owned exited 259 child rejected with retained handle'
@@ -367,12 +475,59 @@ foreach ($fixture in @(@{ Engine = $native64; Expected = $system32; Bits = 8 }, 
         $expectedChildError = @("HOST_CHILD_ENTERED:$($child.Id)", "HOST_CHILD_ENCODING_SET:$($child.Id)", "HOST_CHILD_READY_WRITTEN:$($child.Id)") -join [Environment]::NewLine
         $expectedChildError += [Environment]::NewLine
         Assert-Host ($pendingTail.GetAwaiter().GetResult().Length -eq 0 -and $pendingError.GetAwaiter().GetResult() -ceq $expectedChildError) 'owned child output streams complete'
+        <# 2026-10-08：成功时额外要求三个独占文件整行等于当前 PID/nonce，不替代原 READY/退出/strict stderr 断言。 #>
+        foreach ($ownedStage in $ownedStagePaths) {
+            $record = Read-HostChildStage $ownedStageDirectory $ownedStage.Stage $ownedStage.Path ($ownedStage.Protocol + ':' + $ownedChildId + ':' + $ownedStageNonce + [Environment]::NewLine)
+            Assert-Host ($record.Complete -and $record.State -ceq 'complete') ("owned child stage file $($ownedStage.Stage) exact pid and nonce")
+        }
         Write-Output "PASS owned child: caller=$([IntPtr]::Size * 8) child=$($fixture.Bits * 8) alive-path=yes exited-259=rejected"
     }
     finally {
         if ($retained -ne [IntPtr]::Zero) { [void][MouseHelper]::CloseHandle($retained) }
-        try { if (-not $child.HasExited) { $child.Kill(); [void]$child.WaitForExit(5000) } } catch { }
-        $child.Dispose()
+        <# 2026-10-08：只清理确认退出后的三个自有文件，先验证全部最终绝对路径，再删除空目录；失败保留诊断。 #>
+        if ($childStarted) {
+            $finalExited = $null
+            try { $finalExited = $child.get_HasExited() } catch { $processQueryError = $_.Exception.GetType().FullName }
+            if ($finalExited -ne $true) {
+                try { $child.Kill() } catch { $stopError = $_.Exception.GetType().FullName }
+                try { $exitWaitCompleted = $child.WaitForExit(5000) } catch { $stopError = $_.Exception.GetType().FullName }
+            }
+            try { $hasExitedAfterStop = $child.get_HasExited() } catch { $processQueryError = $_.Exception.GetType().FullName }
+        }
+        $cleanup = [ordered]@{
+            Pid = $ownedChildId; ChildStarted = $childStarted; ExitWaitCompleted = $exitWaitCompleted; HasExitedAfterStop = $hasExitedAfterStop
+            QueryError = $processQueryError; StopError = $stopError; OwnedDirectory = $ownedStageDirectory
+            StageFiles = @(); DirectoryState = 'not-created'; DirectoryError = ''; DisposeError = ''
+        }
+        if ($ownedDirectoryCreated) {
+            if (-not $childStarted -or $hasExitedAfterStop -eq $true) {
+                try {
+                    $directory = [IO.Path]::GetFullPath($ownedStageDirectory)
+                    if (-not [String]::Equals($directory, $ownedExpectedDirectory, [StringComparison]::OrdinalIgnoreCase)) { throw 'Owned stage directory changed' }
+                    # 2026-10-08：先确认恰好三个原始 basename，拒绝同目录其他文件及相对路径，再执行任何删除。
+                    $names = @('entered.stage', 'encoding-set.stage', 'ready-written.stage')
+                    if ($ownedStagePaths.Count -ne $names.Count) { throw 'Owned cleanup target count changed' }
+                    $paths = @($ownedStagePaths | ForEach-Object {
+                        if (-not [IO.Path]::IsPathRooted($_.Path)) { throw 'Owned cleanup target is relative' }
+                        [IO.Path]::GetFullPath($_.Path)
+                    })
+                    for ($pathIndex = 0; $pathIndex -lt $paths.Count; $pathIndex++) {
+                        if (-not [String]::Equals([IO.Path]::GetDirectoryName($paths[$pathIndex]), $directory, [StringComparison]::OrdinalIgnoreCase) -or
+                            -not [String]::Equals([IO.Path]::GetFileName($paths[$pathIndex]), $names[$pathIndex], [StringComparison]::Ordinal)) { throw 'Owned cleanup target changed' }
+                    }
+                    foreach ($path in $paths) {
+                        $fileResult = [ordered]@{ Name = [IO.Path]::GetFileName($path); State = 'unknown'; Error = '' }
+                        try { $existed = [IO.File]::Exists($path); [IO.File]::Delete($path); $fileResult.State = if ($existed) { 'deleted' } else { 'absent' } }
+                        catch { $fileResult.State = 'delete-error'; $fileResult.Error = $_.Exception.GetType().FullName }
+                        $cleanup.StageFiles += [pscustomobject]$fileResult
+                    }
+                    try { [IO.Directory]::Delete($directory, $false); $cleanup.DirectoryState = 'removed' }
+                    catch { $cleanup.DirectoryState = 'delete-error'; $cleanup.DirectoryError = $_.Exception.GetType().FullName }
+                } catch { $cleanup.DirectoryState = 'ownership-error'; $cleanup.DirectoryError = $_.Exception.GetType().FullName }
+            } else { $cleanup.DirectoryState = 'kept-exit-unconfirmed' }
+        }
+        try { $child.Dispose() } catch { $cleanup.DisposeError = $_.Exception.GetType().FullName }
+        try { [Console]::WriteLine('___HOST_CHILD_CLEANUP___:' + ($cleanup | ConvertTo-Json -Compress -Depth 5)) } catch { }
     }
 }
 Write-Output "___HOST_PROCESS_TEST_DONE___:passed=$script:checks"
