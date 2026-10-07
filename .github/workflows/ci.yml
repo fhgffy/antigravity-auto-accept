@@ -65,6 +65,19 @@ jobs:
           $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
           if ($parseErrors.Count -gt 0) { throw 'Scanner test parse errors' }
           & ($testAst.GetScriptBlock()) -PowerShellEngines @('${{ matrix.executable }}')
+      # 2026-10-07：实际查询自有跨位数进程路径，退出、权限及缓冲边界只替原生依赖。
+      - name: Host process identity across architectures
+        run: |
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/host-process.test.ps1'))
+          $tokens = $null
+          $parseErrors = $null
+          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw 'Host process test parse errors' }
+          $hostEngines = @('${{ matrix.executable }}')
+          if ($PSVersionTable.PSVersion.Major -eq 5) {
+            $hostEngines += Join-Path $env:WINDIR 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+          }
+          & ($testAst.GetScriptBlock()) -PowerShellEngines $hostEngines
       # 2026-10-07：直接回放生产物理方法，系统输入边界用内存替身，CI 不点击桌面。
       - name: Mouse input interference without desktop clicks
         run: |

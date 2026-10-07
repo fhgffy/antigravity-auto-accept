@@ -1,4 +1,4 @@
-# 2026-10-07：运行真实单实例生命周期并以空目标进程阻止 UI 扫描，复现多 IDE 宿主并发和退出接管。
+# 2026-10-07：运行真实单实例生命周期并以空窗口集合隔离桌面，复现多 IDE 宿主并发和退出接管。
 param([string[]]$PowerShellEngines = @('powershell.exe', 'pwsh.exe'), [ValidateRange(1, 5)][int]$Rounds = 2)
 
 $ErrorActionPreference = 'Stop'
@@ -43,9 +43,12 @@ function Read-ConcurrencyLine($Process, [string]$Expected) {
 
 # 2026-10-07：只有已创建的测试进程会被终止，非测试 IDE 和用户的扫描器不受影响。
 function Assert-ConcurrencyExit($Process) {
+    # 2026-10-07：等待退出前先持续收集尾部输出，诊断写满管道不能阻塞父进程退出检查。
+    $pendingOutput = $Process.StandardOutput.ReadToEndAsync()
+    $pendingError = $Process.StandardError.ReadToEndAsync()
     if (-not $Process.WaitForExit(10000)) { throw 'Scanner did not stop after parent exit' }
-    $output = $Process.StandardOutput.ReadToEnd()
-    $errorOutput = $Process.StandardError.ReadToEnd()
+    $output = $pendingOutput.GetAwaiter().GetResult()
+    $errorOutput = $pendingError.GetAwaiter().GetResult()
     if ($Process.ExitCode -ne 0 -or $errorOutput.Length -gt 0 -or $output -match '___CLICK_|___ERROR___') {
         throw "Unexpected scanner exit: code=$($Process.ExitCode) stdout=$output stderr=$errorOutput"
     }
@@ -57,7 +60,15 @@ for ($round = 1; $round -le $Rounds; $round++) {
     $mutexName = 'Local\AntigravityAutoAcceptScanner.ConcurrencyTest.' + [Guid]::NewGuid().ToString('N')
     $lifecycle = $source.Substring($tailIndex).Replace('Local\AntigravityAutoAcceptScanner', $mutexName)
     $common = '$ProgressPreference = ''SilentlyContinue''; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $PollMs = 25; $CooldownMs = 0; '
-    $common += $parentFunction[0].Extent.Text + "`r`nfunction Get-TargetProcessIds { return @{} }`r`n"
+    # 2026-10-07：窗口 PID 查询前已有窗口枚举；只加载枚举类型并提供空树，不能靠空进程图跳过桌面入口。
+    $common += $parentFunction[0].Extent.Text + [Environment]::NewLine
+    $common += @'
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+function Get-TargetProcessIds([int]$ProcessId) { return @{} }
+$automation = [pscustomobject]@{}
+$automation | Add-Member ScriptMethod FindAll { param($scope, $condition) return @() }
+'@
+    $common += [Environment]::NewLine
     try {
         for ($index = 0; $index -lt 5; $index++) {
             $engine = $engines[$index % $engines.Count]

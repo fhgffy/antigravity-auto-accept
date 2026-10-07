@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.4
+# 🚀 Antigravity Auto Accept v5.3.5
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -31,7 +31,7 @@ Antigravity's [IDE settings documentation](https://antigravity.google/docs/setti
 
 Current maintenance: **fhgffy**, with **Codex** assisting fixes and tests. See [CONTRIBUTING.md](CONTRIBUTING.md) to help maintain the project. Historical Git commit authorship is preserved.
 
-Latest user-input interference verification: [docs/verification-2026-10-07-input.md](docs/verification-2026-10-07-input.md). Multi-window and CI verification: [docs/verification-2026-10-07.md](docs/verification-2026-10-07.md). Earlier runtime notes remain in [docs/verification-2026-10-05.md](docs/verification-2026-10-05.md). A result on one IDE version does not establish compatibility with every permission type or future release.
+Window process and cross-architecture verification: [docs/verification-2026-10-07-process.md](docs/verification-2026-10-07-process.md). Latest user-input interference verification: [docs/verification-2026-10-07-input.md](docs/verification-2026-10-07-input.md). Multi-window and CI verification: [docs/verification-2026-10-07.md](docs/verification-2026-10-07.md). Earlier runtime notes remain in [docs/verification-2026-10-05.md](docs/verification-2026-10-05.md). A result on one IDE version does not establish compatibility with every permission type or future release.
 
 ---
 
@@ -148,6 +148,13 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.5 — Window Process Queries (2026-10-07)
+
+- Query the current window's process image directly, avoiding repeated system-wide process enumeration.
+- Recognize 64-bit IDE hosts from a 32-bit scanner and recheck the full installation path before each approval action.
+- Reject exited processes on the same native handle; close query handles after success, failure or exceptions.
+- Add real process-path and controlled failure regressions to PS5 x64/x86 and PS7 x64 CI.
 
 ### v5.3.4 — User Input and Approval Identity (2026-10-07)
 
