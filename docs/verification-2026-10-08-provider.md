@@ -6,7 +6,7 @@
 
 提交 f18ed6a9efaa058d139399f7fcb61dea6194c1e0 的首次 push run 37678092637 通过双引擎与 Verified VSIX；首次 PR run 37678101006 的 PS5 通过、PS7 在宿主身份步骤失败，Verified VSIX 和发布均跳过。失败为 caller64 → child32 PID764 的 READY10s 超时；超时前 child 存活，READY/stderr 两任务 WaitingForActivation，终止后捕获输出为空、stopError 为空。没有再次重跑。源码随后审计确认 WaitForExit(5000) 返回值被丢弃，stopError 为空不能独自证明已退出；ReadLine 的 null EOF 与空行也曾被同一空字符串格式合并。
 
-独立受控真实 child 重放表明：脚本可以在第一条 Console.Error 写入前已经执行，仍留下空 stderr；ReadToEndAsync 的 WaitingForActivation 也不代表没有读取任何字节。这是观测边界，不是 Console、冷启动、AMSI 或 ThreadPool 根因定责。本次新增独占 GUID/nonce 的三个 CreateNew+close 阶段文件，ENTERED 在任何 Console getter 前写入。保留原10s、精确三行 stderr 与125项身份断言，双引擎正常执行新增6项共131项。冻结测试源码776F1BBCD759D5DE3518CD44933FE0A1E1C7034A2F6DC13B4229846FF4FDB9D9，PS5/PS7各24个实际 reader/timeout/finally 边界和六个真实延迟子进程全部通过；独立审查各131及24也通过。只对验证完成且已确认退出的精确三个绝对文件路径清理，诊断异常保留原超时，EOF null与空行分开。ROOT随后在同一冻结测试源码运行 npm test，exit0：compile/typecheck、repository3、publication26、selftest95、lifecycle28、scanner152、host双引擎各131、mouse双引擎各81、concurrency22全通过。完整日志位于C:/Temp/AntigravityAA-ci-stage-files-536-71042d8b1bac469d8cbb1db868459c3e/root-full-suite.log；新提交首轮CI单独核验，不重跑掩盖失败。尚未证明原间歇超时根因已修复。
+独立受控真实 child 重放表明：脚本可以在第一条 Console.Error 写入前已经执行，仍留下空 stderr；ReadToEndAsync 的 WaitingForActivation 也不代表没有读取任何字节。这是观测边界，不是 Console、冷启动、AMSI 或 ThreadPool 根因定责。本次新增独占 GUID/nonce 的三个 CreateNew+close 阶段文件，ENTERED 在任何 Console getter 前写入。保留原10s、精确三行 stderr 与125项身份断言，双引擎正常执行新增6项共131项。冻结测试源码776F1BBCD759D5DE3518CD44933FE0A1E1C7034A2F6DC13B4229846FF4FDB9D9，PS5/PS7各24个实际 reader/timeout/finally 边界和六个真实延迟子进程全部通过；独立审查各131及24也通过。只对验证完成且已确认退出的精确三个绝对文件路径清理，诊断异常保留原超时，EOF null与空行分开。ROOT随后在同一冻结测试源码运行 npm test，exit0：compile/typecheck、repository3、publication26、selftest95、lifecycle28、scanner152、host双引擎各131、mouse双引擎各81、concurrency22全通过。完整日志位于C:/Temp/AntigravityAA-ci-stage-files-536-71042d8b1bac469d8cbb1db868459c3e/root-full-suite.log。随后f79d73b9cdf985a881b3496f27759e22bf6d08fa首轮PR37685982927通过双引擎与Verified VSIX；首轮push37685975422的PS7通过、PS5 caller64→child32 PID7372 READY10s失败，包与发布跳过。实际CLIXML解码确认ExitWaitCompleted/HasExitedAfterStop均true，READY为null EOF/length-1，stderr length0，三个stage均missing；exact文件清理及空dir删除成功。首次ENTERED之前仍有赋值/ASCII编码/文件IO，不能由missing声称脚本从未进入。没有rerun，原间歇超时根因未修复。
 
 提交 3d557feea4a0d88ca4bfd09996eb4d5c243f4e9f 的 PR run 37668572394、push run 37668565299 均首次通过，包含双 PowerShell 引擎和 Verified VSIX。未重跑。新增 READY 阶段 stderr 协议仍要求精确三行与 PID，原 10s 超时和 125 项宿主身份断言不变；前两提交的 READY 超时失败与一次重跑记录保留在 verification-2026-10-07-release.md。本次绿灯不能证明间歇超时根因已修复。发布作业在当前分支跳过，不能把 VSIX 校验称为已上线。
 
@@ -85,3 +85,27 @@ Microsoft [Control Patterns Overview](https://learn.microsoft.com/en-us/windows/
 原包官方CLI恢复exit0、source7F732F...8ADC0A、UI OFF且无scanner child；随后主动恢复Note前台，正式scanner CDB3AB...2EAEC1和IDE原8项未提交内容未改。证据目录C:/Temp/AntigravityAA-browser-provider-raw-536-279300aafa8f4e6b8b3867278abef69d，含handoff、native-runtime-ledger.json、native-plugin-excerpt.log、native-restore-result.json、包/编码/红绿记录和实际observer绝对路径。
 
 本机IDE resources/app/package.json声明Electron39.2.3，[官方发行映射](https://releases.electronjs.org/release/v39.2.3)为Chromium142.0.7444.175；这是本地声明和官方映射，未读取实际运行process.versions。相对编号与窗口宿主NULL的[公开接口契约](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationcore/nf-uiautomationcore-irawelementproviderfragment-getruntimeid)不提供本轮手拼完整编号的授权或证据。
+
+## 当前注册命令目录的本机只读盘点
+
+证据等级：已跑本机验证、已跑编译及有限mock、已读源码。使用独立GUID扩展D20609BC462724C3B460DBB38C02FA0F63042275D380510C63B37BF625F45ED0，TS E7F768116C63D27E348509CDA398DBB3F803A1BFBAEDD4726B5E077A0C08E341、JS89BF916E1F87F8414E298EFCF7D55F6361BE391BFBE9CB2DEB4EC74B0878AE52。原5.3.6插件未被替换，独立扩展仅onCommand激活，用Sky在原IDE命令面板执行自己的 AA 5.3.6 Command Directory (1a24e71ddd62)，回调只调用官方getCommands(true)并写自有输出通道。没有执行返回目录中的其它命令，没有读认证、改配置或启动scanner。
+
+真实目录total2984/unique2984，关键词匹配64，输出62；两个匹配ID被ASCII白名单省略，unsafe2/complete=false。结果包含antigravity.acceptAgentStep/getBrowserOnboardingPort/showBrowserAllowlist等，但目录本身不证明公开的一次性批准目标参数契约；尤其不能排除未输出两个ID。后续将以有限ASCII转义JSON补齐，不把格式过滤的缺失当不存在。getCommands(true)只返回当前已注册且过滤下划线内部ID，不能声称覆盖所有隐藏或未来注册命令。
+
+9组有限mock、TS/JS解析、API白名单与独立审查通过；VSIX6唯一entries/4payload同字节、UTF8无BOM/LF。官方CLI安装exit0、installed JS一致，执行后日志正常BEGIN/END；官方CLI卸载exact独立ID exit0并list确认不存在，原scanner7F732F...8ADC0A/JS2F85...2EA1AD保持、无scanner child、UI OFF、卡片pending、Note197字符exact并恢复前台。证据目录C:/Temp/AntigravityAA-command-directory-536-1a24e71ddd6245a190db18979c824d91，含native-runtime-ledger.json/native-command-directory.log和CLI安装卸载记录。
+
+2026-10-07T21:05:26.1003561Z重新查三个公开API，GitHub最新v5.3.5，Marketplace及OpenVSX均5.3.5，Marketplace exact列表不含5.3.6；快照在CI-stage Temp/public-versions-f79.json。没有上传诊断包或发布5.3.6。
+
+## 转义完整目录的本机补齐
+
+证据等级：已跑本机验证、已跑有限编译/mock、已读源码。2026-10-07T21:32Z 使用独立GUID诊断包A6280C2DF920946138099406075B199F86F023F6532D8C3B81216180179D50BB，TS A421E6547F46039B1D710C0A7D9DFED9772C6531F8F14F2E2E65ED1FA9100735、JS3DD9AF04A7D1FD8DE08E396B73FDAFA74E8630AA9B5BB0020F8D895DA88F5B46。Sky命令面板只执行一次自有 AA 5.3.6 Escaped Command Directory (d4c2dce3e4f1)，回调只getCommands(true)，以ASCII转义JSON保留匹配ID完整字符串；无其它命令执行或scanner。目录total2986/unique2986、matched64/emitted64、nonString0/tooLong0/truncatedfalse/complete=true；先前62个ID全数保留，补齐两个：vscode-webhint/ignore-browsers-project（Webhint检查）和workbench.action.output.show.extension-output-fhgffy.antigravity-auto-accept-#1-Antigravity Auto Accept（插件日志通道）。两个新增ID名称不提供一次审批的目标参数契约。complete只指当前已注册非下划线关键词集合且通过本轮长度/数量边界，不能声称所有动态、内部或未来服务入口不存在。
+
+有限9组mock、TS/JS解析、API静态白名单、独立peer审查及6唯一ZIPentries/4payload同字节均通过，未扩大回归或调用未知命令。官方CLIexact独立ID卸载exit0且list确认不存在；原插件source7F732F...8ADC0A/JS2F85...2EA1AD保持、无scanner child。随后Sky核对OFF/卡片pending并恢复Note329822前台，197字符逐字一致。证据目录C:/Temp/AntigravityAA-command-directory-escaped-536-d4c2dce3e4f1456f8f77c03eb2348d15，含native-runtime-ledger.json、native-command-directory.log、native-cleanup.json及安装/卸载日志。
+
+## 独立 child 输入 A/B 诊断
+
+证据等级：已读源码、已跑有限本机验证、已跑独立审查；远端四个fresh runner结果待验证。新增tests/child-startup-diagnostic.ps1与.github/workflows/child-startup-diagnostic.yml，只在当前codex/scanner-idle-audit分支的这两个path push时启动major5/7 × EncodedCommand/File四个独立job，每个只启动一次自有child32，无预热、自动重跑或continue-on-error。原required ci.yml和host-process.test.ps1 SHA776F1BBC...F4FDB9D9保持。脚本按冻结AST提取完整Assert-Host、Read-HostChildStage、原native编译/ABI与完整owned-loop，只改child命令输入路径并加时间/hash/失败旁证；原READY/exit10s、PID/path/native handle/退出259、精确stderr及PID+nonce三个stage条件/原三文件清理保留。每组为21项提取断言，不称原131项全量回归。File用CreateNew、UTF8 BOM及正文/字节回读，确认child退出后独立删除准确input.ps1；未知源或anchor先于child创建被拒绝。
+
+作者本机四组各21通过，四组受控15秒延迟保留原10秒timeout/exit1并回收自有child；12项有限边界通过。独立review四组各21/exit0/stderr空、三stage删除/空目录删除、File输入删除通过，自有四PID均退出。独立正常首个PS5 Encoded用旧SHA32262B、其余三用日志保护修后0708107，没有重跑填绿；另外单独以持续stdout故障验证旧异常覆盖红→修后保留原异常绿，无原异常仍抛输出失败。修正仅增加一条2026-10-08中文说明及备用Console.WriteLine的try/catch{}，原函数/reader/assert/cleanup逐字保持；peer最终无P1/P2。Temp候选UTF8无BOM/LF，正式新文件依项目归一CRLF、内容除此一致：脚本D435CFF806983319BF6FBCF682E0C8AA4B9D3033BAF99246536EEE7B65D4670F，workflow DF932632E514EC3CCFF27D67DB2BA0C7CAEC25861AC31A21B1EF1A2961B88679。ROOT准确PS5/7解析均0，repository三项（strictUTF8/noBOM/CRLF、manifest、diff）通过；正式scanner CDB3AB...2EAEC1保持。
+
+证据目录C:/Temp/AntigravityAA-ci-startup-ab-536-ecb8c35e2059461eade13b33c47e2d9f（作者handoff、每例result/stdout/stderr、root-formal-copy.json），独立审查C:/Temp/AntigravityAA-ci-ab-readonly-review-536-23ee03b3298d4a468f694570495a7750。原f79 PR首轮绿/push首轮PS5失败均保留，尚未定位原CI根因；A/B本机绿灯或未来单次runner差异都不能直接证明AMSI/base64/冷启动机制。此次不改变发布门禁，不合并或发布5.3.6。

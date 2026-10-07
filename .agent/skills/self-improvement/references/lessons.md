@@ -502,3 +502,25 @@
 - **已跑本机：** 0E2519隔离候选94对root/FirstChild均raw S_OK、VT_I4一维len4/append、cleanup成功，但core仍E_NOINTERFACE且first-child原拒绝；没有批准动作。不能由core错误推论全部公开provider不可用，也不能将relative array拼接为目标full RuntimeId。
 - **观察修正：** 在同一受限单元记录10秒无输入起止与结束核验，本次52个样本完整在实际120s观察期限内，Note197逐字保留；600全记录与24 IDE资源类型由原JSON确认。零动作稳定仅限拒绝路径，不是审批体验通过。
 - **恢复：** 正常Stop168704核对退出，官方CLI原包restore0/hash7F732F、UI OFF，再恢复Note前台；正式scanner未改。
+
+## 2026-10-08 Asia/Shanghai - 只读命令目录不能把省略当不存在
+
+- **已跑本机：** getCommands(true)当前2984 ID，关键词匹配64但ASCII白名单只输出62，complete=false；另外2个未知，不能据此关闭一次审批命令假设。下一步用bounded ASCII转义JSON保留完整字符串，不执行返回ID。API仅当前已注册非下划线ID，名称不是公开target参数契约。
+- **新坑与修正：** unknown异常可能是Proxy，instanceof本身会触发getPrototypeOf并再次抛提供者文本；errorKind自身catch为固定Other，原实际编译函数红灯与最终9组mock绿灯及peer复审保留。官方VSCE会正规化README/LICENSE文件名，包字节核对应实际6entries映射，不能猜文件名。
+- **恢复：** 独立目录扩展执行后exactID官方卸载/确认不存在，原插件source/JS hash保持、OFF无child、Note197exact；只枚举目录不证明审批通过。
+
+## 2026-10-08 Asia/Shanghai - PS5 Hashtable 的 AST offset 排序须显式取 key
+
+- **已跑候选生成验证：** 新独立启动A/B候选在PS5的Sort-Object Start未按Hashtable键值排序，真实最小输入7/9/5返回5/9/7；原AST offset与Extent均正确，却因无序插入导致候选parse在任何child Start前拒绝。首失败日志保留，不能归因原CI启动问题。
+- **复用修正：** 用显式Expression={ [int]$_['Start'] }排序，并对每个原始AST插入anchor逐字校验；最终候选及CI结果须另行验证，原宿主测试及超时未改。
+
+## 2026-10-08 Asia/Shanghai - 目录 complete 的范围须限定当前过滤集合
+
+- **已跑本机：** 转义JSON补齐之前unsafe2，当前2986 registered ID里关键词64全部输出；原62全保留，额外仅Webhint浏览器检查和AutoAccept日志通道。complete=true是这一刻非下划线/关键词/长度数量集合完整，不证明隐藏或未来命令不存在，更不是审批公开参数契约。没有执行任何返回ID。
+- **恢复：** 只读GUID扩展用exactID官方卸载/list absent，原source/JS hash保持、OFF无child/pending，Note197exact并主动恢复前台；运行中host缓存的旧命令不能用list absent反推立即清空。
+
+## 2026-10-08 Asia/Shanghai - 备用日志也必须保护原异常
+
+- **已跑红绿：** 独立A/B脚本ledger写入/输出持续失败时，catch内备用Console.WriteLine再次失败会盖掉原owned-child timeout；仅已有startupFailure分支给备用输出try/catch{}，无原异常仍throw，peer用实际catch和持续stdout故障复验两边界。不能用输出恢复失败替换原启动错误。
+- **引擎边界：** 工具请求shell路径仍可能以外层PS7运行；用准确System32 PS5 exe启动被测caller并验证major/bitness，守卫在child前拒绝保留，不能归因候选。正式CRLF归一须更新候选hash并核对除换行外文本相同，原frozenhost hash不变。
+- **范围：** 独立fresh-runner A/B只提取21项，不能替代原131required回归或把一次绿灯称机制定位；不预热、不rerun、不延长原10秒。
