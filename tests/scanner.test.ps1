@@ -77,7 +77,8 @@ $requiredFragments = @(
     'currentPoint.X != oldPoint.X || currentPoint.Y != oldPoint.Y',
     # 2026-10-07：最新回退同时复核静态标签，旧版 API 分支也保留该最终状态保护。
     'if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen -or -not (Test-ButtonMatch $btnName)) { continue }',
-    'if (-not (Get-TargetProcessIds).ContainsKey($windowProcessId)) { continue }'
+    # 2026-10-07：动作复核必须传入当前窗口 PID。
+    'if (-not (Get-TargetProcessIds $windowProcessId).ContainsKey($windowProcessId)) { continue }'
 )
 foreach ($fragment in $requiredFragments) {
     if (-not $source.Contains($fragment)) { throw "Missing click guard: $fragment" }
@@ -87,7 +88,7 @@ if ($source -match '\$rect\.[XY]\s+-lt\s+0|\$winName\s+-notlike|___ALREADY_RUNNI
 $checks++
 
 # 2026-10-05：执行实际卡片函数，只将外部 UIA 父节点查找替换成可控树，所有点击为计数桩。
-Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes # 2026-10-07：空树回放不会触发实际 UIA 对象的依赖加载。
 $testFunctions = @('Test-OneTimeApprovalName', 'Test-ApprovalCardShape', 'Test-ApprovalOptionSelected', 'Test-LiveApprovalCard', 'Write-ApprovalDiagnostic', 'Invoke-ApprovalCards', 'Get-ButtonCenter', 'Test-ButtonMatch', 'Test-PrefixBoundary')
 foreach ($name in $testFunctions) {
     $definition = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
@@ -120,7 +121,9 @@ $script:optionToDeselect = $null
 # 2026-10-06：宿主归属查询期间只在测试内改变卡片状态，复现最后查询与动作之间的竞态。
 $script:browserHostLookupWindow = $null
 $script:browserHostLookupCount = 0
-function Get-TargetProcessIds {
+function Get-TargetProcessIds([int]$ProcessId) {
+    # 2026-10-07：所有实际卡片回放均核对精确窗口 PID，漏传参数不能产生有效宿主。
+    if ($ProcessId -ne 123) { return @{} }
     if ($null -ne $script:optionToDeselect) { $script:optionToDeselect.Selection.Current.IsSelected = $false }
     if ($script:exitParentDuringLookup) { $script:testParentAlive = $false }
     if ($null -ne $script:browserHostLookupWindow) {
@@ -664,21 +667,26 @@ function Invoke-TestPhysicalClick($Button) {
     return $true
 }
 try {
-    foreach ($mode in @('fairness', 'stale-window', 'stale-button', 'renamed-during-host', 'disabled-during-host', 'offscreen-during-host', 'invoke-throws', 'physical-parent-exit')) {
+    # 2026-10-07：不同宿主 PID 均可获服务，查询后 PID 漂移和其它应用仍被拒绝。
+    foreach ($mode in @('fairness', 'different-host-pids', 'stale-window', 'stale-button', 'renamed-during-host', 'disabled-during-host', 'offscreen-during-host', 'pid-changed-during-host', 'invoke-throws', 'physical-parent-exit')) {
         $script:testParentAlive = $true
         $script:scanMutationWindow = New-TestScanWindow 42 $mode
         $otherWindow = New-TestScanWindow 43
         $nonHostWindow = New-TestScanWindow 44
         $nonHostWindow.Current.ProcessId = 999
-        $scanWindows = if ($mode -in @('fairness', 'stale-window')) { @($script:scanMutationWindow, $nonHostWindow, $otherWindow) } else { @($script:scanMutationWindow) }
+        if ($mode -eq 'different-host-pids') { $otherWindow.Current.ProcessId = 124 }
+        $scanWindows = if ($mode -in @('fairness', 'different-host-pids', 'stale-window')) { @($script:scanMutationWindow, $nonHostWindow, $otherWindow) } else { @($script:scanMutationWindow) }
         $script:scanHostLookups = 0
-        function Get-TargetProcessIds {
+        function Get-TargetProcessIds([int]$ProcessId) {
+            # 2026-10-07：只返回本次查询的合法 PID，防止回放仍依赖全局进程图。
+            if ($ProcessId -notin @(123, 124)) { return @{} }
             $script:scanHostLookups++
             $mutation = $script:scanMutationWindow
             if ($script:scanHostLookups -gt 1 -and $mutation.Mode -eq 'renamed-during-host') { $mutation.Action.Current.Name = 'Save' }
             elseif ($script:scanHostLookups -gt 1 -and $mutation.Mode -eq 'disabled-during-host') { $mutation.Action.Current.IsEnabled = $false }
             elseif ($script:scanHostLookups -gt 1 -and $mutation.Mode -eq 'offscreen-during-host') { $mutation.Action.Current.IsOffscreen = $true }
-            return @{ 123 = $true }
+            elseif ($script:scanHostLookups -gt 1 -and $mutation.Mode -eq 'pid-changed-during-host') { $mutation.Current.ProcessId = 999 }
+            return @{ $ProcessId = $true }
         }
         $script:centerReads = 0
         function Get-ButtonCenter($Rectangle) {
@@ -686,7 +694,7 @@ try {
             if ($script:scanMutationWindow.Mode -eq 'physical-parent-exit' -and $script:centerReads -gt 1) { $script:testParentAlive = $false }
             return @{ X = 50; Y = 20 }
         }
-        $automation = [pscustomobject]@{ Windows = $scanWindows; Scans = 0; Rounds = $(if ($mode -eq 'fairness') { 3 } else { 1 }) }
+        $automation = [pscustomobject]@{ Windows = $scanWindows; Scans = 0; Rounds = $(if ($mode -in @('fairness', 'different-host-pids')) { 3 } else { 1 }) }
         $automation | Add-Member ScriptMethod FindAll {
             param($scope, $condition)
             $this.Scans++
@@ -697,6 +705,7 @@ try {
         $first = $script:scanMutationWindow.Action
         $passed = switch ($mode) {
             'fairness' { $first.Invocations -gt 0 -and $otherWindow.Action.Invocations -gt 0 }
+            'different-host-pids' { $first.Invocations -gt 0 -and $otherWindow.Action.Invocations -gt 0 }
             'stale-window' { $otherWindow.Action.Invocations -eq 1 }
             'stale-button' { $first.Invocations -eq 1 }
             'invoke-throws' { $first.Invocations -eq 1 -and $first.PhysicalClicks -eq 0 }
@@ -835,7 +844,15 @@ foreach ($mode in @('browser-wide', 'browser-menu', 'terminal-submit', 'terminal
 }
 if ($cardAttemptFailures.Count -gt 0) { throw "Final approval attempt failures: $($cardAttemptFailures -join '; ')" }
 
-$stub = $parentFunction[0].Extent.Text + "`nfunction Get-TargetProcessIds { return @{} }`n"
+# 2026-10-07：生命周期子进程显式提供空窗口枚举，不能依赖旧的空进程图让扫描入口跳轮。
+$stub = $parentFunction[0].Extent.Text + [Environment]::NewLine
+$stub += @'
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+function Get-TargetProcessIds([int]$ProcessId) { return @{} }
+$automation = [pscustomobject]@{}
+$automation | Add-Member ScriptMethod FindAll { param($scope, $condition) return @() }
+'@
+$stub += [Environment]::NewLine
 $engine = $engines[0]
 $processes = New-Object Collections.Generic.List[Diagnostics.Process]
 try {
@@ -854,15 +871,29 @@ try {
         Read-ProtocolLine $waiter '___SCANNER_WAITING___'
         if ($waiter.HasExited) { throw 'Waiting scanner exited instead of waiting' }
         $checks++
+        # 2026-10-07：协议读取结束后收集尾部，退出码 0 不能掩盖生命周期桩报错或意外点击。
+        $ownerTail = $owner.StandardOutput.ReadToEndAsync()
+        $ownerErrors = $owner.StandardError.ReadToEndAsync()
         if ($abandonOwner) { $owner.Kill(); $owner.WaitForExit() }
         else {
             $ownerParent.Kill(); $ownerParent.WaitForExit()
             if (-not $owner.WaitForExit(5000) -or $owner.ExitCode -ne 0) { throw 'Owner did not exit after its parent' }
         }
+        $ownerOutput = $ownerTail.GetAwaiter().GetResult()
+        $ownerErrorOutput = $ownerErrors.GetAwaiter().GetResult()
+        if ($ownerErrorOutput.Length -gt 0 -or $ownerOutput -match '___CLICK_|___ERROR___') { throw "Unexpected owner diagnostic: stdout=$ownerOutput stderr=$ownerErrorOutput" }
+        $checks++
         Read-ProtocolLine $waiter '___AUTOCLICK_READY___'
         $checks++
+        # 2026-10-07：接管者已消费 READY 后才读取同一输出流，不能与协议 ReadLine 并发。
+        $waiterTail = $waiter.StandardOutput.ReadToEndAsync()
+        $waiterErrors = $waiter.StandardError.ReadToEndAsync()
         $waiterParent.Kill(); $waiterParent.WaitForExit()
         if (-not $waiter.WaitForExit(5000) -or $waiter.ExitCode -ne 0) { throw 'Waiter did not exit after its parent' }
+        $waiterOutput = $waiterTail.GetAwaiter().GetResult()
+        $waiterErrorOutput = $waiterErrors.GetAwaiter().GetResult()
+        if ($waiterErrorOutput.Length -gt 0 -or $waiterOutput -match '___CLICK_|___ERROR___') { throw "Unexpected waiter diagnostic: stdout=$waiterOutput stderr=$waiterErrorOutput" }
+        $checks++
         $checks++
         Write-Output "PASS mutex handoff and parent exit: abandoned=$abandonOwner"
     }

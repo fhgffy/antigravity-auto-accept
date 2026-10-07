@@ -82,6 +82,36 @@ public class MouseHelper {
     public static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+    // 2026-10-07：按窗口 PID 查询完整映像，避免轮询枚举全系统进程和跨位数 MainModule 读取。
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, uint processId);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
+    public static extern bool QueryFullProcessImageNameW(IntPtr process, uint flags, System.Text.StringBuilder imagePath, ref uint size);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr handle);
+    public static string GetProcessImagePath(uint processId) {
+        if (processId == 0) { return null; }
+        IntPtr process = OpenProcess(0x101000, false, processId);
+        if (process == IntPtr.Zero) { return null; }
+        try {
+            // 2026-10-07：同一句柄在查询前后均须未退出，退出码 259 也不能当作进程存活。
+            if (WaitForSingleObject(process, 0) != 258) { return null; }
+            System.Text.StringBuilder imagePath = new System.Text.StringBuilder(512);
+            uint size = (uint)imagePath.Capacity;
+            if (!QueryFullProcessImageNameW(process, 0, imagePath, ref size)) {
+                if (Marshal.GetLastWin32Error() != 122) { return null; }
+                // 2026-10-07：仅缓冲不足时扩容一次，普通路径不按最长路径分配。
+                imagePath = new System.Text.StringBuilder(32768);
+                size = (uint)imagePath.Capacity;
+                if (!QueryFullProcessImageNameW(process, 0, imagePath, ref size)) { return null; }
+            }
+            if (WaitForSingleObject(process, 0) != 258) { return null; }
+            return imagePath.ToString();
+        }
+        finally { CloseHandle(process); }
+    }
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     public const uint MOUSEEVENTF_LEFTUP = 0x0004;
     // 2026-10-07：不接管用户正在按住的鼠标键、修饰键或系统快捷键。
@@ -292,13 +322,15 @@ function Test-HostProcessPath([string]$ExecutablePath, [string]$ExpectedPath) {
 
 # 2026-10-05：进程路径不可读取时跳过，不使用可能被其他应用仿造的窗口标题。
 function Get-TargetProcessIds {
+    param([int]$ProcessId)
+    # 2026-10-07：只核对当前窗口进程，每次重新查询完整路径，不缓存可被复用的 PID。
     $targetIds = @{}
-    foreach ($process in @(Get-Process -Name 'Antigravity', 'Antigravity IDE' -ErrorAction SilentlyContinue)) {
-        try {
-            if (Test-HostProcessPath $process.Path $HostExecutablePath) { $targetIds[$process.Id] = $true }
-        }
-        catch { }
+    if ($ProcessId -le 0) { return $targetIds }
+    try {
+        $imagePath = [MouseHelper]::GetProcessImagePath([uint32]$ProcessId)
+        if (Test-HostProcessPath $imagePath $HostExecutablePath) { $targetIds[$ProcessId] = $true }
     }
+    catch { }
     return $targetIds
 }
 
@@ -516,14 +548,14 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 if ($actionName -ne 'More actions' -or -not $scrollItemAvailable) { continue }
                 $stage = 'scroll-pattern'
                 $scrollItem = $allow.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
-                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
                 # 2026-10-06：宿主查询可能改变卡片状态，滚动前后的界面复核统一放在查询之后。
                 if (-not (Test-LiveBrowserPermissionCard $card $expectedTarget $allow) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
                 $stage = 'scroll'
                 $scrollItem.ScrollIntoView()
-                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
                 if (-not (Test-LiveBrowserPermissionCard $card $expectedTarget $allow) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
@@ -552,7 +584,7 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 if ($linkedMenus.Count -eq 1) { $existingMenuId = ($linkedMenus[0].GetRuntimeId() -join '.'); $method = 'existing-menu' }
             }
             $stage = 'host'
-            if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+            if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
             if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
             # 2026-10-06：最后一次宿主查询后重读卡片和动作按钮，不沿用查询前的批准状态。
             $stage = 'final-card'
@@ -588,7 +620,7 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 $menuId = ($menu.GetRuntimeId() -join '.'); $itemId = ($item.GetRuntimeId() -join '.') # 2026-10-07：保留取模式之前的菜单及菜单项身份。
                 $stage = 'item-pattern' # 2026-10-06：菜单项模式异常单独标明阶段，便于实机定位。
                 $itemInvoke = $item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
-                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
                 # 2026-10-06：宿主查询完成后复核卡片、菜单和本次菜单项，关联触发器仍保持最后复核。
                 $stage = 'item-final'
@@ -661,7 +693,7 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
             if ($option.Current.IsOffscreen) {
                 $stage = 'option-scroll-pattern'
                 $scroll = $option.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
-                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
                 $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
                 $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
@@ -682,7 +714,7 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                     $selection = $option.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
                     $selectionMethod = 'invoke'
                 }
-                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
                 $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
                 $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
@@ -696,7 +728,7 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 Write-ApprovalDiagnostic 'permission-card one-time selection unavailable'
                 continue
             }
-            if (-not (Test-ParentAlive) -or -not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+            if (-not (Test-ParentAlive) -or -not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
             if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
             $buttons = $card.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
             foreach ($submit in $buttons) {
@@ -713,7 +745,7 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 if ($submit.Current.IsOffscreen) {
                     $stage = 'submit-scroll-pattern'
                     $scroll = $submit.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
-                    if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                    if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                     if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
                     $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
                     $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
@@ -728,7 +760,7 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 $stage = 'submit-pattern'
                 $invoke = $submit.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
                 # 2026-10-06：模式和宿主查询完成后，再核验最终按钮状态及两端控件仍归属原权限表单。
-                if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
+                if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
                 $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
                 $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
@@ -951,8 +983,6 @@ try {
         if ($elapsed -lt $CooldownMs) { continue }
 
         try {
-            $targetIds = Get-TargetProcessIds
-            if ($targetIds.Count -eq 0) { continue }
             $windows = @($automation.FindAll([System.Windows.Automation.TreeScope]::Children, $winCondition))
             $didClick = $false
             # 2026-10-07：每轮保留窗口快照并按上次动作窗口轮转，失效句柄只跳过自身。
@@ -974,7 +1004,8 @@ try {
                 try {
                     # 2026-10-05：窗口仅按已验证路径的进程 ID 归属，窗口标题不影响识别。
                     $windowProcessId = $win.Current.ProcessId
-                    if (-not $targetIds.ContainsKey($windowProcessId)) { continue }
+                    # 2026-10-07：从本轮窗口读取 PID 后只查询该进程，其它应用不触发全系统进程枚举。
+                    if (-not (Get-TargetProcessIds $windowProcessId).ContainsKey($windowProcessId)) { continue } # 2026-10-07
                     $windowHandle = [IntPtr]$win.Current.NativeWindowHandle
                     if ($windowHandle -eq [IntPtr]::Zero) { continue }
 
@@ -1010,7 +1041,7 @@ try {
                             if ($null -ne $ip) {
                                 # 2026-10-05：调用前重读按钮并复核宿主归属，扫描期间父进程退出时不执行动作。
                                 # 2026-10-07：宿主查询放在最终按钮复核前，查询期间变化的名称及可见性不会沿用。
-                                if (-not (Get-TargetProcessIds).ContainsKey($windowProcessId)) { continue }
+                                if (-not (Get-TargetProcessIds $windowProcessId).ContainsKey($windowProcessId)) { continue } # 2026-10-07
                                 if ($win.Current.NativeWindowHandle -ne $windowHandle.ToInt64() -or $win.Current.ProcessId -ne $windowProcessId) { continue }
                                 $btnName = $btn.Current.Name
                                 if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen -or -not (Test-ButtonMatch $btnName)) { continue }
@@ -1027,7 +1058,7 @@ try {
                             else {
                                 # 2026-10-05：回退前重读按钮与窗口，坐标被遮挡、宿主退出或按钮失效均不点击。
                                 # 2026-10-07：只有未取得调用模式才物理回退，最后坐标及状态查询后再检查父宿主。
-                                if (-not (Get-TargetProcessIds).ContainsKey($windowProcessId)) { continue }
+                                if (-not (Get-TargetProcessIds $windowProcessId).ContainsKey($windowProcessId)) { continue } # 2026-10-07
                                 if ($win.Current.NativeWindowHandle -ne $windowHandle.ToInt64() -or $win.Current.ProcessId -ne $windowProcessId) { continue }
                                 $center = Get-ButtonCenter $btn.Current.BoundingRectangle
                                 if ($null -eq $center) { continue }
@@ -1039,7 +1070,7 @@ try {
                                 $physicalButtonName = $btnName
                                 $physicalValidator = [Func[bool]] {
                                     try {
-                                        if (-not (Get-TargetProcessIds).ContainsKey($windowProcessId)) { return $false }
+                                        if (-not (Get-TargetProcessIds $windowProcessId).ContainsKey($windowProcessId)) { return $false } # 2026-10-07
                                         if ($win.Current.NativeWindowHandle -ne $windowHandle.ToInt64() -or $win.Current.ProcessId -ne $windowProcessId) { return $false }
                                         $pointed = [System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new($center.X, $center.Y))
                                         $pointedMatches = $false

@@ -72,6 +72,11 @@ else { $failures += 'Native INPUT and paired SendInput absent'; Write-Output 'FA
 
 # 2026-10-07：所有原生方法替换成内存状态；生产 Click、核验和批次控制流原样执行。
 $nativeBodies = @{
+    # 2026-10-07：宿主路径查询由独立回归覆盖，鼠标回放不应打开任何真实进程句柄。
+    OpenProcess = 'throw new InvalidOperationException("Unexpected host process query in mouse test");'
+    QueryFullProcessImageNameW = 'throw new InvalidOperationException("Unexpected host process query in mouse test");'
+    WaitForSingleObject = 'throw new InvalidOperationException("Unexpected host process query in mouse test");'
+    CloseHandle = 'throw new InvalidOperationException("Unexpected host process query in mouse test");'
     GetPhysicalCursorPos = 'FakeCursorCalls++; if (FakeCase == "final-cursor-change" && FakeCursorCalls > 1) { UserMove(); } lpPoint = new POINT { X = FakeX, Y = FakeY }; return FakeCase != "cursor-unreadable";'
     GetCursorPos = 'lpPoint = new POINT { X = FakeX, Y = FakeY }; return FakeCase != "cursor-unreadable";'
     SetCursorPos = 'FakeSetCalls++; FakeX = X; FakeY = Y; if (FakeCase == "own-move-time") { FakeInputTime = ++FakeTick; } return true;'
@@ -258,7 +263,9 @@ if ($validatorAssignment.Count -eq 1) {
     if (-not $validatorText.Contains($pointQuery) -or -not $validatorText.Contains($parentQuery)) { throw 'Physical validator native boundary changed' }
     $validatorText = $validatorText.Replace($pointQuery, '(Get-MemoryPhysicalPoint)').Replace($parentQuery, '(Get-MemoryPhysicalParent $pointed)')
     function Test-ParentAlive { return $script:memoryParentAlive }
-    function Get-TargetProcessIds {
+    function Get-TargetProcessIds([int]$ProcessId) {
+        # 2026-10-07：漏传或传错窗口 PID 时拒绝，不能让零参数桩掩盖生产集成遗漏。
+        if ($ProcessId -ne 123) { return @{} }
         [MouseHelperMemory]::FakeValidatorCalls++
         if ($script:memoryValidatorCase -eq 'host-changed') { $script:memoryWindow.Current.ProcessId = 999 }
         if ($script:memoryValidatorCase -eq 'parent-exit') { $script:memoryParentAlive = $false }
