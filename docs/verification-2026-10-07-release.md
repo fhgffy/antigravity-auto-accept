@@ -27,3 +27,21 @@ npm run package退出0；validate-vsix读取实际归档，核对8文件、完�
 5.3.5已补齐GitHub Release、Marketplace、Open VSX三个渠道，双商店公开版本均为5.3.5；Open VSX公开VSIX下载后SHA256与原上传包DCA7D7F07B752E437467E416ED4AF08894CA7CD42FBD4668F66F1437531EFF1A一致。
 
 5.3.6自动发布规则和重试边界见[publishing.md](publishing.md)。本文件的本地通过不证明5.3.6远端CI、合并、自动Release或商店上架已完成；这些步骤需在本轮精确提交进入GitHub后分别核对。没有配置商店凭据时，CI会明确报告未发布，后续从已验原包在已登录表单完成上传。
+
+## 5.3.6 Computer Use 实机回合（2026-10-07 16:54–17:16 Asia/Shanghai）
+
+使用computer-use的Sky API启动真实Antigravity IDE、重载窗口、输入普通Agent任务，并在自有记事本测试页输入文字；没有手动点击审批的Allow/Submit，没有改变IDE权限设置。通过CLI安装本轮已验5.3.6包后，已安装manifest版本和scanner/extension.js字节与本地生产文件一致。实际输出显示16:56:13的5.3.6 activating、对应安装目录及16:56:17 scanner ready，固定scanner PID1025924、启动时间16:56:13.3428483。
+
+本轮日志累计5次Submit(one-time permission)与1次Allow Once(browser domain permission)：最初三个无害终端标记、浏览器域名批准、Agent后续终端工具调用以及关闭插件对照后恢复的一次命令。Agent UI显示三个D536_STEP标记及Example Domain结果；其对HTML主标题的解释没有被独立核对，不能作为页面内容准确性的证明。审批日志明确Invoke返回，未出现物理批准标记；工具最终结果与该请求返回是不同证据。
+
+在真实IDE、已打开Chrome及Notepad并存时，记事本新增D536_BACKGROUND_INPUT_001及中文/英文/数字文本均保留。120秒只读观测产生575个前台/指针/输入tick样本与24次固定scanner资源样本。17:03:44.721前台为Notepad；17:04:00.521至.723之间切到IDE，终端Submit日志为17:04:00。17:04:18.120再次处于Notepad；17:04:26.731至.920之间切到IDE，浏览器More actions日志17:04:26、Allow Once日志17:04:27。相关采样指针始终729,434。此结果证明前台切换，不能宣称后台批准全程不抢焦点，也不能用下一次type_text重新激活Note掩盖切换。
+
+停止插件后，固定scanner退出，AutoAccept显示OFF。随后发送单个D536_OFF_CONTROL_002任务，将Note置前台。第二次120秒观测570个样本：17:10:42.174以后前台保持Note直至17:12:16.587停止；17:11:32–34的只读UI截图同时看到原生权限target与Submit等待。批准前这个卡片没有在采样中把IDE切前台。17:13:32恢复scanner、17:13:36 ready、17:13:37自动批准。恢复动作由Computer Use主动激活IDE，不能把这次控制回合误算为后台焦点验证。
+
+已读生产源码没有直接SetFocus/SetForegroundWindow调用。本次终端控件可见，未记录滚动；仍需区分SelectionItem.Select、Submit.Invoke与批准后宿主行为。浏览器经过ScrollIntoView、Expand和菜单Invoke，秒级日志不足以区分阶段。Chromium官方固定源码表明部分默认点击路径可改变页面元素焦点，但页面焦点不等于Windows前台，且未映射当前IDE内核build；归因仍为推测。
+
+固定scanner前后资源样本privateBytes为108032000与112304128、handle为649与608；这是短时资源记录，不证明长期无泄漏或GC存活根。单IDE启动后系统提交余量约1.58GiB，本轮未打开第二个完整IDE，避免重复此前低内存失败；未做Chrome人在浏览时审批、第二IDE或远程环境的完整验收。
+
+原始本机证据保存在C:\Temp\AntigravityAA-runtime-536-ddc64f6a9d1d4557ad97b6b8fb5ce32a，含安装验证、scanner-events-536.txt、两个只读观察脚本、三份JSONL及actual-ide-536-approval.png。scanner事件归档SHA256为2A4CE3649D47EFA3B03BAFB3088E9546247C83521F6AF835F23BD9709B57D9B9；保留截图SHA256为9B3EA433B9D81D5509AE0E2F4525CF25AFA28BEBA8FC06C5CFFD93BBE367723A。
+
+精确7ffae95b5a66b3246f2b4ec0462eb896cee5a6b3的push run37596617849和PR run37596629241均已success，PS5/PS7及Verified VSIX通过，发布作业在分支/PR按设计skipped。PR12暂不合并，先定位真实前台切换；5.3.6尚未发布，5.3.5仍为已核三个渠道的公开版本。这一回合真实实测不等于整体体验验收完成。
