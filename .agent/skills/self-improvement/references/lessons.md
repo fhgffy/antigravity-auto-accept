@@ -391,3 +391,61 @@
 - **边界：** 同一个内嵌 C# 文本新增命名空间后，LastIndexOf('}') 已不属于 MouseHelper。影子字段仅插入完整顶层 MouseHelper 类范围；生产完整 C# 仍先编译，全部 P/Invoke 必须替换，不能删断言或漏出实际桌面调用。两个夹具边界独立括号配对和21项原生声明审查吻合。
 - **清理：** 真实 RCW 重复释放没有复现异常，不冒充实机复现。受控 Marshal 释放异常会遮盖原异常，分别覆盖 InvalidComObjectException、COMException、ArgumentException，保留原审批异常并继续释放后续引用；不使用 FinalReleaseComObject。
 - **生成：** 两个候选循环都有同名阶段标签，唯一匹配守卫在写入前中止；先核实函数范围再替换。PowerShell 同分隔符 here-string 不能嵌套生成脚本，改用 Temp 文件补丁，避免生成器提前结束。
+
+## 2026-10-07 Asia/Shanghai - 正式 Legacy 窄菜单失败与观测覆盖
+
+- **已跑验证：** 正式提交双CI首次绿灯并安装运行后，真实两个浏览器域名Allow Once执行；第二项原生采样记录Note→IDE，窄按钮invoke=False/expand=True。仅替换Invoke入口不能证明展开链无焦点变化，下一步先分开观测展开与最终允许，不发布该候选。
+- **覆盖：** 自然任务比120秒观测更晚触发审批，首项没有动作时采样，只记未覆盖；180秒请求被既有ValidateRange拒绝，不修改界限掩盖。后续基于真实任务进度启动第二段，保留第一段N/T结果。
+- **快照：** IDE输入/进度AX可滞后于截图，甚至完成仍报告Working；用fresh截图、真实输出文件和日志交叉核验，不重复发送。几何失败先看确切草稿，只有未发送才能一次最新截图重试。
+- **日期：** 复用既有JSON日期经验，直接解析原始ISO文本得到319样本；六段输入只有第一段在首观察区间，不把全部输入写成连续审批期间验证。
+- **预检：** 完整类声明含sealed，过窄文本断言会误报缺契约；在已有作用域调用&导入函数会在子作用域结束后消失，独立内存夹具使用dot-source并先确认唯一完整函数边界。编译和十条实际格式断言通过后才安装诊断包。
+
+## 2026-10-07 Asia/Shanghai - 窄菜单展开定界与准备顺序
+
+- **已跑本机验证：** 完整原动作诊断在 Expand 前为 Note、返回后为 IDE，最终 Legacy Allow Once 在前台已变后才开始，无滚动。该阶段窗口定位不等于确定 OS/provider 的具体激活调用。
+- **已跑内存验证：** 默认动作可能切换菜单，先识别精确关联的已开菜单；只有确需触发时准备 Legacy。已开菜单的触发器不支持 Legacy 不应挡住本次菜单项。折叠状态 getter 与模式准备均在最终 PID/HWND、卡片身份/文案、enabled/offscreen 和父宿主检查前；getter 改名或改 HWND 的两项实际函数重放原候选触发一次、修正后拒绝。
+- **夹具：** 经典托管 UIA 没有 LegacyIAccessiblePattern 类，纯内存边界使用已对照契约的模式 ID10018，不能把夹具类型缺失当产品红灯。
+- **打包：** 根项目没有本地 vsce.cmd，使用 package.json 固定的 npx @vscode/vsce@4.0.0；调用不存在的命令时 LASTEXITCODE 不能证明成功。先确认命令路径，启用 Stop 并保留实际进程退出码。
+
+## 2026-10-07 Asia/Shanghai - Legacy 窄触发器不打开真实菜单
+
+- **已跑验证：** 第十项重放证明准备期间打开菜单会被默认动作关闭；准备后复读状态且保持最终身份检查在后，双引擎10绿、复审无新增发现。
+- **已跑本机验证：** A5CF候选普通Submit后483个样本全Note；真正窄按钮Legacy默认动作虽返回且保持Note，却 visible/new/once-items 全0、没有批准，488个后续样本仍Note。界面卡住也是失败，不能只看不抢焦点或桩里的模拟菜单打开。候选经正常Stop停止、PID94204退出，保留同一待批准卡片继续差分。
+- **下一步依据：** SDK完整展开接口四项、GUID及10005对照后，测试同一AutoSetFocus=false客户端原生Expand；契约参数预检不触碰真实桌面，焦点与审批仍须实机同时证明。
+
+## 2026-10-08 Asia/Shanghai - 原生客户端 Expand 仍会切前台
+
+- **已跑验证：** AutoSetFocus=false 原生展开契约双引擎预检和窄菜单10项内存回归绿，真实 Expand 返回后却 Note→IDE，Allow Once 完成不抵消体验失败；正常Stop后核对具体PID退出。
+- **下次做法：** 区分客户端标志、离线接口契约、真实菜单打开、最终审批和前台保持；不同层证据不互相替代。GetIAccessible 可返回 NULL，直接 provider 的可用性与对象身份需实机证明，不把源码没有显式 SetFocus 当 Windows 前台定责。
+- **工具：** get_window_state 已自动展示截图，不再 emitImage 同一 payload 作重复观察；异步 Stop 返回旧ON时用日志和固定PID核验，不能立即重复切换。
+
+## 2026-10-08 Asia/Shanghai - GetIAccessible 空指针与未执行动作的证据边界
+
+- **触发：** UIA Legacy 属性可读，但直接服务端指针取不到；原生准备失败只有 MethodInvocationException 外壳。
+- **已跑验证：** 根异常为 Native MSAA server missing，GetIAccessible 返回空；后台 Note 保持来自没有 Expand 或最终批准。两个候选具体 PID 正常 Stop 后退出，不能把观察器稳定说成审批成功。
+- **下次做法：** 记录根异常类型/HResult和阶段，不丢原错误；只抑制连续重复而非声称全局按内容去重。先核对真正支持的原生服务及完整 RuntimeId 映射，失败拒绝操作。
+- **检查：** 准备、展开、批准、工具结果、前台与输入分别给证据；观察器资源类型按实际 observed-process-resource 计数并与 end 对照。
+
+## 2026-10-08 Asia/Shanghai - 双引擎内存分配夹具不要压制过时 API 告警
+
+- **触发：** 用完整生产 COM 准备方法做纯内存身份/清理测试，需绕开真实客户端构造。
+- **现象：** Framework FormatterServices.GetUninitializedObject 在 PowerShell7 Add-Type 报 SYSLIB0050，PowerShell5.1 可编译。
+- **下次做法：** 测试夹具用反射选择 RuntimeHelpers.GetUninitializedObject，旧 Framework 才选 FormatterServices；不压告警、不改生产构造、不调用桌面。修正后十项真实方法分支双引擎均通过。
+
+## 2026-10-08 Asia/Shanghai - 原生外层窗口与 Chromium 子窗口不能混为同一目标
+
+- **已跑本机验证：** outer HWND133218 的 MSAA 对象 childCount=0，映射编号为42,133218,4,-18；真实按钮为42,198588,4,4,1,72691。沿绑定按钮 RawView 取得最近原生祖先后，映射进入198588，但命中仍返回窗口根42,198588,4,-115150，childCount=2。两轮均无展开或批准，正常Stop后具体106228/119436退出。
+- **下次做法：** 从已绑定目标确认原生归属，再比较完整 RuntimeId；不从 RuntimeId 某一整数猜 HWND，不靠名字或坐标近似放行。背景稳定仅证明拒绝路径；UIA/Chromium公开 UniqueId 到原生 child 的映射须另行验证。
+
+## 2026-10-08 Asia/Shanghai - HRESULT 诊断和观察窗口必须覆盖实际分支
+
+- **已跑内存红绿：** ThrowExceptionForHR(E_NOTIMPL/E_INVALIDARG) 可变成 NotImplementedException/ArgumentException，只有COM catch会盖住原身份拒绝。仅诊断try捕获Exception，再统一抛原绑定错误；双引擎两例保留原错、零Expand、引用释放完整。
+- **观测：** 90秒观察提前结束于scanner Start前，排除该记录；重新观察60011ms/300样本后才记录对应111368拒绝路径。新119436观察90013ms/450样本，348个交接后样本全Note；不要把结束前后覆盖或静置样本说成持续输入验收。
+- **工具：** Node REPL 新变量先var/let声明，隐式赋值可能在动作前或动作后抛错；先刷新真实状态，不能盲重试。AX旧ON/OFF与截图异步时按日志/PID交叉核验。
+
+## 2026-10-08 Asia/Shanghai - UniqueId 离线契约通过不证明本机属性可用
+
+- **已跑验证：** Registrar ABI/CLSID、PropertyInfo两位数布局与45分支双引擎绿；本机仍为Native target UniqueId missing，原生child、展开和批准都没开始。该错误不能独自定为provider接口失败或属性不支持，须区分默认值、返回类型及不支持标志。
+- **下次做法：** 不解析RuntimeId某个整数猜原生UniqueId/窗口，不以名字几何替代完整身份。Native UIA与MSAA转换可能给出不同编号，须从官方接口与本机返回建立同一对象证明，不能放宽比较来让候选通过。
+- **夹具：** PowerShell7 Marshal.SizeOf(Type)重载绑定可能选object，把RuntimeType本身当结构；用GetMethod明确Type参数签名后Invoke验证尺寸。仅夹具错误，未改变生产ABI。
+- **恢复：** 正常Stop121560核对退出，原包官方CLI恢复exit0，source/JS各自hash验证；scanner保持OFF，不让失败诊断留在用户日常运行态。
