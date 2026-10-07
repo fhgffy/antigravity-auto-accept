@@ -111,3 +111,17 @@ Computer Use展开原始工具记录，实际输出FreePhysicalMemory=1954848、
 恢复官方原包CLI先报告安装成功，随后V8::ToLocalChecked Empty MaybeLocal崩溃，实际exit134；没有当成exit0，也没有盲目重复安装。独立核对磁盘scanner=7F732F0CAB9FEA2A9F8A3FCB029820A4BC36FE6D98A3F6C8EA6CBF89D18ADC0A、extension.js=2F85FBE50F0DF4EF35CC7C688602EA2B5D822951777B0159040057AE392EA1AD；通过正常Restart Scanner命令后，第四/第五包PID8780/61808均退出，原包PID63404、父PID36856、启动21:26:26.3752551，21:26:27 ready，解码launcher完整安装路径匹配。主IDE PID35596及原启动时间不变。CLI崩溃原因未定责，不归为插件bug。
 
 证据保存在此前focus-client Temp目录：candidate5-native-observation.json、candidate5-native-task-and-note.json、candidate5-runtime-ledger.json及candidate4-provider-candidate5-legacy-and-restore.log，日志SHA256为330E7F0D3DFE1986B4B1927EBCF8582245EDC6C3242BE3428064CC99C279659E。PR12保持draft，未合并或发布5.3.6；生产实现、清理异常风险、连续输入、浏览器窄菜单及多IDE矩阵仍需后续验证。
+
+## 正式 Legacy 动作接入与完整离线验证（2026-10-07 Asia/Shanghai）
+
+证据等级：已读源码、已跑验证。正式 src/autoClicker.ps1 将五个 Invoke 模式获取入口改为同一个 AutoSetFocus=false 原生客户端准备 Legacy DoDefaultAction：浏览器直接允许/触发器、菜单项、一次选项降级、Submit、旧式匹配按钮。准备阶段绑定窗口和 RuntimeId，取得模式后仍执行原宿主、控件归属、目标内容、一次允许、enabled/offscreen/几何及父进程最终检查；最终动作只调用默认动作。Select、ScrollIntoView、Expand 保持原实现，其本机焦点影响仍在待验收范围。
+
+客户端仅在实际准备动作时创建；模式在返回、继续、最终检查拒绝和动作异常路径释放，扫描器退出释放客户端。清理分别处理已断开引用、COM 释放和参数异常，不遮盖原审批异常、不跳过后续引用、不使用 FinalReleaseComObject。真实 RCW 重复释放预检未复现异常；异常传播问题只由受控 Marshal 边界红灯证明，不表述为实机复现。独立只读审查对照 SDK 头文件 SHA256 66B00453430CC6884482352EBC0DDF6DB3916E38BF5684CABA79D6E86AA1F038，确认展平客户端61项、元素82项、Legacy24项、元素数组2项完整顺序与已调用 ABI。
+
+六个真实审批分支离线重放在旧源码全部红灯，接入后转绿；覆盖终端 Submit、选项降级、宽浏览器卡片、窄触发器、窄菜单和普通 Run。最终父进程退出、菜单重新关联、动作后抛错另核实零/单次动作与对应模式释放。原生八项预检只创建客户端与提前拒绝无效参数，不枚举或操作真实桌面；PS7 单独预检通过，完整套件中的 PS5 预检也通过。桩里的前台状态不证明 Windows 实机焦点。
+
+首轮完整 npm test 实际失败：扫描器152项通过后，host-process 的内存影子把字段注入整个 C# 最后括号；新增命名空间使该处不再属于 MouseHelper。宿主和鼠标夹具改为提取完整顶层 MouseHelper 类，完整生产 C# 仍先编译，21个 P/Invoke 均在替换边界，全部原断言保留。独立类边界审查通过。修正后第二轮 npm test exit0：编译/typecheck、仓库3、发布26、自测95、生命周期28、扫描器152、宿主每引擎125、鼠标每引擎81、并发22全部通过。UTF-8无BOM/CRLF和 git diff --check 通过。
+
+独立正式候选归档八条目及源/JS/资源字节核验通过；scanner SHA256=CDB3AB3C3B247B4B37A3C5A81D6D9128A729509A25E6E01EC2DF5A6E4F2EAEC1，extension.js=2F85FBE50F0DF4EF35CC7C688602EA2B5D822951777B0159040057AE392EA1AD，VSIX=A99EE3965E6542F258E7C324308BDC8E2CA1D6A7C2F6B461951B0C96597B4F7B。证据目录 C:\Temp\AntigravityAA-production-legacy-a4da725875e54ebfbe6429aebbfca186，保留旧源码、六路红灯、受控清理红灯、首次失败、完整第二次通过和归档日志。
+
+本节只证明正式源码接入及离线验证。正式包尚未替换本机运行态，先前单个临时 Submit 静置结果不能提升为正式包验收。新提交 CI、持续输入、浏览器、窄菜单、多 IDE、公平接管仍需继续验证；PR12保持 draft，未合并或发布。

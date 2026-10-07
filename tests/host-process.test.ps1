@@ -139,6 +139,9 @@ Write-Output 'PASS host map: exact PID, fresh path, isolated errors, supported b
 $match = [regex]::Match($source, '(?s)Add-Type -TypeDefinition @"\r?\n(.*?)\r?\n"@')
 if (-not $match.Success -or -not $match.Groups[1].Value.Contains('public class MouseHelper')) { throw 'Production helper not found' }
 $csharp = $match.Groups[1].Value
+# 2026-10-07：桩字段只插入顶层 MouseHelper 类；完整原生契约仍先按生产文本编译。
+$mouseClassSource = [regex]::Match($csharp, '(?s)\A.*?public class MouseHelper\s*\{.*?\r?\n\}').Value
+if ([string]::IsNullOrWhiteSpace($mouseClassSource)) { throw 'MouseHelper class boundary missing' }
 Add-Type -TypeDefinition $csharp -ErrorAction Stop
 Assert-Host ($null -ne [MouseHelper].GetMethod('GetProcessImagePath')) 'production path method compiled'
 foreach ($name in @('OpenProcess', 'QueryFullProcessImageNameW', 'WaitForSingleObject', 'CloseHandle')) {
@@ -199,8 +202,8 @@ $nativeBodies = @{
 '@
 }
 $declarationPattern = '(?m)^    \[DllImport\([^\r\n]+\)\]\r?\n    public static extern (?<signature>[^\r\n]+);'
-$declarations = [regex]::Matches($csharp, $declarationPattern)
-$memorySource = $csharp.Replace('using System;', 'using System;' + "`r`nusing System.Collections.Generic;").Replace('public class MouseHelper', 'public class HostProcessNativeMemory')
+$declarations = [regex]::Matches($mouseClassSource, $declarationPattern)
+$memorySource = $mouseClassSource.Replace('using System;', 'using System;' + "`r`nusing System.Collections.Generic;").Replace('public class MouseHelper', 'public class HostProcessNativeMemory')
 foreach ($declaration in $declarations) {
     $signature = $declaration.Groups['signature'].Value
     $methodName = [regex]::Match($signature, '(\w+)\(').Groups[1].Value

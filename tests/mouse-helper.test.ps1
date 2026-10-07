@@ -45,6 +45,9 @@ $source = [IO.File]::ReadAllText($scannerPath, [Text.Encoding]::UTF8)
 $match = [regex]::Match($source, '(?s)Add-Type -TypeDefinition @"\r?\n(.*?)\r?\n"@')
 if (-not $match.Success -or -not $match.Groups[1].Value.Contains('public class MouseHelper')) { throw 'Production mouse helper not found' }
 $csharp = $match.Groups[1].Value
+# 2026-10-07：桩字段只插入顶层 MouseHelper 类；完整原生契约仍先按生产文本编译。
+$mouseClassSource = [regex]::Match($csharp, '(?s)\A.*?public class MouseHelper\s*\{.*?\r?\n\}').Value
+if ([string]::IsNullOrWhiteSpace($mouseClassSource)) { throw 'MouseHelper class boundary missing' }
 # 2026-10-07：先编译未改动的原生定义，只查询结构和签名，绝不调用其鼠标或键盘 P/Invoke。
 Add-Type -TypeDefinition $csharp -ErrorAction Stop
 $checks = 1
@@ -98,7 +101,7 @@ $nativeBodies = @{
     MonitorFromPoint = 'return new IntPtr((FakeCase == "target-gap" && point.X == 50) || (FakeCase == "restore-gap" && point.X == 5) ? 0 : 1);'
     SendInput = 'return SendMemoryInputs(count, inputs);'
 }
-$shadow = $csharp.Replace('public class MouseHelper', 'public class MouseHelperMemory')
+$shadow = $mouseClassSource.Replace('public class MouseHelper', 'public class MouseHelperMemory')
 $nativePattern = '(?m)^    \[DllImport\([^\r\n]+\)\]\r?\n    public static extern [^\r\n]+;'
 $declarations = [regex]::Matches($shadow, $nativePattern)
 if ($declarations.Count -lt 10) { throw 'Native replacement declarations incomplete' }
@@ -185,7 +188,7 @@ $stateCode = @'
         return FakeTargetMatches;
     }
 '@
-if (-not $csharp.Contains('public struct RECT')) { $shadow = $shadow.Replace('public class MouseHelperMemory {', 'public class MouseHelperMemory { public struct RECT { public int Left, Top, Right, Bottom; }'); }
+if (-not $mouseClassSource.Contains('public struct RECT')) { $shadow = $shadow.Replace('public class MouseHelperMemory {', 'public class MouseHelperMemory { public struct RECT { public int Left, Top, Right, Bottom; }'); }
 $closingIndex = $shadow.LastIndexOf('}', [StringComparison]::Ordinal)
 $shadow = $shadow.Insert($closingIndex, $stateCode + "`r`n")
 Add-Type -TypeDefinition $shadow -ErrorAction Stop

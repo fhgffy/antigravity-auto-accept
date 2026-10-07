@@ -378,3 +378,16 @@
 - **接口：** SDK完整24成员顺序/已调用ABI和两引擎编译先核验；MSAA入口少disabled拒绝，不能去掉原最后enabled、身份/选择/几何校验，也不能凭Blink disabled表单保护推断全部ARIA控件安全。保留自己的COM清理风险，正式实现前处理。
 - **恢复：** CLI先成功后V8崩溃exit134，不能按成功文字说exit0或盲重装；先独立验磁盘hash、主IDE身份，再正常重启scanner，核对新PID/start/parent/decoded path/ready且旧候选退出。此轮未确定CLI崩溃根因。
 - **工具输出：** 实际命令只回报内存数值，未显示exit code且未测时间，不补写；Agent显示Explored files时，不把自然语言只读边界当全部行为已验证。200ms样本不覆盖间隙的短暂激活。
+
+## 2026-10-07 Asia/Shanghai - 浏览器本机测试中止与自有服务清理
+
+- **已跑验证：** Browser Use能读取自有环回输入页，但Windows Computer Use看到Chrome最小化，恢复请求被URL可信识别规则停止。本轮未发送测试Agent任务、未重启Legacy候选、未开始输入，不把页面创建算焦点或输入验收，也不换UI路径继续。
+- **清理：** 非UI官方CLI恢复原包exit0，磁盘hash与原版一致；原scanner PID63404/start/parent保持，候选只曾写磁盘而未替换运行态。自有node服务的PID、start与唯一绝对script命令行匹配后关闭，保留Temp文件。
+- **新坑：** exec_command默认非TTY的长期服务会关闭stdin，write_stdin发送quit失败；后续若要以stdin关闭自己的测试服务，启动时明确tty=true，或准备只针对本轮已验证进程身份的正常关闭接口。不得因stdin关闭重启同一已运行服务或结束其它node进程。
+
+## 2026-10-07 Asia/Shanghai - 原生契约扩展后的测试类边界与清理异常
+
+- **已跑验证：** 五个 Invoke 获取入口的六个离线分支在原源码均红灯，接入 Legacy 准备边界后转绿；不得把桩里的前台状态当真实 Windows 焦点验收。完整首轮 scanner=152 通过，但 host-process 影子 C# 编译失败，整套结果仍为失败。
+- **边界：** 同一个内嵌 C# 文本新增命名空间后，LastIndexOf('}') 已不属于 MouseHelper。影子字段仅插入完整顶层 MouseHelper 类范围；生产完整 C# 仍先编译，全部 P/Invoke 必须替换，不能删断言或漏出实际桌面调用。两个夹具边界独立括号配对和21项原生声明审查吻合。
+- **清理：** 真实 RCW 重复释放没有复现异常，不冒充实机复现。受控 Marshal 释放异常会遮盖原异常，分别覆盖 InvalidComObjectException、COMException、ArgumentException，保留原审批异常并继续释放后续引用；不使用 FinalReleaseComObject。
+- **生成：** 两个候选循环都有同名阶段标签，唯一匹配守卫在写入前中止；先核实函数范围再替换。PowerShell 同分隔符 here-string 不能嵌套生成脚本，改用 Temp 文件补丁，避免生成器提前结束。
