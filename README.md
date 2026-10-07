@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.3
+# 🚀 Antigravity Auto Accept v5.3.4
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -24,14 +24,14 @@ Antigravity's [IDE settings documentation](https://antigravity.google/docs/setti
 - **Strict Mode, explicit denials, enterprise policies, sandbox restrictions, and browser denylist entries remain enforced by Antigravity.** This is not a guarantee that every command can execute.
 - Workspace trust prompts and generic `Save`, `OK`, `Yes`, or `Retry` buttons are not agent approvals and are excluded. English and Chinese approval labels are supported.
 - Command permission cards select **Yes, allow this time** and submit the same card. Browser domain cards select **Allow Once**, including the menu inside **More actions** in a narrow sidebar. Command cards in the conversation or input area keep the same strict form checks; long cards scroll only the verified action control into view. The scanner does not select **Always Allow** or expand historical command records.
-- `InvokePattern` can work without moving the cursor. Physical fallback only clicks when the target point still belongs to the verified Antigravity window; covered windows are skipped.
+- `InvokePattern` can work without moving the cursor. Physical fallback yields to user input and only acts on a revalidated button in the foreground Antigravity window; covered or changed targets are skipped.
 - One scanner covers the desktop session's Antigravity windows from the same installation path. Other enabled windows wait to take over. Stop disables this window's scanner; another enabled window may continue scanning, including buttons in the stopped window. Workspace trust gates the scanner's host; scanning is not isolated per workspace.
 
 默认安装即启动扫描，但前提是可信工作区、本地 Windows 和可访问的 IDE 窗口。“零配置”指无需额外扫描器配置，不代表绕过所有权限。未针对每个 IDE 版本、远程环境和审批类型进行实机验证。
 
 Current maintenance: **fhgffy**, with **Codex** assisting fixes and tests. See [CONTRIBUTING.md](CONTRIBUTING.md) to help maintain the project. Historical Git commit authorship is preserved.
 
-Latest multi-window and CI verification: [docs/verification-2026-10-07.md](docs/verification-2026-10-07.md). Earlier runtime notes remain in [docs/verification-2026-10-05.md](docs/verification-2026-10-05.md). A result on one IDE version does not establish compatibility with every permission type or future release.
+Latest user-input interference verification: [docs/verification-2026-10-07-input.md](docs/verification-2026-10-07-input.md). Multi-window and CI verification: [docs/verification-2026-10-07.md](docs/verification-2026-10-07.md). Earlier runtime notes remain in [docs/verification-2026-10-05.md](docs/verification-2026-10-05.md). A result on one IDE version does not establish compatibility with every permission type or future release.
 
 ---
 
@@ -71,8 +71,8 @@ Latest multi-window and CI verification: [docs/verification-2026-10-07.md](docs/
 
 | Layer | Mechanism |
 |-------|-----------|
-| **InvokePattern** (preferred) | UIAutomation API-level invocation. No cursor movement, no focus stealing. Silent and instant. |
-| **Physical Click** (fallback) | Rechecks button state and the owning window at the target point before clicking. Skips covered windows and restores the cursor when configured. |
+| **InvokePattern** (preferred) | UIAutomation API-level invocation without explicit cursor or focus changes. Provider behavior is checked in runtime verification. |
+| **Physical Click** (fallback) | Requires an idle foreground target, released input keys, and a revalidated button. Sends target movement, press/release and optional cursor restoration in one input batch, after checking screen and clip bounds. |
 
 ---
 
@@ -142,12 +142,19 @@ The defaults still work with zero configuration. Advanced users can tune these i
 | `antigravityAutoAccept.autoStart` | `true` | Start scanning automatically when the extension activates |
 | `antigravityAutoAccept.pollMs` | `500` | UIAutomation scan interval |
 | `antigravityAutoAccept.cooldownMs` | `1500` | Minimum delay after an approval action attempt |
-| `antigravityAutoAccept.restoreCursor` | `true` | Restore your mouse position after fallback physical clicks |
+| `antigravityAutoAccept.restoreCursor` | `true` | Include cursor restoration in the verified fallback input batch |
 | `antigravityAutoAccept.showNotifications` | `false` | Show start/stop/restart notifications |
 
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.4 — User Input and Approval Identity (2026-10-07)
+
+- Yield physical fallback to active typing, dragging, held keys, covered targets and changed approval controls.
+- Submit movement, press/release and optional restoration in one verified input batch; validate pixel normalization, screen/clip bounds and x86/x64 input layouts.
+- Recheck browser permission target identity and menu ownership; support precisely linked menus already opened by the user.
+- Add production-method input regressions to Windows CI for PS5 x64/x86 and PS7 x64.
 
 ### v5.3.3 — Multi-window Reliability (2026-10-07)
 

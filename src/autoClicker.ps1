@@ -18,12 +18,55 @@ public class MouseHelper {
         public int X;
         public int Y;
     }
+    // 2026-10-07：原生指针对齐保持 32/64 位兼容，移动、按下、释放和恢复由同一批次连续提交。
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MOUSEINPUT {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+    [StructLayout(LayoutKind.Explicit)]
+    public struct INPUTUNION {
+        [FieldOffset(0)]
+        public MOUSEINPUT mi;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INPUT {
+        public uint type;
+        public INPUTUNION data;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LASTINPUTINFO {
+        public uint cbSize;
+        public uint dwTime;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT {
+        public int Left, Top, Right, Bottom;
+    }
     [DllImport("user32.dll", SetLastError = true)]
-    public static extern bool GetCursorPos(out POINT lpPoint);
+    public static extern bool GetPhysicalCursorPos(out POINT lpPoint);
     [DllImport("user32.dll", SetLastError = true)]
-    public static extern bool SetCursorPos(int X, int Y);
+    public static extern uint SendInput(uint count, [In, MarshalAs(UnmanagedType.LPArray, SizeParamIndex = 0)] INPUT[] inputs, int size);
     [DllImport("user32.dll")]
-    public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+    public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetricsForDpi(int index, uint dpi);
+    [DllImport("user32.dll")]
+    public static extern bool GetClipCursor(out RECT rectangle);
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromPoint(POINT point, uint flags);
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")]
+    public static extern short GetAsyncKeyState(int virtualKey);
+    [DllImport("user32.dll")]
+    public static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
+    [DllImport("kernel32.dll")]
+    public static extern uint GetTickCount();
     // 2026-10-05：物理回退只接受目标顶层窗口内的坐标，遮挡或失效时跳过。
     [DllImport("user32.dll")]
     public static extern IntPtr WindowFromPoint(POINT point);
@@ -41,6 +84,8 @@ public class MouseHelper {
     public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    // 2026-10-07：不接管用户正在按住的鼠标键、修饰键或系统快捷键。
+    private static readonly int[] inputKeys = { 1, 2, 4, 5, 6, 16, 17, 18, 91, 92 };
     public static bool IsHitTargetWindow(IntPtr target, IntPtr root, bool exists, bool visible,
                                         bool enabled, bool iconic, uint actualProcessId, uint expectedProcessId) {
         return target != IntPtr.Zero && root == target && exists && visible && enabled && !iconic &&
@@ -55,30 +100,99 @@ public class MouseHelper {
         return IsHitTargetWindow(target, root, IsWindow(target), IsWindowVisible(target),
                                  IsWindowEnabled(target), IsIconic(target), actualProcessId, expectedProcessId);
     }
-    public static bool Click(int x, int y, bool restoreCursor, IntPtr target, uint expectedProcessId) {
-        if (!IsPointOwnedByWindow(x, y, target, expectedProcessId)) { return false; }
-        POINT oldPoint;
-        bool hasOldPoint = GetCursorPos(out oldPoint);
-        if (!SetCursorPos(x, y)) { return false; }
-        System.Threading.Thread.Sleep(30);
-        POINT currentPoint;
-        if (!GetCursorPos(out currentPoint) || currentPoint.X != x || currentPoint.Y != y ||
-            !IsPointOwnedByWindow(x, y, target, expectedProcessId)) {
-            if (restoreCursor && hasOldPoint) { SetCursorPos(oldPoint.X, oldPoint.Y); }
-            return false;
-        }
-        try {
-            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
-            System.Threading.Thread.Sleep(50);
-        }
-        finally {
-            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero);
-            if (restoreCursor && hasOldPoint) {
-                System.Threading.Thread.Sleep(20);
-                SetCursorPos(oldPoint.X, oldPoint.Y);
-            }
+    // 2026-10-07：最后输入戳只用于发现变化，不当作递增计数或输入事件身份。
+    private static bool TryGetInputTime(out uint inputTime) {
+        LASTINPUTINFO info = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO)) };
+        inputTime = 0;
+        if (!GetLastInputInfo(ref info)) { return false; }
+        inputTime = info.dwTime;
+        return true;
+    }
+    private static bool AreInputKeysReleased() {
+        foreach (int key in inputKeys) {
+            if ((GetAsyncKeyState(key) & 0x8000) != 0) { return false; }
         }
         return true;
+    }
+    private static bool IsInputUnchanged(uint expectedTime) {
+        uint currentTime;
+        return AreInputKeysReleased() && TryGetInputTime(out currentTime) && currentTime == expectedTime;
+    }
+    private static bool IsTargetCurrent(Func<bool> validateTarget) {
+        try { return validateTarget != null && validateTarget(); }
+        catch { return false; }
+    }
+    // 2026-10-07：归一化到像素中心，使用长整数避免负屏幕原点、边缘像素和乘法溢出。
+    private static bool TryNormalizePoint(POINT point, int left, int top, int width, int height, RECT clip,
+                                          out int normalizedX, out int normalizedY) {
+        normalizedX = normalizedY = 0;
+        long offsetX = (long)point.X - left, offsetY = (long)point.Y - top;
+        if (width <= 0 || height <= 0 || width > 65536 || height > 65536 ||
+            offsetX < 0 || offsetX >= width || offsetY < 0 || offsetY >= height ||
+            point.X < clip.Left || point.X >= clip.Right || point.Y < clip.Top || point.Y >= clip.Bottom) { return false; }
+        // 2026-10-07：从像素对应的可表示区间取中点，65535 像素的宽屏也不能向左偏移一像素。
+        long firstX = (offsetX * 65536L + width - 1) / width;
+        long lastX = ((offsetX + 1) * 65536L + width - 1) / width - 1;
+        long firstY = (offsetY * 65536L + height - 1) / height;
+        long lastY = ((offsetY + 1) * 65536L + height - 1) / height - 1;
+        normalizedX = (int)((firstX + lastX) / 2);
+        normalizedY = (int)((firstY + lastY) / 2);
+        return true;
+    }
+    // 2026-10-07：提交前只做只读核验；同一 SendInput 批次没有鼠标停留，也不在用户输入后单独拉回。
+    public static bool Click(int x, int y, bool restoreCursor, IntPtr target, uint expectedProcessId, Func<bool> validateTarget) {
+        IntPtr originalDpi = IntPtr.Zero;
+        try {
+            // 2026-10-07：UIA 使用物理坐标，只临时切换本线程 DPI 上下文，退出时恢复原上下文。
+            originalDpi = SetThreadDpiAwarenessContext(new IntPtr(-4));
+            if (originalDpi == IntPtr.Zero || !AreInputKeysReleased()) { return false; }
+            uint inputTime;
+            if (!TryGetInputTime(out inputTime)) { return false; }
+            uint inputAge = unchecked(GetTickCount() - inputTime);
+            if (inputAge < 500 || inputAge > Int32.MaxValue) { return false; }
+            POINT oldPoint;
+            if (!GetPhysicalCursorPos(out oldPoint)) { return false; }
+            int left = GetSystemMetricsForDpi(76, 96), top = GetSystemMetricsForDpi(77, 96);
+            int width = GetSystemMetricsForDpi(78, 96), height = GetSystemMetricsForDpi(79, 96);
+            RECT clip;
+            if (!GetClipCursor(out clip)) { return false; }
+            int targetX, targetY, restoreX, restoreY;
+            if (!TryNormalizePoint(new POINT { X = x, Y = y }, left, top, width, height, clip, out targetX, out targetY) ||
+                !TryNormalizePoint(oldPoint, left, top, width, height, clip, out restoreX, out restoreY)) { return false; }
+            INPUT[] inputs = new INPUT[restoreCursor ? 4 : 3];
+            inputs[0].data.mi.dx = targetX;
+            inputs[0].data.mi.dy = targetY;
+            inputs[0].data.mi.dwFlags = 0x0001 | 0x8000 | 0x4000;
+            inputs[1].data.mi.dwFlags = MOUSEEVENTF_LEFTDOWN;
+            inputs[2].data.mi.dwFlags = MOUSEEVENTF_LEFTUP;
+            if (restoreCursor) {
+                inputs[3].data.mi.dx = restoreX;
+                inputs[3].data.mi.dy = restoreY;
+                inputs[3].data.mi.dwFlags = inputs[0].data.mi.dwFlags;
+            }
+            int inputSize = Marshal.SizeOf(typeof(INPUT));
+            if (!IsTargetCurrent(validateTarget)) { return false; }
+            RECT currentClip;
+            if (GetSystemMetricsForDpi(76, 96) != left || GetSystemMetricsForDpi(77, 96) != top ||
+                GetSystemMetricsForDpi(78, 96) != width || GetSystemMetricsForDpi(79, 96) != height ||
+                !GetClipCursor(out currentClip) || currentClip.Left != clip.Left || currentClip.Top != clip.Top ||
+                currentClip.Right != clip.Right || currentClip.Bottom != clip.Bottom) { return false; }
+            // 2026-10-07：虚拟屏幕可能含显示器空隙，屏幕查询后最后核验窗口归属和前台。
+            if (MonitorFromPoint(new POINT { X = x, Y = y }, 0) == IntPtr.Zero || MonitorFromPoint(oldPoint, 0) == IntPtr.Zero) { return false; }
+            if (!IsPointOwnedByWindow(x, y, target, expectedProcessId)) { return false; }
+            if (GetForegroundWindow() != target) { return false; }
+            POINT currentPoint;
+            if (!IsInputUnchanged(inputTime) || !GetPhysicalCursorPos(out currentPoint) ||
+                currentPoint.X != oldPoint.X || currentPoint.Y != oldPoint.Y) { return false; }
+            uint inserted = SendInput((uint)inputs.Length, inputs, inputSize);
+            // 2026-10-07：只插入移动和按下时尽力补释放；不追加移动或重新批准，补偿被拒绝仍返回失败。
+            if (inserted == 2) { SendInput(1, new INPUT[] { inputs[2] }, inputSize); }
+            return inserted >= 3 && inserted <= inputs.Length;
+        }
+        catch { return false; }
+        finally {
+            if (originalDpi != IntPtr.Zero) { SetThreadDpiAwarenessContext(originalDpi); }
+        }
     }
 }
 "@
@@ -296,10 +410,24 @@ function Test-BrowserPermissionCardShape($TextNames, $ButtonNames) {
 }
 
 # 2026-10-06：只检查当前卡片的直属控件，不能从整段会话拼凑不相关按钮。
-function Test-LiveBrowserPermissionCard($Card) {
+function Test-LiveBrowserPermissionCard($Card, $ExpectedTarget = $null, $Action = $null) { # 2026-10-07
     $texts = $Card.FindAll([System.Windows.Automation.TreeScope]::Children, $textCondition)
     $buttons = $Card.FindAll([System.Windows.Automation.TreeScope]::Children, $btnCondition)
-    return Test-BrowserPermissionCardShape @($texts | ForEach-Object { $_.Current.Name }) @($buttons | ForEach-Object { $_.Current.Name })
+    # 2026-10-07：实时目标必须仍是原卡片和原文案，动作按钮不能从原卡片脱离或被同名控件替换。
+    if (-not (Test-BrowserPermissionCardShape @($texts | ForEach-Object { $_.Current.Name }) @($buttons | ForEach-Object { $_.Current.Name }))) { return $false }
+    if ($null -ne $ExpectedTarget) {
+        if ($null -eq $Action -or ($Action.GetRuntimeId() -join '.') -ne $ExpectedTarget.ActionId) { return $false }
+        $actionParent = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($Action)
+        if ($null -eq $actionParent -or ($actionParent.GetRuntimeId() -join '.') -ne $ExpectedTarget.CardId) { return $false }
+        if (@($buttons | Where-Object { ($_.GetRuntimeId() -join '.') -eq $ExpectedTarget.ActionId }).Count -ne 1) { return $false }
+        # 2026-10-07：动作和父链查询完成后最后重读当前目标，不能用查询前已比较过的文案继续批准。
+        $targets = @($Card.FindAll([System.Windows.Automation.TreeScope]::Children, $textCondition) | Where-Object { Test-BrowserPermissionText $_.Current.Name })
+        if ($targets.Count -ne 1) { return $false }
+        $target = $targets[0]
+        if (($Card.GetRuntimeId() -join '.') -ne $ExpectedTarget.CardId -or ($target.GetRuntimeId() -join '.') -ne $ExpectedTarget.Id) { return $false }
+        if (-not [string]::Equals($target.Current.Name, $ExpectedTarget.Name, [StringComparison]::Ordinal)) { return $false }
+    }
+    return $true
 }
 
 # 2026-10-06：门户菜单必须靠近此次触发按钮，负坐标副屏沿用同一几何判断。
@@ -369,6 +497,10 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             if ($actionName -notin @('Allow Once', 'More actions') -or -not $allow.Current.IsEnabled) { continue }
             $card = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($allow)
             if ($null -eq $card -or -not (Test-LiveBrowserPermissionCard $card)) { continue }
+            # 2026-10-07：把首次看到的卡片、权限文案和动作身份作为后续宿主查询与滚动的审批快照。
+            $targets = @($card.FindAll([System.Windows.Automation.TreeScope]::Children, $textCondition) | Where-Object { Test-BrowserPermissionText $_.Current.Name })
+            if ($targets.Count -ne 1) { continue }
+            $expectedTarget = @{ CardId = ($card.GetRuntimeId() -join '.'); Id = ($targets[0].GetRuntimeId() -join '.'); Name = $targets[0].Current.Name; ActionId = ($allow.GetRuntimeId() -join '.') }
             if ($actionName -eq 'More actions') {
                 $cardButtons = $card.FindAll([System.Windows.Automation.TreeScope]::Children, $btnCondition)
                 if (@($cardButtons | Where-Object { $_.Current.Name -eq 'Allow Once' }).Count -gt 0) { continue }
@@ -387,13 +519,13 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
                 # 2026-10-06：宿主查询可能改变卡片状态，滚动前后的界面复核统一放在查询之后。
-                if (-not (Test-LiveBrowserPermissionCard $card) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled) { continue }
+                if (-not (Test-LiveBrowserPermissionCard $card $expectedTarget $allow) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
                 $stage = 'scroll'
                 $scrollItem.ScrollIntoView()
                 if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
-                if (-not (Test-LiveBrowserPermissionCard $card) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
+                if (-not (Test-LiveBrowserPermissionCard $card $expectedTarget $allow) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
                 Write-ApprovalDiagnostic 'browser scroll returned=True visible=True' 'browser-scroll'
             }
@@ -408,19 +540,27 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             else { continue }
             $stage = 'before-menus'
             $beforeMenus = @{}
+            $existingMenuId = $null
             if ($actionName -eq 'More actions') {
-                foreach ($menu in @(Get-VisibleBrowserMenus $Window $WindowProcessId)) { $beforeMenus[($menu.GetRuntimeId() -join '.')] = $true }
+                $beforeVisibleMenus = @(Get-VisibleBrowserMenus $Window $WindowProcessId)
+                foreach ($menu in $beforeVisibleMenus) { $beforeMenus[($menu.GetRuntimeId() -join '.')] = $true }
+                # 2026-10-07：唯一精确标识当前触发器且贴近按钮的已打开菜单可以接管，不沿用未标识的旧菜单。
+                $linkedMenus = @($beforeVisibleMenus | Where-Object {
+                    $label = $_.Current.LabeledBy
+                    $null -ne $label -and ($label.GetRuntimeId() -join '.') -eq $expectedTarget.ActionId -and (Test-BrowserMenuAnchor $_.Current.BoundingRectangle $allow.Current.BoundingRectangle)
+                })
+                if ($linkedMenus.Count -eq 1) { $existingMenuId = ($linkedMenus[0].GetRuntimeId() -join '.'); $method = 'existing-menu' }
             }
             $stage = 'host'
             if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
             if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
             # 2026-10-06：最后一次宿主查询后重读卡片和动作按钮，不沿用查询前的批准状态。
             $stage = 'final-card'
-            if (-not (Test-LiveBrowserPermissionCard $card) -or $allow.Current.Name -ne $actionName -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
+            if (-not (Test-LiveBrowserPermissionCard $card $expectedTarget $allow) -or $allow.Current.Name -ne $actionName -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
             if (-not (Test-ParentAlive)) { return $false }
             $stage = $method
             if ($method -eq 'expand') { $actionPattern.Expand() }
-            else { $actionPattern.Invoke() }
+            elseif ($method -eq 'invoke') { $actionPattern.Invoke() } # 2026-10-07：已打开的精确关联菜单无需再次展开。
             if ($actionName -eq 'Allow Once') {
                 [Console]::WriteLine('___CLICK_INVOKE___:Allow Once (browser domain permission)')
                 return $true
@@ -434,7 +574,7 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 if (-not (Test-ParentAlive)) { return $false }
                 $visibleMenus = @(Get-VisibleBrowserMenus $Window $WindowProcessId)
                 $menuCount = $visibleMenus.Count
-                $newMenus = @($visibleMenus | Where-Object { -not $beforeMenus.ContainsKey(($_.GetRuntimeId() -join '.')) })
+                $newMenus = @($visibleMenus | Where-Object { -not $beforeMenus.ContainsKey(($_.GetRuntimeId() -join '.')) -or ($_.GetRuntimeId() -join '.') -eq $existingMenuId }) # 2026-10-07
                 $newMenuCount = $newMenus.Count
                 if ($newMenus.Count -ne 1) { continue }
                 $menu = $newMenus[0]
@@ -445,17 +585,28 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 $itemCount = $items.Count
                 if ($items.Count -ne 1) { continue }
                 $item = $items[0]
+                $menuId = ($menu.GetRuntimeId() -join '.'); $itemId = ($item.GetRuntimeId() -join '.') # 2026-10-07：保留取模式之前的菜单及菜单项身份。
                 $stage = 'item-pattern' # 2026-10-06：菜单项模式异常单独标明阶段，便于实机定位。
                 $itemInvoke = $item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
                 if (-not (Get-TargetProcessIds).ContainsKey($WindowProcessId)) { continue }
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
                 # 2026-10-06：宿主查询完成后复核卡片、菜单和本次菜单项，关联触发器仍保持最后复核。
                 $stage = 'item-final'
-                if (-not (Test-LiveBrowserPermissionCard $card) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
+                # 2026-10-07：先完成会重读卡片树的关联复核，再核菜单项身份与当前父链，避免后续卡片查询使旧项失效。
+                if (-not (Test-LiveBrowserPermissionCard $card $expectedTarget $allow) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
+                # 2026-10-07：取模式和宿主查询后重新枚举实际菜单项，再沿当前父链确认原项仍属于唯一原菜单。
+                $currentMenus = @(Get-VisibleBrowserMenus $Window $WindowProcessId | Where-Object { -not $beforeMenus.ContainsKey(($_.GetRuntimeId() -join '.')) -or ($_.GetRuntimeId() -join '.') -eq $existingMenuId })
+                if ($currentMenus.Count -ne 1 -or ($currentMenus[0].GetRuntimeId() -join '.') -ne $menuId) { continue }
+                $currentItems = @($menu.FindAll([System.Windows.Automation.TreeScope]::Descendants, $menuItemCondition) | Where-Object { $_.Current.Name -eq 'Allow Once' })
+                if ($currentItems.Count -ne 1 -or ($currentItems[0].GetRuntimeId() -join '.') -ne $itemId) { continue }
+                $itemParent = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($item)
+                while ($null -ne $itemParent -and ($itemParent.GetRuntimeId() -join '.') -ne $menuId) { $itemParent = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($itemParent) }
+                if ($null -eq $itemParent) { continue }
                 if ($menu.Current.ProcessId -ne $WindowProcessId -or $menu.Current.IsOffscreen -or -not $menu.Current.IsEnabled -or -not (Test-BrowserMenuAnchor $menu.Current.BoundingRectangle $allow.Current.BoundingRectangle)) { continue }
                 if ($item.Current.Name -ne 'Allow Once' -or -not $item.Current.IsEnabled -or $item.Current.IsOffscreen) { continue }
                 # 2026-10-06：菜单项取模式和宿主查询后复核关联触发器，菜单改属其他卡片时不批准。
                 $label = $menu.Current.LabeledBy
+                if ($null -ne $existingMenuId -and $null -eq $label) { continue } # 2026-10-07：已打开菜单不能失去其精确触发器身份。
                 if ($null -ne $label -and ($label.GetRuntimeId() -join '.') -ne ($allow.GetRuntimeId() -join '.')) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
                 $stage = 'item-invoke' # 2026-10-06：明确唯一新菜单本次批准的实际调用阶段。
@@ -883,11 +1034,32 @@ try {
                                 $btnName = $btn.Current.Name
                                 if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen -or -not (Test-ButtonMatch $btnName)) { continue }
                                 if (-not (Test-ParentAlive)) { break }
+                                # 2026-10-07：移动前保存原按钮身份，回退时从实际像素命中沿父链核对同一按钮。
+                                $physicalButtonId = $btn.GetRuntimeId() -join '.'
+                                $physicalButtonName = $btnName
+                                $physicalValidator = [Func[bool]] {
+                                    try {
+                                        if (-not (Get-TargetProcessIds).ContainsKey($windowProcessId)) { return $false }
+                                        if ($win.Current.NativeWindowHandle -ne $windowHandle.ToInt64() -or $win.Current.ProcessId -ne $windowProcessId) { return $false }
+                                        $pointed = [System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new($center.X, $center.Y))
+                                        $pointedMatches = $false
+                                        for ($depth = 0; $null -ne $pointed -and $depth -lt 8; $depth++) {
+                                            if (($pointed.GetRuntimeId() -join '.') -eq $physicalButtonId) { $pointedMatches = $true; break }
+                                            $pointed = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($pointed)
+                                        }
+                                        if (-not $pointedMatches -or ($btn.GetRuntimeId() -join '.') -ne $physicalButtonId) { return $false }
+                                        $currentRectangle = $btn.Current.BoundingRectangle
+                                        if ($null -eq (Get-ButtonCenter $currentRectangle) -or $center.X -lt $currentRectangle.X -or $center.Y -lt $currentRectangle.Y -or $center.X -ge ($currentRectangle.X + $currentRectangle.Width) -or $center.Y -ge ($currentRectangle.Y + $currentRectangle.Height)) { return $false }
+                                        if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen -or $btn.Current.Name -ne $physicalButtonName -or -not (Test-ButtonMatch $btn.Current.Name)) { return $false }
+                                        return Test-ParentAlive
+                                    }
+                                    catch { return $false }
+                                }
                                 # 2026-10-07：物理回退同样只尝试一次，失败或动作后抛错都从动作结束时开始冷却。
                                 $didClick = $true
                                 $lastServedWindowHandle = $windowHandle
                                 try {
-                                    if ([MouseHelper]::Click($center.X, $center.Y, $restoreCursorEnabled, $windowHandle, [uint32]$windowProcessId)) {
+                                    if ([MouseHelper]::Click($center.X, $center.Y, $restoreCursorEnabled, $windowHandle, [uint32]$windowProcessId, $physicalValidator)) {
                                         [Console]::WriteLine("___CLICK_PHYSICAL___:$btnName at ($($center.X),$($center.Y))")
                                     }
                                 }
