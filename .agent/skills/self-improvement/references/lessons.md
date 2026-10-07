@@ -370,3 +370,11 @@
 - **触发：** 自然任务可选择list_dir等无需审批工具；没有卡片/Invoke的观察记为未触发。实际只读系统测量产生一次审批后，再看原始工具输出、前台记录和文本保留，三类证据不能互相替代。
 - **输入：** set_value返回成功但本轮草稿未变；必须检查实际可见内容。聚焦自有草稿后Ctrl+A，核对selected_text严格等于自有文本，再替换，不能把RootWebArea焦点直接当用户代码可编辑区。
 - **生成：** Temp生成器原为LF，候选源为CRLF，应逐文件检测；PowerShell正则替换中的字面反斜杠r/n不会生成换行。使用明确CR/LF字符值并以唯一完整代码块、hash及AST为守卫；边界不匹配时不得写文件。
+
+## 2026-10-07 Asia/Shanghai - 真实provider、触发顺序与Legacy单例证据
+
+- **已跑验证：** 实际Submit Framework=Chrome、LegacyAvailable=True；只支持取得另一已文档化接口，不独自定责代理/宿主。AutoSetFocus=false的标准Invoke失败后，仅替换客户端为Legacy默认动作、保留完整最终检查，真实一个后台Submit返回后仍Note，独立511个后续样本保持Note及鼠标/input tick。不能从一个静置案例宣称持续输入、多窗口、全部按钮已修复。
+- **触发：** 前两次批准早于Note激活，仅记接口执行通过、后台未触发。缩短发送后切换延迟可用两次连续Computer Use调用，各自只输入一次并刷新，不能省略观测或重复已发送任务。get_window_state必须至少请求text或screenshot；两者false的拒绝是工具参数错误，不是插件bug。
+- **接口：** SDK完整24成员顺序/已调用ABI和两引擎编译先核验；MSAA入口少disabled拒绝，不能去掉原最后enabled、身份/选择/几何校验，也不能凭Blink disabled表单保护推断全部ARIA控件安全。保留自己的COM清理风险，正式实现前处理。
+- **恢复：** CLI先成功后V8崩溃exit134，不能按成功文字说exit0或盲重装；先独立验磁盘hash、主IDE身份，再正常重启scanner，核对新PID/start/parent/decoded path/ready且旧候选退出。此轮未确定CLI崩溃根因。
+- **工具输出：** 实际命令只回报内存数值，未显示exit code且未测时间，不补写；Agent显示Explored files时，不把自然语言只读边界当全部行为已验证。200ms样本不覆盖间隙的短暂激活。

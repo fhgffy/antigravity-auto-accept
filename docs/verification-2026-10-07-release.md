@@ -91,3 +91,23 @@ Computer Use随后展开已完成工具记录，读到task-8结果“command exi
 独立观察120007ms、600个200ms前台样本、24次固定IDE资源记录、无观测错误：20:46:59.165–.166为Note，.369为IDE；pointer1429,570保持，lastInput变化不识别输入来源。observe-foreground-35596-20261007T124631304-b9a45abd697e46be95c5da9d92b25313.jsonl SHA256为A7E35862EEAFC8651DC2D9485063411AEFDFEBEED38B83B91F984F9AA1285B6A。Computer Use展开工具输出，实际读到Available Memory (KB): 3734588和Current Time: 2026-10-07 20:47:01；该界面未显示退出码，不补写exit0。自有Note的D536_STANDARD_TEXT_001中文/英文/数字44字符基准保持；未验证持续键入、第二IDE或完整浏览器矩阵。
 
 官方CLI恢复原始5.3.6包，再通过正常Restart Scanner命令重启产品；磁盘scanner恢复7F732F0CAB9FEA2A9F8A3FCB029820A4BC36FE6D98A3F6C8EA6CBF89D18ADC0A，候选PID48472已退出，原包PID48236、父PID36856、启动20:49:59.2795700，20:49:59 ready。证据保存在上述focus-client Temp目录：candidate3-native-task-and-note.json、actual-ide-about-20261007.json、candidate3-runtime-ledger.json；日志candidate3-native-failure-and-restore.log SHA256为2554A01C67AAE23F48AC5BAE1A9033E0D56970CB726368298D3857C8346F1BA7。生产源码、IDE安装文件与用户原8项工作区改动均未编辑，PR12仍draft，不合并或发布未通过本机体验验收的候选。
+
+## 实际provider诊断与Legacy单例正向结果（2026-10-07 21:10–21:27 Asia/Shanghai）
+
+证据等级：已跑本机验证；仅一个后台静置案例通过，尚未完成候选验收。本轮仍只在独立Temp目录制作同版本诊断包，未修改生产源码。第四个包只在原最终检查前增加FrameworkId、ProviderDescription和IsLegacyIAccessiblePatternAvailable查询，PS5/PS7内嵌COM编译、客户端标志和归档身份均通过。真实Submit于21:12:12读到Framework=Chrome、LegacyAvailable=True、Provider=[pid:35596,providerId:0x0 Main(parent link):Unidentified Provider (unmanaged:Antigravity IDE.exe)]。它不证明MSAA代理或宿主已被定责。该动作早于Note置前台的21:12:13.531，不计为后台焦点案例。
+
+据此第五个临时包只替换Submit的客户端动作接口：同一AutoSetFocus=false客户端、同一窗口/RuntimeId绑定，GetCurrentPattern(10018)取得IUIAutomationLegacyIAccessiblePattern后调用DoDefaultAction；选择、滚动、展开和其它按钮仍为原实现。原最终宿主、表单归属、权限目标、一次允许选择、enabled/offscreen/rect等1797字符检查块与第四包逐字相同，不增加动作失败后的物理回退。微软SDK头文件的完整24成员vtable顺序、GUID和已调用方法签名已对照，PS5/PS7编译、三种无效参数提前拒绝、UTF8无BOM/CRLF、归档源与extension.js身份检查均exit0。临时scanner SHA256为A7C07697A052203AB2B79EAA1602A6530ADF1F1678CD97035DCEE618934264CA，VSIX为56DA0DD72F6F051B2961AA96C811513D39F927A38D3C8DF18EB75CF148EC3427，extension.js仍保持原包字节。
+
+已读[微软默认动作契约](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nf-uiautomationclient-iuiautomationlegacyiaccessiblepattern-dodefaultaction)与固定142.0.7444.175的[Chromium Windows接口源码](https://github.com/chromium/chromium/blob/142.0.7444.175/ui/accessibility/platform/ax_platform_node_win.cc)：Invoke和MSAA默认动作最终均请求kDoDefault，但MSAA入口没有Invoke中的disabled拒绝，因此原最终检查不能删除。Blink的[DispatchSimulatedClick](https://github.com/chromium/chromium/blob/142.0.7444.175/third_party/blink/renderer/core/dom/events/event_dispatcher.cc)在disabled表单控件处返回；这不覆盖全部ARIA自定义控件，也不是本机Windows前台归因。此轮正向结果仅支持进一步测试另一客户端路径。
+
+第一个Legacy任务D536_LEGACY_APPROVAL_001于21:20:00正常完成默认动作，但Note直到21:20:12才置前台，仍仅为接口能执行的证据。发送后刷新曾错误地同时关闭text与screenshot，Computer Use拒绝该调用；已重新观察并确认任务已发，没有重复发送。界面观察工具错误不算插件失败。
+
+第二任务D536_LEGACY_APPROVAL_002通过正常Agent输入要求实际只读内存测量，用户未手动审批。将正常发送与独立Note激活安排为两次连续Computer Use调用，每个输入后刷新；21:22:24.129起停止界面输入。21:22:37.126的before-validation为Note HWND329822；Legacy动作begin=.141、return=.142，after=.142仍Note，而目标IDE HWND133218。只记录一项Submit，没有Select、Scroll、Expand或物理审批。这与此前Invoke候选动作后转IDE的案例不同，但尚不能证明UIA内核或宿主的确切激活调用链。
+
+独立原生只读观察120011ms、600个200ms样本、24次固定IDE资源记录、无错误。停止输入后的511个样本全部为Note，foregroundHwnd与foregroundHwndAfter相同且稳定；pointer1433,593、lastInputTick32=9505828保持不变。文件observe-foreground-35596-20261007T132206439-6789cbdaef894640a6e40d9315d08849.jsonl SHA256为AA9EA7CE3EB31AAF6152C75A30CB3546A2229C620CAF27AFB879F1E5B20092FA。200ms采样不能排除采样间隙内的短暂激活，不将一个静置样本扩展为持续输入或全部应用通过。
+
+Computer Use展开原始工具记录，实际输出FreePhysicalMemory=1954848、TotalVisibleMemorySize=16624952（KB）。界面未显示exit code，测量命令也未独立输出时间，均不补写。Note自有中文/英文/数字基准仍为44字符且逐字一致；本轮未持续键入，未做浏览器或第二完整IDE验收。Agent另显示Explored 3 files及技能加载总结，本文不将自然语言限制视为其全部行为合规证据，也未修改用户工作区的8项既有待提交内容。
+
+恢复官方原包CLI先报告安装成功，随后V8::ToLocalChecked Empty MaybeLocal崩溃，实际exit134；没有当成exit0，也没有盲目重复安装。独立核对磁盘scanner=7F732F0CAB9FEA2A9F8A3FCB029820A4BC36FE6D98A3F6C8EA6CBF89D18ADC0A、extension.js=2F85FBE50F0DF4EF35CC7C688602EA2B5D822951777B0159040057AE392EA1AD；通过正常Restart Scanner命令后，第四/第五包PID8780/61808均退出，原包PID63404、父PID36856、启动21:26:26.3752551，21:26:27 ready，解码launcher完整安装路径匹配。主IDE PID35596及原启动时间不变。CLI崩溃原因未定责，不归为插件bug。
+
+证据保存在此前focus-client Temp目录：candidate5-native-observation.json、candidate5-native-task-and-note.json、candidate5-runtime-ledger.json及candidate4-provider-candidate5-legacy-and-restore.log，日志SHA256为330E7F0D3DFE1986B4B1927EBCF8582245EDC6C3242BE3428064CC99C279659E。PR12保持draft，未合并或发布5.3.6；生产实现、清理异常风险、连续输入、浏览器窄菜单及多IDE矩阵仍需后续验证。
