@@ -153,3 +153,19 @@ A/B四个独立job均首次success：PS5 Encoded113031312459/File113031312796，
 07:25:47用Sky正常Stop，CIM确认199752退出；原包CLI恢复exit0、installedsource7F732F...8ADC0A/JS2F85...2EA1AD核对，freshUI OFF/pending，Note197逐字完整并主动恢复前台。没有observer/独立hands-off段，不声称后台native查询焦点稳定或资源验收。正式CDB3 scanner与776F宿主测试保持，未安装正式CDB3 VSIX，未merge/发布5.3.6。
 
 候选/失败/最终验证在C:/Temp/AntigravityAA-browser-provider-hosted-root-538-b3d26a3d053f46e8b0acc4bc5bc10310，独立候选审查在C:/Temp/AntigravityAA-hosted-root-independent-review-538-ffb244282dbc49b8bfe68699994b9bf5。本机原日志、CLI安装恢复、native-aggregate、冻结runtime-ledger和HOSTED-NATIVE-HANDOFF在C:/Temp/AntigravityAA-formal-multitask-536-54bbb63f265e4bde88eb924429143f51；目录名称不代表正式多任务验收通过。
+
+## 2026-10-08 单个已绑定子窗口 core 的本机结果
+
+证据等级：已跑本机验证、已跑有限双引擎验证、已读源码和候选独立审查。只读 Temp 候选 scanner BFE1E232BF6FF70DF5176C2F3FDF9AE8430192EF591301229BEC8FB2610CA681，VSIX E065961F04A6D4F4A1EA36D083500FE322EB4FFBC0BF7493D9F37E43F2AEB234。新增一个完整 UiaNodeFromHandle helper、替换原三行诊断 call，唯一输入是原 RawView 祖先取得且已核对非外层窗口/根关系/同非零PID的 nativeHandle。两完整单元移除后恢复5848全字节，三处 browser guard、原绑定/清理尾部保留。全终态固定拒绝动作；539仅诊断编号，manifest仍5.3.6。
+
+PS5/PS7实际完整生产 AST/C#143600字符编译exit0，有限模拟各22例801项最终exit0，源码/夹具/包编码和8唯一ZIPentries中other7同字节通过，peer无P1/P2。初始两份binding-first模拟exit1保留：自有Compare seam用累计调用次数误判第二次原绑定为core，只修fixture按core acquisition状态区分，生产候选不改。交接verifier的原PID变量名误写只修自有verifier。throw-out时8000000A仅表示未取得返回值，可能已经尝试；没有进入的下游步骤才称未调用。
+
+官方CLI安装exit0/installed BFE1/JS2F85保持。本轮没有Reload；一次正常Start后实际07:59:45只有1条WINDOW_CORE_ID_539，44次prepare-before不是44次core probe。UiaNodeFromHandle与UiaGetRuntimeId均S_OK且非空，VT_I4(3)/dim1/完整len6，原client.CompareRuntimeIds S_OK但fullSame=false，readHr S_OK/cleanuptrue。其后80131509来自预定只读终态throw，不能写成provider调用失败。它证明该已绑定子窗口core可读完整身份，但与原More不同；相同长度不构成身份或审批授权。CLICK_INVOKE/CLICK_PHYSICAL为0，原TypeScript审批保持pending。
+
+readonly observer从23:59:08.559Z到00:00:08.562Z，UTC起止相差60.003秒、stop.elapsedMs=60010，300有效且读取前后稳定sample（IDE133218为35、Note329822为265），12条资源只观察IDE35596，非scanner，不作资源稳定或泄漏结论。ROOT原工具wait返回observer211868 exit0/duration-completed；JSONL本身只提供stop记录，不能由stop独立推出进程exit。core阶段下界是原prepare-before 23:59:44.9463182Z，上界是07:59:45接收秒桶结束23:59:46Z，区间6有效样本均IDE前台，不能称后台查询；这些界限不是API精确时刻。prepare-before的hwnd日志字段是GetForegroundWindow观测值，不是传给core的绑定nativeHandle。
+
+Note无ROOT输入区间23:59:49.850Z到00:00:11.617Z，实际21.767秒；覆盖的93样本均Note、cursor和lastInput tick各一个值，末尾3.055秒已在observer期限外，距最后实际样本的尾长为3.240秒，明确排除；93样本不是连续无隙保证。结束全文197字符逐字一致。该稳定段只覆盖后续已消费拒绝轮询，没有持续输入、审批动作或第二IDE；采样不是瞬时保证或输入来源识别。
+
+正常Stop后00:00:27.621Z CIM确认当前extensionHost202308没有scanner child；本轮未捕获live scanner PID，不能写成按未知PID确认退出。官方原DA0A包restore exit0，installed7F732F...8ADC0A/JS2F85...2EA1AD；freshUI OFF/原marker与URL/Waiting/More保留，主动恢复Note前台且197exact。三个用户repo HEAD/status和8文件hash前后逐字相同，IDE35596/extensionHost202308启动时间未变，正式CDB3/776F保持。首次Sky输入无geometry后fresh截图确认OFF才重试一次；初始安装main路径猜错及广泛CIM自匹配均已在安装前按真实manifest/currentparent校正，不归因候选native失败。
+
+冻结本机证据目录C:/Temp/AntigravityAA-single-window-native-539-d051e49c530846b3ad85d8bdd799b6ef，含native-runtime-ledger、aggregate、native-plugin-segment、observer、CLI安装恢复、before/after UI与三repo快照及HANDOFF。此结果仍不是正式5.3.6验收；后台真实审批/持续输入/多IDE尚未通过，未merge或发布。e072f56的PR37703536728/push37703532792均首轮双引擎及Verified VSIX通过，attempt1无rerun，发布跳过；CI绿灯不替代上述本机条件。

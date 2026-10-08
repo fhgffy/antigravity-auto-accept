@@ -550,3 +550,10 @@
 - **已跑本机：** 实际FragmentRoot标准QI/selfSame/options226/Host/UiaNodeFromProvider全S_OK，RuntimeId仍80004002/arrayNULL，type/Compare not-called、cleanuptrue、marker1而prepare100、0CLICK。只证明root core入口成功，完整目标身份未命中，不能拿root或Host作为原More授权。
 - **UI恢复与边界：** 原history选择空白后只Reload一次，再正常history选择出现workspace picker，Open in current window恢复原审批；不是未验证的隐藏面板隔离或盲重试。Stop199752/原包hash7F/JS2F85/OFFpending/Note197exact与3repo8hash保持核对；本轮无observer，不补造后台焦点或持续输入证明。
 - **SDK 枚举须查源：** ProviderOwnsSetFocus=0x10(16)，128是HasNativeIAccessible，实际root options226不含OwnsSetFocus；不能按记忆猜bit值或从根flag直接推More动作抢焦点的根因。公开UiaNavigate返回cache SAFEARRAY/BSTR，转换函数准确名为UiaHUiaNodeFromVariant，不是直接out HUIANODE。
+
+## 2026-10-08 Asia/Shanghai - 窗口完整编号可读仍须匹配原目标
+
+- **已跑本机：** 539唯一nativeHandle的core/runtime均S_OK/完整len6，原Compare S_OK/fullSamefalse，cleanuptrue、marker1/prepare44、0CLICK。预定终态throw80131509不是provider失败；相同len不能代替目标完整ID。真实query6采样均IDE前台，不把随后Note拒绝轮询93样本称后台审批。
+- **有限夹具：** 原binding重试也会再Compare，不能用累计次数划分core阶段；只修自有fixture按acquisition状态区分，保留首两红exit1。verifier按真实完整函数字面变量名核对，不猜rootPid/nativePid。throw-out时HR占位表示未取得返回值，可能已尝试，不一概写not-called。
+- **覆盖与恢复：** Note无ROOT输入实际21.767秒，最后3.055秒超出60s observer，距末样本3.240秒；只报覆盖93样本、资源仅IDE35596，observer进程exit由ROOT工具返回归属，不由JSONLstop推出。未抓live scannerPID只可报Stop后currentparent无child。
+- **工具边界：** Sky元素输入仍须最新截图几何；首次无geometry后先fresh观察OFF再重试，AX一次刷新可滞后，不盲目二次toggle。安装JS路径从package.json.main读取，不猜包根；CIM命令行过滤须限定原extensionHost父PID，否则观测shell文本会自匹配。PowerShell foreach语句结果先赋值或用@()包裹，再接管道。
