@@ -91,9 +91,9 @@ $nativeBodies = @{
     IsWindowEnabled = 'return true;'
     IsIconic = 'return false;'
     GetWindowThreadProcessId = 'processId = 123; if (FakeCase == "validation-move" && FakeCursorCalls > 0 && !FakeMoved) { UserMove(); } return 1;'
-    GetForegroundWindow = 'return new IntPtr(FakeBackground || FakeCase == "background" ? 43 : 42);'
+    GetForegroundWindow = 'FakeForegroundReads++; return new IntPtr(FakeBackground || FakeCase == "background" || FakeCase == "foreground-ui-switch" && FakeForegroundReads > 1 ? 43 : 42);'
     GetAsyncKeyState = 'return FakeKeys.Contains(virtualKey) ? unchecked((short)0x8000) : (short)0;'
-    GetLastInputInfo = 'info.dwTime = FakeInputTime; return FakeCase != "input-unreadable";'
+    GetLastInputInfo = 'FakeInputReads++; if (FakeCase == "foreground-ui-input-throw") { throw new InvalidOperationException(); } if (FakeCase == "foreground-ui-input-change" && FakeInputReads > 1) { FakeInputTime++; } info.dwTime = FakeInputTime; return FakeCase != "input-unreadable";'
     GetTickCount = 'return FakeTick;'
     SetThreadDpiAwarenessContext = 'FakeDpiCalls++; if (FakeCase == "dpi-unsupported") { throw new EntryPointNotFoundException(); } if (FakeCase == "dpi-failed") { return IntPtr.Zero; } IntPtr prior = new IntPtr(FakeDpi); FakeDpi = context.ToInt32(); return prior;'
     GetSystemMetricsForDpi = 'FakeNativeDpiValid = FakeNativeDpiValid && dpi == 96 && FakeDpi == -4; if (FakeCase == "metrics-change" && FakeValidatorCalls > 0) { return index == 78 ? FakeWidth - 1 : Metric(index); } return Metric(index);'
@@ -117,6 +117,7 @@ if ($shadow.Contains('[DllImport(')) { throw 'A native boundary remains in memor
 $shadow = $shadow.Replace('System.Threading.Thread.Sleep(', 'MemorySleep(')
 $stateCode = @'
     // 2026-10-07：时序只改变内存，按绝对坐标像素映射记录整个批次，不向桌面注入事件。
+    public static int FakeForegroundReads, FakeInputReads; // 2026-10-09：只读守卫重读期间注入前台和输入变化。
     public static string FakeCase;
     public static int FakeX, FakeY, FakeSetCalls, FakeDown, FakeUp, FakeDownX, FakeUpX, FakeDownY, FakeUpY, FakeSendCalls, FakeCursorCalls;
     public static int FakeValidatorCalls, FakeDpiCalls, FakeDpi, FakeLeft, FakeTop, FakeWidth, FakeHeight, FakeClipCalls;
@@ -243,6 +244,34 @@ foreach ($name in @('good', 'no-restore', 'covered', 'window-gone', 'background'
     else { Write-Output "PASS mouse helper: $description" }
     $checks++
 }
+# 2026-10-09：界面操作仅在目标前台且输入空闲时放行，临界值、回绕及最后重读均执行实际生产方法。
+$foregroundUiMethod = [MouseHelperMemory].GetMethod('CanUseForegroundUi')
+if ($null -eq $foregroundUiMethod) { throw 'Foreground UI guard missing: real browser Expand can activate another foreground app' }
+foreach ($case in @(
+    @{ Mode = 'good'; Expected = $true }, @{ Mode = 'background'; Expected = $false },
+    @{ Mode = 'input-unreadable'; Expected = $false }, @{ Mode = 'recent-input'; Expected = $false },
+    @{ Mode = 'shift-held'; Expected = $false }, @{ Mode = 'enter-held'; Key = 13; Expected = $false },
+    @{ Mode = 'letter-held'; Key = 65; Expected = $false }, @{ Mode = 'function-held'; Key = 116; Expected = $false },
+    @{ Mode = 'tick-wrap'; Expected = $true },
+    @{ Mode = 'zero-target'; Expected = $false }, @{ Mode = 'age499'; Expected = $false },
+    @{ Mode = 'age500'; Expected = $true }, @{ Mode = 'future-input'; Expected = $false },
+    @{ Mode = 'foreground-ui-switch'; Expected = $false }, @{ Mode = 'foreground-ui-input-change'; Expected = $false },
+    @{ Mode = 'foreground-ui-input-throw'; Expected = $false }
+)) {
+    [MouseHelperMemory]::Reset($case.Mode)
+    if ($case.ContainsKey('Key')) { [void][MouseHelperMemory]::FakeKeys.Add($case.Key) } # 2026-10-09：普通键已按住且输入戳超过500ms。
+    [MouseHelperMemory]::FakeForegroundReads = 0
+    [MouseHelperMemory]::FakeInputReads = 0
+    if ($case.Mode -eq 'age499') { [MouseHelperMemory]::FakeInputTime = [MouseHelperMemory]::FakeTick - 499 }
+    if ($case.Mode -eq 'age500') { [MouseHelperMemory]::FakeInputTime = [MouseHelperMemory]::FakeTick - 500 }
+    if ($case.Mode -eq 'future-input') { [MouseHelperMemory]::FakeInputTime = [MouseHelperMemory]::FakeTick + 1 }
+    $target = if ($case.Mode -eq 'zero-target') { [IntPtr]::Zero } else { [IntPtr]42 }
+    $actual = [bool]$foregroundUiMethod.Invoke($null, @($target))
+    if ($actual -ne $case.Expected -or [MouseHelperMemory]::FakeSendCalls -ne 0 -or [MouseHelperMemory]::FakeSetCalls -ne 0) { throw "Foreground UI guard regression: mode=$($case.Mode) actual=$actual" }
+    $checks++
+    Write-Output "PASS foreground UI idle guard: $($case.Mode)"
+}
+
 # 2026-10-07：真实 PowerShell 身份回调只替换像素命中和父节点查询，在生产 C# 委托调用中执行。
 $tokens = $null
 $parseErrors = $null

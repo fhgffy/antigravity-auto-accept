@@ -152,6 +152,25 @@ public class MouseHelper {
         try { return validateTarget != null && validateTarget(); }
         catch { return false; }
     }
+    // 2026-10-09：会聚焦的界面操作仅限当前前台且输入空闲；只读重查不激活窗口或恢复用户焦点。
+    public static bool CanUseForegroundUi(IntPtr target) {
+        try {
+            if (target == IntPtr.Zero || GetForegroundWindow() != target) { return false; }
+            // 2026-10-09：普通键首轮重复可能延迟，不能只靠输入年龄或鼠标、修饰键判断长按。
+            for (int key = 1; key < 256; key++) {
+                if ((GetAsyncKeyState(key) & 0x8000) != 0) { return false; }
+            }
+            uint inputTime;
+            if (!TryGetInputTime(out inputTime)) { return false; }
+            uint age = unchecked(GetTickCount() - inputTime);
+            if (age < 500 || age > Int32.MaxValue) { return false; }
+            for (int key = 1; key < 256; key++) {
+                if ((GetAsyncKeyState(key) & 0x8000) != 0) { return false; }
+            }
+            return IsInputUnchanged(inputTime) && GetForegroundWindow() == target;
+        }
+        catch { return false; }
+    }
     // 2026-10-07：归一化到像素中心，使用长整数避免负屏幕原点、边缘像素和乘法溢出。
     private static bool TryNormalizePoint(POINT point, int left, int top, int width, int height, RECT clip,
                                           out int normalizedX, out int normalizedY) {
@@ -826,6 +845,9 @@ function Get-BackgroundInvoke($Element, [IntPtr]$WindowHandle) {
 
 # 2026-10-06：宽栏直接允许本次，窄栏展开已核验卡片的菜单，只允许此次新出现的本次菜单项。
 function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHandle) {
+    # 2026-10-09：每个窗口只保留本轮已核验的新菜单续办身份，句柄相同仍必须复核 PID 和全部控件身份。
+    if ($null -eq $script:deferredBrowserMenus) { $script:deferredBrowserMenus = @{} }
+    $deferredWindowKey = $WindowHandle.ToInt64().ToString([Globalization.CultureInfo]::InvariantCulture)
     $conversation = $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $conversationCondition)
     if ($null -eq $conversation) {
         Write-ApprovalDiagnostic "browser conversation missing pid=$WindowProcessId" 'browser-candidate'
@@ -846,6 +868,11 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             if ($targets.Count -ne 1) { continue }
             $expectedTarget = @{ CardId = ($card.GetRuntimeId() -join '.'); Id = ($targets[0].GetRuntimeId() -join '.'); Name = $targets[0].Current.Name; ActionId = ($allow.GetRuntimeId() -join '.') }
             if ($actionName -eq 'More actions') {
+                # 2026-10-09：窄菜单可能激活 IDE，后台或输入繁忙时暂缓，回到前台后由下一轮自动处理。
+                if (-not [MouseHelper]::CanUseForegroundUi($WindowHandle)) {
+                    Write-ApprovalDiagnostic 'browser menu deferred until IDE foreground and input idle' 'browser-deferred'
+                    continue
+                }
                 $cardButtons = $card.FindAll([System.Windows.Automation.TreeScope]::Children, $btnCondition)
                 if (@($cardButtons | Where-Object { $_.Current.Name -eq 'Allow Once' }).Count -gt 0) { continue }
             }
@@ -865,6 +892,8 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 # 2026-10-06：宿主查询可能改变卡片状态，滚动前后的界面复核统一放在查询之后。
                 if (-not (Test-LiveBrowserPermissionCard $card $expectedTarget $allow) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
+                # 2026-10-09：模式和身份查询期间切走或开始输入时，不再滚动窄卡片。
+                if (-not [MouseHelper]::CanUseForegroundUi($WindowHandle)) { continue }
                 $stage = 'scroll'
                 $scrollItem.ScrollIntoView()
                 if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
@@ -885,6 +914,7 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             $stage = 'before-menus'
             $beforeMenus = @{}
             $existingMenuId = $null
+            $resumedDeferredMenu = $null # 2026-10-09：无标签旧菜单只有完整自有记录命中才允许续办。
             if ($actionName -eq 'More actions') {
                 $beforeVisibleMenus = @(Get-VisibleBrowserMenus $Window $WindowProcessId)
                 foreach ($menu in $beforeVisibleMenus) { $beforeMenus[($menu.GetRuntimeId() -join '.')] = $true }
@@ -893,7 +923,22 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                     $label = $_.Current.LabeledBy
                     $null -ne $label -and ($label.GetRuntimeId() -join '.') -eq $expectedTarget.ActionId -and (Test-BrowserMenuAnchor $_.Current.BoundingRectangle $allow.Current.BoundingRectangle)
                 })
+                $deferredMenu = $script:deferredBrowserMenus[$deferredWindowKey]
+                if ($null -ne $deferredMenu -and @($beforeVisibleMenus | Where-Object { ($_.GetRuntimeId() -join '.') -eq $deferredMenu.MenuId }).Count -eq 0) {
+                    [void]$script:deferredBrowserMenus.Remove($deferredWindowKey)
+                    $deferredMenu = $null
+                }
                 if ($linkedMenus.Count -eq 1) { $existingMenuId = ($linkedMenus[0].GetRuntimeId() -join '.'); $method = 'existing-menu' }
+                elseif ($null -ne $deferredMenu -and $deferredMenu.ProcessId -eq $WindowProcessId -and
+                    $deferredMenu.Target.CardId -eq $expectedTarget.CardId -and $deferredMenu.Target.Id -eq $expectedTarget.Id -and
+                    [string]::Equals($deferredMenu.Target.Name, $expectedTarget.Name, [StringComparison]::Ordinal) -and $deferredMenu.Target.ActionId -eq $expectedTarget.ActionId) { # 2026-10-09：文案必须逐字相同。
+                    $ownedMenus = @($beforeVisibleMenus | Where-Object { ($_.GetRuntimeId() -join '.') -eq $deferredMenu.MenuId })
+                    if ($ownedMenus.Count -ne 1) { continue }
+                    $existingMenuId = $deferredMenu.MenuId
+                    $resumedDeferredMenu = $deferredMenu
+                    $method = 'existing-menu'
+                }
+                elseif ($beforeVisibleMenus.Count -gt 0) { continue } # 2026-10-09：不展开或批准未精确关联的用户旧菜单。
             }
             $stage = 'host'
             if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
@@ -902,6 +947,8 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             $stage = 'final-card'
             if (-not (Test-LiveBrowserPermissionCard $card $expectedTarget $allow) -or $allow.Current.Name -ne $actionName -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
             if (-not (Test-ParentAlive)) { return $false }
+            # 2026-10-09：紧邻窄菜单动作重查前台和输入；宽栏一次允许仍使用原后台默认动作。
+            if ($actionName -eq 'More actions' -and -not [MouseHelper]::CanUseForegroundUi($WindowHandle)) { continue }
             $stage = $method
             if ($method -eq 'expand') { $actionPattern.Expand() }
             elseif ($method -eq 'invoke') { $actionPattern.Invoke() } # 2026-10-07：已打开的精确关联菜单无需再次展开。
@@ -930,6 +977,11 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 if ($items.Count -ne 1) { continue }
                 $item = $items[0]
                 $menuId = ($menu.GetRuntimeId() -join '.'); $itemId = ($item.GetRuntimeId() -join '.') # 2026-10-07：保留取模式之前的菜单及菜单项身份。
+                # 2026-10-09：续办必须仍是原菜单中的原本次项，换项即丢弃记录，后续原归属复核照常执行。
+                if ($null -ne $resumedDeferredMenu -and ($menuId -ne $resumedDeferredMenu.MenuId -or $itemId -ne $resumedDeferredMenu.ItemId)) {
+                    [void]$script:deferredBrowserMenus.Remove($deferredWindowKey)
+                    continue
+                }
                 $stage = 'item-pattern' # 2026-10-06：菜单项模式异常单独标明阶段，便于实机定位。
                 $itemInvoke = Get-BackgroundInvoke $item $WindowHandle # 2026-10-07
                 $backgroundPatterns.Add($itemInvoke)
@@ -951,9 +1003,15 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 if ($item.Current.Name -ne 'Allow Once' -or -not $item.Current.IsEnabled -or $item.Current.IsOffscreen) { continue }
                 # 2026-10-06：菜单项取模式和宿主查询后复核关联触发器，菜单改属其他卡片时不批准。
                 $label = $menu.Current.LabeledBy
-                if ($null -ne $existingMenuId -and $null -eq $label) { continue } # 2026-10-07：已打开菜单不能失去其精确触发器身份。
+                if ($null -ne $existingMenuId -and $null -eq $label -and $null -eq $resumedDeferredMenu) { continue } # 2026-10-09：无标签菜单仅限已完整核验的自有续办记录。
                 if ($null -ne $label -and ($label.GetRuntimeId() -join '.') -ne ($allow.GetRuntimeId() -join '.')) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
+                # 2026-10-09：展开后用户切走或开始输入时保留待批菜单，不继续提交。
+                if (-not [MouseHelper]::CanUseForegroundUi($WindowHandle)) {
+                    $script:deferredBrowserMenus[$deferredWindowKey] = @{ ProcessId = $WindowProcessId; Target = $expectedTarget; MenuId = $menuId; ItemId = $itemId }
+                    continue
+                }
+                [void]$script:deferredBrowserMenus.Remove($deferredWindowKey)
                 $stage = 'item-invoke' # 2026-10-06：明确唯一新菜单本次批准的实际调用阶段。
                 $itemInvoke.Invoke()
                 [Console]::WriteLine('___CLICK_INVOKE___:Allow Once (browser domain permission)')
@@ -1303,6 +1361,17 @@ try {
 
         try {
             $windows = @($automation.FindAll([System.Windows.Automation.TreeScope]::Children, $winCondition))
+            # 2026-10-09：窗口离开本轮快照就丢弃其纯身份记录，不把已关闭窗口的菜单延续到新窗口。
+            if ($null -ne $script:deferredBrowserMenus) {
+                $liveMenuWindowKeys = @{}
+                foreach ($menuWindow in $windows) {
+                    try { $liveMenuWindowKeys[([long]$menuWindow.Current.NativeWindowHandle).ToString([Globalization.CultureInfo]::InvariantCulture)] = $true }
+                    catch { }
+                }
+                foreach ($pendingWindowKey in @($script:deferredBrowserMenus.Keys)) {
+                    if (-not $liveMenuWindowKeys.ContainsKey($pendingWindowKey)) { [void]$script:deferredBrowserMenus.Remove($pendingWindowKey) }
+                }
+            }
             $didClick = $false
             # 2026-10-07：每轮保留窗口快照并按上次动作窗口轮转，失效句柄只跳过自身。
             $windowStart = 0

@@ -109,6 +109,8 @@ foreach ($name in @('Test-BrowserPermissionText', 'Test-BrowserPermissionCardSha
     if ($definition.Count -eq 0) { continue }
     # 2026-10-07：浏览器新增归属复核继续只替代外部父链读取，保留全部真实身份判断。
     $functionText = $definition[0].Extent.Text -replace '\[System\.Windows\.Automation\.TreeWalker\]::ControlViewWalker\.GetParent\((\$\w+)\)', '(Get-TestParent $1)'
+    # 2026-10-09：只替代只读前台/输入边界，完整浏览器函数与实际动作分支继续执行。
+    $functionText = $functionText.Replace('[MouseHelper]::CanUseForegroundUi($WindowHandle)', '(Get-TestForegroundUiAllowed $WindowHandle)')
     . ([scriptblock]::Create($functionText))
 }
 # 2026-10-07：只替代原生 COM 准备边界；原模式桩的身份变化、副作用和异常仍进入真实最终检查。
@@ -468,6 +470,75 @@ function New-TestBrowserWindow([string]$Mode) {
     }
     return $window
 }
+
+# 2026-10-09：后台或最后查询期间切走不得滚动、展开或批准；回到前台后同一待批卡片自动继续。
+$script:testForegroundUiAllowed = $true
+$script:testForegroundUiCalls = 0
+$script:testForegroundUiBlockAt = 0
+function Get-TestForegroundUiAllowed([IntPtr]$WindowHandle) {
+    if ($WindowHandle -ne [IntPtr]42) { throw 'Unexpected foreground target' }
+    $script:testForegroundUiCalls++
+    return $script:testForegroundUiAllowed -and ($script:testForegroundUiBlockAt -eq 0 -or $script:testForegroundUiCalls -lt $script:testForegroundUiBlockAt)
+}
+$foregroundDeferralFailures = @()
+foreach ($case in @(
+    @{ Mode = 'expand-only'; Allowed = $false; BlockAt = 0; Approvals = 0; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'scroll-expand'; Allowed = $false; BlockAt = 0; Approvals = 0; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'wide'; Allowed = $false; BlockAt = 0; Approvals = 1; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'expand-only'; Allowed = $true; BlockAt = 2; Approvals = 0; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'scroll-expand'; Allowed = $true; BlockAt = 2; Approvals = 0; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'labeled-menu'; Allowed = $true; BlockAt = 3; Approvals = 0; Scrolls = 0; Expansions = 1 }
+)) {
+    $script:testParentAlive = $true
+    $script:testForegroundUiAllowed = $case.Allowed
+    $script:testForegroundUiBlockAt = $case.BlockAt
+    $script:testForegroundUiCalls = 0
+    $browserWindow = New-TestBrowserWindow $case.Mode
+    $actual = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42)
+    $description = "mode=$($case.Mode) allowed=$($case.Allowed) blockAt=$($case.BlockAt) approve=$($browserWindow.Once.Invocations) scroll=$($browserWindow.More.Scrolls) expand=$($browserWindow.More.Expansions)"
+    if ($actual -ne ($case.Approvals -gt 0) -or $browserWindow.Once.Invocations -ne $case.Approvals -or $browserWindow.Always.Invocations -ne 0 -or $browserWindow.More.Scrolls -ne $case.Scrolls -or $browserWindow.More.Expansions -ne $case.Expansions) { $foregroundDeferralFailures += $description; Write-Output "FAIL browser foreground deferral: $description" }
+    else { $checks++; Write-Output "PASS browser foreground deferral: $description" }
+}
+$script:testForegroundUiBlockAt = 0
+$script:testForegroundUiAllowed = $false
+$browserWindow = New-TestBrowserWindow 'expand-only'
+$deferred = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42)
+if ($deferred -or $browserWindow.Once.Invocations -ne 0 -or $browserWindow.More.Expansions -ne 0) { $foregroundDeferralFailures += 'background did not defer before return' }
+$script:testForegroundUiAllowed = $true
+$resumed = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42)
+if (-not $resumed -or $browserWindow.Once.Invocations -ne 1 -or $browserWindow.More.Expansions -ne 1 -or $browserWindow.Always.Invocations -ne 0) { $foregroundDeferralFailures += 'foreground return did not resume exact one-time approval' }
+else { $checks++; Write-Output 'PASS browser foreground return resumes without manual approval' }
+if ($foregroundDeferralFailures.Count -gt 0) { throw "Browser foreground deferral regressions: $($foregroundDeferralFailures -join '; ')" }
+
+# 2026-10-09：只续办本轮已完整核验的新菜单；跨轮换卡片、文案、菜单或菜单项均不得借旧记录批准。
+foreach ($mutation in @('unchanged', 'menu', 'item', 'card', 'target-id', 'target-text', 'target-soft-hyphen', 'foreign-menu')) {
+    $script:deferredBrowserMenus = @{}
+    $script:testForegroundUiAllowed = $true
+    $script:testForegroundUiCalls = 0
+    $script:testForegroundUiBlockAt = 3
+    $browserWindow = New-TestBrowserWindow 'expand-only'
+    if ($mutation -eq 'foreign-menu') { $browserWindow.Opened = $true; $script:testForegroundUiBlockAt = 0 }
+    $first = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42)
+    if ($first -or $browserWindow.Once.Invocations -ne 0) { throw 'Deferred menu approved before foreground guard' }
+    switch ($mutation) {
+        'menu' { $browserWindow.Menu.Key = 9901 }
+        'item' { $browserWindow.Once.Key = 9902 }
+        'card' { $browserWindow.Card.Key = 9903 }
+        'target-id' { $browserWindow.Card.Texts[0].Key = 9904 }
+        'target-text' { $browserWindow.Card.Texts[0].Current.Name = 'Agent needs permission to act on example.org' }
+        'target-soft-hyphen' { $browserWindow.Card.Texts[0].Current.Name = 'Agent needs permission to act on git' + [char]0x00AD + 'hub.com' }
+    }
+    $script:testForegroundUiBlockAt = 0
+    $script:testForegroundUiCalls = 0
+    $resumed = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42)
+    $expected = $mutation -eq 'unchanged'
+    $expectedActions = if ($expected) { 1 } else { 0 }
+    $expectedExpansions = if ($mutation -eq 'foreign-menu') { 0 } else { 1 }
+    if ($resumed -ne $expected -or $browserWindow.Once.Invocations -ne $expectedActions -or $browserWindow.Always.Invocations -ne 0 -or $browserWindow.More.Expansions -ne $expectedExpansions) { throw "Deferred unlabelled menu regression: mutation=$mutation result=$resumed approve=$($browserWindow.Once.Invocations) expand=$($browserWindow.More.Expansions)" }
+    $checks++
+    Write-Output "PASS exact deferred unlabelled menu continuation: $mutation"
+}
+$script:deferredBrowserMenus = @{}
 
 # 2026-10-06：诊断仅观察结构，验证总数、离屏状态和日志中没有域名或用户消息。
 if (Get-Command Write-BrowserCandidateDiagnostic -ErrorAction SilentlyContinue) {
@@ -940,6 +1011,8 @@ foreach ($mode in @('terminal-submit', 'terminal-option-fallback', 'browser-wide
     $script:testBackgroundDisposed = 0
     $expectedApprovals = 1
     $expectedPreparations = 1
+    $script:testForegroundUiAllowed = $mode -notin @('browser-trigger', 'browser-menu')
+    if (-not $script:testForegroundUiAllowed) { $expectedApprovals = 0; $expectedPreparations = 0 }
     if ($mode -like 'terminal-*') {
         $window = New-TestApprovalWindow $true ($mode -eq 'terminal-submit') $true
         $action = $window.Card.Buttons[0]
@@ -986,7 +1059,7 @@ foreach ($mode in @('terminal-submit', 'terminal-option-fallback', 'browser-wide
                 $this.Window.Opened = $true
                 if (-not $script:testNativeActionInProgress) { $script:testForeground = 'ide' }
             } -Force
-            $expectedPreparations = 2
+            $expectedPreparations = 0 # 2026-10-09：后台窄触发器在准备前暂缓。
         }
         $actual = Invoke-BrowserPermissionCards $window 123 ([IntPtr]42)
     }
@@ -1008,13 +1081,15 @@ foreach ($mode in @('terminal-submit', 'terminal-option-fallback', 'browser-wide
         $actual = $action.Invocations -eq 1
     }
     $description = "mode=$mode approve=$($action.Invocations) foreground=$script:testForeground prepared=$script:testBackgroundPrepared disposed=$script:testBackgroundDisposed"
-    if (-not $actual -or $action.Invocations -ne $expectedApprovals -or $script:testForeground -ne 'other-app' -or $script:testBackgroundPrepared -ne $expectedPreparations -or $script:testBackgroundDisposed -ne $expectedPreparations) {
+    if ($actual -ne ($expectedApprovals -gt 0) -or $action.Invocations -ne $expectedApprovals -or $script:testForeground -ne 'other-app' -or $script:testBackgroundPrepared -ne $expectedPreparations -or $script:testBackgroundDisposed -ne $expectedPreparations) {
         $backgroundFailures += $description
         Write-Output "FAIL background action route: $description"
     }
     else { $checks++; Write-Output "PASS background action route: $description" }
 }
 if ($backgroundFailures.Count -gt 0) { throw "Background action routing failures: $($backgroundFailures -join '; ')" }
+
+$script:testForegroundUiAllowed = $true # 2026-10-09：后续故障用例继续验证原前台动作路径。
 
 # 2026-10-07：最终检查拒绝或动作抛错仍释放已准备模式；不把异常转换为第二次点击。
 foreach ($mode in @('terminal-parent-exit', 'browser-relabel', 'generic-invoke-throws')) {

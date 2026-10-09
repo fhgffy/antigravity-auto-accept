@@ -557,3 +557,22 @@
 - **有限夹具：** 原binding重试也会再Compare，不能用累计次数划分core阶段；只修自有fixture按acquisition状态区分，保留首两红exit1。verifier按真实完整函数字面变量名核对，不猜rootPid/nativePid。throw-out时HR占位表示未取得返回值，可能已尝试，不一概写not-called。
 - **覆盖与恢复：** Note无ROOT输入实际21.767秒，最后3.055秒超出60s observer，距末样本3.240秒；只报覆盖93样本、资源仅IDE35596，observer进程exit由ROOT工具返回归属，不由JSONLstop推出。未抓live scannerPID只可报Stop后currentparent无child。
 - **工具边界：** Sky元素输入仍须最新截图几何；首次无geometry后先fresh观察OFF再重试，AX一次刷新可滞后，不盲目二次toggle。安装JS路径从package.json.main读取，不猜包根；CIM命令行过滤须限定原extensionHost父PID，否则观测shell文本会自匹配。PowerShell foreach语句结果先赋值或用@()包裹，再接管道。
+
+## 2026-10-09 Asia/Shanghai - None 缓存带模式的真实首槽与日志共享读取
+
+- **已跑本机：** 541 唯一 UiaFind 与模式转换均 S_OK，缓存首槽非 null/DBNull而被拒绝；首槽类型和值未知，不能假定零或据此释放未知节点。零展开/批准；Stop30712确认退出、原包CLI/hash恢复、OFF/pending、Note197及用户3repo/8files逐字保持。
+- **复用边界：** WPF None 不使用首节点槽，但带模式的真实返回不能由原无模式夹具推断。明确空值和整数零与完整目标身份校验分开；非零仍拒绝且记录类型/空标志，完整RuntimeId、child、回映和最终审批守卫不得放宽。下一次后台实测在消费前检查IDE前台，拒绝不消耗唯一查询。
+- **本轮工具坑：** functions.exec 无 crypto 全局，需由宿主生成GUID；IDE日志仍打开时 ReadAllBytes 被共享模式拒绝。用显式 ReadWrite/Delete 共享的只读 FileStream、核对offset/长度并逐字读取；ErrorAction Stop 防止首次读取失败后继续产生无效切片和级联错误。Sky只输出accessibility/窗口元信息，不序列化含data URL的完整截图对象。
+- **证据边界：** activation调用开始不等于已切换完成，采样区间含人为切窗过渡时不得说全程Note稳定；observer main-process资源不证明scanner资源或泄漏，内存夹具绿不代替本机动作/焦点/连续输入/多IDE。
+## 2026-10-09 Asia/Shanghai - Full 身份成功不能补出 Legacy 服务端
+
+- **已跑本机：** 542 None 首槽实际非零 Int64，零值兼容未奏效；543 显式 Full、官方节点转换、缓存及节点完整 RuntimeId 均 S_OK/匹配，Legacy accessible 仍 S_OK NULL，零展开/批准。Null 符合公开 proxy/bridge 契约，不继续放宽身份或释放未知原始槽。
+- **调整方向：** 之前托管和 COM Expand 已实机抢前台，WPF 又使用同一 C API；再次换同一底层入口不构成新修复。产品先延后会聚焦的窄菜单动作，仅目标 IDE 前台且输入空闲时处理，普通后台审批保留；最后只读检查仍有不可原子化的外部调用竞态，不写绝对无焦点保证。
+- **工具：** 临时 launcher 实参须先读签名，run-utf8.ps1 只有 TaskScript540；错误 Path/ExpectedMajor 导致测试未进入，保留红日志后用正确参数验证，不归因候选。读取临时测试文件先列真实文件名，Windows rg 文件过滤用目录加 -g，不把通配路径当 LiteralPath。
+- **验证：** 543 三组合完整编译及各77例2227检查、独立审查与唯一 native 查询均归档；Stop11608/原包恢复、OFF/pending/Note197、3repo8files保持。查询采样只有1条、静置75条，不能称后台审批通过、scanner资源或多IDE验收。
+
+## 2026-10-09 Asia/Shanghai - 暂缓动作的续办身份与按键状态
+
+- **独立复现：** 展开后最终输入守卫暂缓会遗留无标签 portal 菜单，下一轮原“只用新菜单”过滤不能续办；原输入数组仅含鼠标与修饰键，Enter/字母长按且输入戳不变时被漏过。修复保存精确 PID/HWND 对应卡片、文本、触发器、菜单及菜单项身份，并重读全部虚拟键高位；任意用户旧菜单不借此接管。
+- **再次红灯：** PowerShell -ceq 是区分大小写的文化比较，git+[U+00AD]+hub.com 与 github.com 可判等；真实生产函数跨轮批准一次。续办文案必须使用 String.Equals Ordinal，与旧卡片验证一致。仓库加入软连字符动态拒绝用例，保留旧实现红日志。
+- **验证边界：** 三项均由独立动态夹具复现；全套及真实本机结果另行归档。前台查询与外部 UIA 动作不能原子化，不承诺任何切窗时序下绝对无焦点竞态。
