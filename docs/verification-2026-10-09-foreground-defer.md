@@ -41,3 +41,20 @@ Local native raw logs, actual UI event times, process snapshots, observer JSONL,
 ## Remaining limits
 
 This run contains three short input bursts, not minutes of sustained typing. The observer sampled the main IDE process, not scanner memory or resource ownership. External UIA calls and foreground queries cannot be made atomic, so this is not an absolute focus-race guarantee. Real browser distractions, multiple IDE windows, scanner takeover, the new commit's CI, merge, GitHub release, and both stores still require separate current verification.
+
+## Follow-up: two native IDE windows
+
+The same installed scanner hash was exercised in two actual IDE windows (HWND 132358 and 8588720), with distinct extension hosts 14816 and 16168.
+
+- Window 2's scanner PID 88712 owned the session. Starting window 1 created PID 7636 and a real WAITING status. Normal Stop in window 2 removed its child; the same waiting PID 7636 became ready at 17:29:02.
+- Window 2 then requested the Rust book in a separate browser-only test conversation with its own scanner OFF. Window 1's scanner deferred its narrow browser approval while another application held foreground. Returning normally to window 2 produced exactly one Allow Once success in window 1's log at 17:37:58; the pending card disappeared and the Rust page opened. Five samples in that timestamp bucket all showed the exact window 2 handle with stable foreground reads. This is a cross-window approval, not a second independent scanner acting.
+- Reverse handoff also passed: window 2 PID 81436 waited while PID 7636 owned the session; stopping window 1 made that same PID 81436 ready at 17:40:39. Normal Stop in window 2 left both windows OFF and no scanner children.
+- Notepad still contained exactly 104 expected characters. All three existing repository snapshots and 8 dirty-file hashes matched.
+
+The Rust agent later ended with a server 503 capacity error. That does not undo the observed permission approval or certify task completion.
+
+Browser-interface input on a separate MDN tab retained two Chinese/ASCII segments exactly. However, Page.bringToFront selected the tab without taking Windows foreground: the 90-second observer recorded 229 samples for the existing foreground application and 221 for window 2, with zero Chrome samples. Two Windows Computer Use attempts were stopped by its browser URL confidence guard. Therefore Chrome foreground/native typing is still unverified. No safety guard was disabled, and browser-interface results are not substituted for that missing test.
+
+The CLI --new-window call did not create a second visible window; the application's observed File > New Window shortcut did. Two immediate accessibility snapshots lagged Start/Stop, so real status, logs, process creation identities, and fresh reads were correlated instead of repeating toggles.
+
+Raw multi-window logs, UI event times, scanner lineage, both observer files, before/after repository hashes, final OFF/text readback, and frozen aggregate/hash manifest are archived in the owned `AntigravityAA-native-multi-536-2daf3b7d540f428facd70c012058e940` temporary directory. Both observer processes completed with exit 0. The production-code commit 23e279f passed PR and push Windows CI on attempt 1.
