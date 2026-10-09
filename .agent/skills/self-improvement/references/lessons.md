@@ -582,3 +582,10 @@
 - **已跑本机：** Chrome 专用接口确认 MDN URL，并保留两段中英文输入；Page.bringToFront 改变选中 tab，但只读 Windows 采样实际仍是原前台应用，零 Chrome 样本。不能由浏览器焦点或页面输入成功写“Chrome 前台输入通过”。Windows 工具的 URL 识别保护两次终止当前 turn，立即停止；后续使用受支持的浏览器接口只证明其自身范围，不关闭保护。
 - **双窗口：** 正常新建窗口后真实两个 extensionHost；两个方向 WAITING→同 PID ready、原 owner 退出均核验。窗口一扫描器在窗口二本机前台时批准其本次域名，5 个动作时间桶采样稳定；随后模型服务 503 是任务服务问题，不等同插件批准失败或任务完成。
 - **工具坑：** CLI new-window exit0 不等于可见窗口，须核对 inventory；用实际菜单快捷键后才出现第二窗口。不要把 minified bundle 的整行 rg 匹配直接输出，先限定文件或返回文件名。JS 未创建的全局绑定不能裸赋值，统一显式 globalThis 初始化；只读失败不重复输入。gh HTTP EOF 后保留失败，再核对同一个 run id，而非重跑 CI。
+
+## 2026-10-09 Asia/Shanghai - 原生身份测试与脚本引擎启动分层
+
+- **已跑 CI：** 725aea2 首轮 PR 的 PS7、push 的 PS5 均在 caller64→PowerShell child32 READY10s 超时；三个独占 stage 均 missing，停止后 stdout null/stderr 空，child 确认退出且准确清理。未到失败 child 的生产路径查询，不能把它称为 GetProcessImagePath 错误，也未隔离 AMSI、冷启动或 OS 根因。
+- **测试边界：** 原生路径/句柄/退出身份测试可用明确架构的最小 Framework C# child，保留真实 IntPtr.Size/PID/完整路径/259/严格流/三个 nonce stage、原 131 项与 10s/45s。原 PowerShell 启动覆盖另存字节冻结入口，不能直接改 host 源后让固定 SHA/AST 的诊断失效；其 workflow filter 同时登记冻结源。
+- **清理红灯：** 独立注入 binary 目录额外 sentinel，删除空目录失败却仍 exit0/DONE131。清理旁证须在正常路径 finally 之后设失败门禁，不能在 finally 抛错覆盖先前编译或 READY 超时。编译器和 child 都须按本次 Process 对象确认退出；stage 三文件与二进制目录白名单分别校验，非递归删除，不吞外来文件。
+- **已跑本机：** 原型及最终 gate 的三 caller 各 131 项、四冻结诊断各 21 项、全套 npm test 通过；编译错误/自有编译器替身超时/native READY 延迟均保留失败，进程与目录回收另行核验。它证明测试分层与资源路径，不证明远端原启动根因修复；仍须新提交首轮 CI。

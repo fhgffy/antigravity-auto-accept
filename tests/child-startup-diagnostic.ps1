@@ -12,7 +12,8 @@ if ($PSVersionTable.PSVersion.Major -ne $ExpectedMajor -or [IntPtr]::Size -ne 8)
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'Diagnostic requires Windows x64' }
 if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) { $RepositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')) }
 $RepositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot)
-$hostSourcePath = [IO.Path]::Combine($RepositoryRoot, 'tests', 'host-process.test.ps1')
+# 2026-10-09：冻结旧 PowerShell child 的完整源码字节，独立于主身份测试的原生 fixture。
+$hostSourcePath = [IO.Path]::Combine($RepositoryRoot, 'tests', 'fixtures', 'host-process-startup-20261008.ps1')
 $scannerSourcePath = [IO.Path]::Combine($RepositoryRoot, 'src', 'autoClicker.ps1')
 $expectedHostHash = '776F1BBCD759D5DE3518CD44933FE0A1E1C7034A2F6DC13B4229846FF4FDB9D9'
 
