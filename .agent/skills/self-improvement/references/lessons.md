@@ -289,3 +289,303 @@
 - **检查：** 空窗口两引擎并发22项通过后，再重跑唯一完整npm test；输出出现ERROR仍判失败，不能仅看进程退出0。
 
 - **同类审查：** 单实例退出断言曾仅看exit0，受控子进程输出ERROR与stderr后仍被判通过。owner与waiter均在协议读取完成后异步收尾并拒绝错误或CLICK协议；abandoned owner也核对诊断。
+
+## 2026-10-07 Asia/Shanghai - 多窗口内存失败需区分宿主与插件
+
+- **触发：** 打开第二个公开插件 IDE 窗口后，截图和 PowerShell 全进程枚举均报内存不足。
+- **已跑验证：** 新窗口语言服务器 13:24:57 报 runtime: cannot allocate memory，宿主随后记录无响应与 renderer crashed；13:30 事后提交量 34052124672 / 35307311104 bytes（96%）。原 5.3.5 scanner 仍唯一，最后 Private 为 119431168 bytes。
+- **边界：** 事后资源读数不是出错瞬间读数；这些证据支持资源不足，但不能定位到插件泄漏，也不能把打开后立即崩溃算作稳定的双 IDE 验收。
+- **下次做法：** 扩展窗口矩阵前先读系统提交余量；遇到不足先保留失败，只关闭本轮空白测试窗口，不清理用户其它进程。GUI 无响应退出是异步操作，要刷新窗口列表确认结果；同进程模态索引失效后用重新观察的截图核对。
+
+## 2026-10-07 Asia/Shanghai - CLR 类别存在不保证可映射进程
+
+- **已跑验证：** .NET CLR Memory 的 Exists 返回 true，但 ID Process 计数器构造报 Could not locate Performance Counter，无法可靠映射固定 scanner PID。
+- **下次做法：** 区分类别存在、PID 映射和具体计数器可读三层；读取失败保留 unavailable 与原异常，不安装、不提权、不触发 GC。固定 PID 的 Private/WS/CPU 仍可记录，不能代替 CLR heap 或存活根证据。
+
+## 2026-10-07 Asia/Shanghai - 发布交付必须逐个确认 Release 和商店
+
+- **用户纠正：** PR 合并与 CI 通过没有完成发布。检查时 GitHub Release、Marketplace、Open VSX 都仍为 5.3.2；不能把本机安装成功说成商店更新。
+- **已跑验证：** 从已验证 5.3.5 VSIX 创建 GitHub Release，标签指向通过 main CI 的 0b3f21b；下载公开 Release 资产后 SHA256 与安装输入一致。双商店已登录并打开表单，但浏览器文件选择器均要求文件 URL 权限；vsce ls-publishers、仓库 secret list 和已知发布环境变量为空。
+- **下次做法：** 合并后先核对实际 Release/商店版本；只发布已验包。缺凭据不能伪造完成或自动创建 PAT。上传前读 file-uploads 文档；受限后准备好表单和确切包路径，再让用户做必需的一次操作。
+- **工具边界：** 用户请求打开 chrome://extensions 后，Browser Use 仍拒绝非 HTTP/HTTPS 地址，并明确禁止其它控制路径绕过。仅提供手动打开步骤，不通过菜单、原生窗口、CDP 或其它浏览器面重试同一结果。
+
+## 2026-10-07 Asia/Shanghai - CLR 计数器命名与测量日期精度更正
+
+- **更正：** 上项 ID Process 构造失败来自诊断脚本命名错误，不是类别存在却缺少该计数器。本机 GetCounters 元数据和微软定义均为 Process ID；24 个名称中存在 Process ID、不存在 ID Process。
+- **已跑验证：** 固定 scanner PID 1005396 在 16:10:18 和 16:11:26 均已退出；本轮不能提供其 CLR heap/Gen 读数。系统有效配对间隔 20.46269 秒，与 scanner heap 证据分别报告。
+- **下次做法：** 首先只取计数器元数据确认真实名称；以明确 PID 和启动时间映射实例，不猜测替代 PID。日期间隔从原始 ISO 字符串或 DateTimeOffset 计算；默认 JSON 日期往返再转字符串可能丢失小数秒，必须保留真实超时配对，不能强报小于 60 秒。
+
+## 2026-10-07 Asia/Shanghai - 用户修改扩展权限后重连与商店公开验证
+
+- **已跑验证：** 用户开启文件 URL 权限后，Chrome 连接3失效，fresh getState显示同profile/原tabID的新连接6；按新清单重新连接原发布表单，文件选择成功，5.3.5双商店上线。
+- **下次做法：** 连接失效先确认实际浏览器身份，不关闭或重建用户页面；不得把旧ID unavailable当作用户未授权。页面内部Settings显示latest5.3.5/Public仍可能在审，初期公开API为404；以PUBLISHED队列、公开版本控件/历史和可下载包验证完成，不能仅看通用It's live提示。
+- **边界：** 新agent与idle代理followup均曾被thread limit拒绝，避免重复创建；复用已有运行的代理与root交叉审查，不伪称新独立reviewer已运行。
+
+## 2026-10-07 Asia/Shanghai - 大型发布脚本不能塞进 Windows 命令行
+
+- **已跑验证：** 发布离线测试首次有13个用例被spawnSync ENAMETOOLONG阻止，生产发布代码尚未执行；不能把这次红灯描述为发布逻辑缺陷。
+- **根因：** 把完整工作流内联脚本与fixture通过EncodedCommand传给Windows子进程，编码后超过命令行限制。
+- **下次做法：** 小型UTF8启动引导继续使用EncodedCommand；大型PS7测试正文写入本轮独立临时目录的UTF8 ps1，以pwsh -File执行，保留实际退出码和断言日志。
+- **检查：** 修正后26项发布回归全部通过；临时清理先核对绝对目录在系统Temp内且前缀属于本轮，再使用同一文件API删除。
+
+## 2026-10-07 Asia/Shanghai - 单元回归与scanner ready不能替代当前包实机焦点验证
+
+- **用户纠正：** 5.3.6需要Computer Use本机测，不能沿用5.3.5实机结果或只报PR/CI。
+- **已跑验证：** 安装字节一致、日志确认5.3.6后，真实终端/浏览器批准可执行，Note文字保留；200ms原生只读样本却在两个批准附近记录Note→IDE前台切换。OFF对照中单张终端原生卡持续等待，Note在后续采样中保持前台。
+- **下次做法：** 合并前要求当前安装包的实机证据，批准返回、工具结果、文字保留、前台/鼠标和多窗口分别核验。秒级日志不足以给Select/Invoke/Expand/宿主调用定责；先补阶段毫秒观测，不盲加焦点恢复，不放宽身份/输入校验。
+- **边界：** 200ms快照不能排除间隙内短暂切换；当前Chromium upstream默认点击可改变页面焦点，不能直接推出本机Windows前台变化。低提交余量时不重复开第二完整IDE造成用户环境崩溃。
+
+## 2026-10-07 Asia/Shanghai - 原生观测几何与异步插件状态需刷新确认
+
+- **已跑验证：** 最小化的自有Note不能抓状态；AX-only后两次click报coordinate input geometry is unavailable，动作未确认。恢复自有窗口并用fresh screenshot后输入成功，不把工具几何错误当插件故障。
+- **下次做法：** 实机输入使用当前截图与返回的窗口句柄；控件索引失效先观察，必要时一次截图坐标回退。插件启动异步，click回调仍显示旧OFF时先看fresh ready/日志，不能立刻判定点击无效或重复切换。
+- **日志定位：** 最新Antigravity logs目录可能仅有CLI安装日志；按近期真实window/exthost输出的5.3.6激活与ready定位，不把rg无命中说成scanner不存在。
+
+## 2026-10-07 Asia/Shanghai - 阶段诊断本身、日期解析与恢复身份必须验证
+
+- **已跑失败：** 诊断Console.WriteLine中的多参数-f表达式未整体括起，异常被日志自身catch吞掉；纯内存包装断言发现缺日志，修正后再安装。不能把静态解析通过当实际诊断输出通过。
+- **日期：** ConvertFrom-Json后的时间字段可能已变为DateTime，再与ISO字符串比较会得到空筛选或丢失精度；先按原始JSONL的ISO文本或数值elapsedMs定位，再报告样本读取区间，不能把时间戳当原子前台读数。
+- **恢复：** 同版本CLI安装只替换磁盘文件，旧scanner仍运行。先核对原包hash，再用本轮已记录PID、精确启动时间、父PID和解码启动路径证明所属实例，才停止该诊断进程，随后按原重启日志确认原包ready。Windows安装路径驱动器大小写不同，身份比较使用OrdinalIgnoreCase，不缩减为文件名匹配。
+- **工具边界：** Computer Use因无法可靠确认浏览器URL停止后，本轮停止所有界面输入，不换CUA/CDP/原生路线重试。已运行的只读观测记录可以保存，但不能冒充被中止的完整交互验收；非UI官方CLI可恢复本轮诊断安装。
+- **边界：** Note→IDE切换被缩小到Invoke调用后半段或返回后的极短区间，Chrome也出现对应前台切换；这仍不能区分provider与异步宿主激活，不能盲加焦点恢复或放宽最终批准校验。
+
+## 2026-10-07 Asia/Shanghai - 同SHA首次超时与重跑成功分别保留
+
+- **已跑验证：** 17135bc的PR/push首轮PS7分别在owned-child READY10s、SelfTest20s超时；原失败日志保留，同SHA各重跑失败作业一次后成功，未改断言和超时。
+- **下次做法：** 在不修改生产代码的证据提交上，先区分runner协议启动超时与功能断言失败，精确核对SHA/attempt；GET失败且未提交重跑请求时先查原run状态，再补发一次请求。不能把重跑成功说成根因已确定或CI无不稳定。
+- **检查：** 独立8秒mutex协议重放通过也不能替代诊断包完整PS7最后一项超时记录；测试范围与证据等级分别写明。
+
+## 2026-10-07 Asia/Shanghai - 客户端标志通过不等于后台焦点修复
+
+- **已跑验证：** 同一原生UIA客户端AutoSetFocus=false，真实窗口/RuntimeId绑定和Invoke正常返回，Submit仍令Note转到IDE。600个独立样本确认切换，45字符文本保留和工具exit0不能抵消这一体验失败；不合并未奏效候选。
+- **原生契约：** GetTypedObjectForIUnknown的Type要求COM imported class，不是COM接口；预检只创建client不会覆盖pattern转换。改为GetObjectForIUnknown再QI到接口，并分别释放自己的RCW与原始pointer；清理不能遮盖动作原异常，也不使用FinalReleaseComObject清空共享引用。
+- **生成ABI：** SDK SAL宏可含内部下划线，不能用过窄正则删注解后把BOOL*/接口输出误当IntPtr；完整SDK vtable顺序、GUID、out/SAFEARRAY独立校验。多个C#文件用Add-Type -Path数组；避免将第二文件顶层using拼到前一namespace之后。不要复用PowerShell内建PROFILE变量。
+- **测试：** 无效参数测试必须核对异常类型与内容，catch任意异常可把真实桌面失败误算成早期拒绝。没有插值的双引号here-string可能被解析为StringConstantExpressionAst；校验应接受两种字符串AST并拒绝真实NestedExpressions。
+- **界面：** launch_app超时先刷新窗口，不重复启动；AX-only click几何缺失时补fresh截图。离屏按钮的AX索引不能替代可见区域核验，先滚动到实际可见工具记录，再展开；不要将未展开的Agent总结当原始工具输出。
+- **证据边界：** Chromium固定版本默认动作中的页面focus不是本机Windows前台定责；实际IDE内核尚未映射。认证必须用户手动恢复，第三方Panel的TFA告警也不能独自推出主Agent仍无法工作。
+
+## 2026-10-07 Asia/Shanghai - 标准pattern与真实触发范围必须分别核验
+
+- **已跑验证：** GetCurrentPattern标准IUnknown路径在绑定后读回AutoSetFocus=false，真实一次Submit仍使Note转IDE；不能通过更换获取API宣称修复。Help > About确认Chromium 142.0.7444.175后，才能将固定upstream源码映射本机；页面焦点仍不是Windows前台的定责。
+- **触发：** 自然任务可选择list_dir等无需审批工具；没有卡片/Invoke的观察记为未触发。实际只读系统测量产生一次审批后，再看原始工具输出、前台记录和文本保留，三类证据不能互相替代。
+- **输入：** set_value返回成功但本轮草稿未变；必须检查实际可见内容。聚焦自有草稿后Ctrl+A，核对selected_text严格等于自有文本，再替换，不能把RootWebArea焦点直接当用户代码可编辑区。
+- **生成：** Temp生成器原为LF，候选源为CRLF，应逐文件检测；PowerShell正则替换中的字面反斜杠r/n不会生成换行。使用明确CR/LF字符值并以唯一完整代码块、hash及AST为守卫；边界不匹配时不得写文件。
+
+## 2026-10-07 Asia/Shanghai - 真实provider、触发顺序与Legacy单例证据
+
+- **已跑验证：** 实际Submit Framework=Chrome、LegacyAvailable=True；只支持取得另一已文档化接口，不独自定责代理/宿主。AutoSetFocus=false的标准Invoke失败后，仅替换客户端为Legacy默认动作、保留完整最终检查，真实一个后台Submit返回后仍Note，独立511个后续样本保持Note及鼠标/input tick。不能从一个静置案例宣称持续输入、多窗口、全部按钮已修复。
+- **触发：** 前两次批准早于Note激活，仅记接口执行通过、后台未触发。缩短发送后切换延迟可用两次连续Computer Use调用，各自只输入一次并刷新，不能省略观测或重复已发送任务。get_window_state必须至少请求text或screenshot；两者false的拒绝是工具参数错误，不是插件bug。
+- **接口：** SDK完整24成员顺序/已调用ABI和两引擎编译先核验；MSAA入口少disabled拒绝，不能去掉原最后enabled、身份/选择/几何校验，也不能凭Blink disabled表单保护推断全部ARIA控件安全。保留自己的COM清理风险，正式实现前处理。
+- **恢复：** CLI先成功后V8崩溃exit134，不能按成功文字说exit0或盲重装；先独立验磁盘hash、主IDE身份，再正常重启scanner，核对新PID/start/parent/decoded path/ready且旧候选退出。此轮未确定CLI崩溃根因。
+- **工具输出：** 实际命令只回报内存数值，未显示exit code且未测时间，不补写；Agent显示Explored files时，不把自然语言只读边界当全部行为已验证。200ms样本不覆盖间隙的短暂激活。
+
+## 2026-10-07 Asia/Shanghai - 浏览器本机测试中止与自有服务清理
+
+- **已跑验证：** Browser Use能读取自有环回输入页，但Windows Computer Use看到Chrome最小化，恢复请求被URL可信识别规则停止。本轮未发送测试Agent任务、未重启Legacy候选、未开始输入，不把页面创建算焦点或输入验收，也不换UI路径继续。
+- **清理：** 非UI官方CLI恢复原包exit0，磁盘hash与原版一致；原scanner PID63404/start/parent保持，候选只曾写磁盘而未替换运行态。自有node服务的PID、start与唯一绝对script命令行匹配后关闭，保留Temp文件。
+- **新坑：** exec_command默认非TTY的长期服务会关闭stdin，write_stdin发送quit失败；后续若要以stdin关闭自己的测试服务，启动时明确tty=true，或准备只针对本轮已验证进程身份的正常关闭接口。不得因stdin关闭重启同一已运行服务或结束其它node进程。
+
+## 2026-10-07 Asia/Shanghai - 原生契约扩展后的测试类边界与清理异常
+
+- **已跑验证：** 五个 Invoke 获取入口的六个离线分支在原源码均红灯，接入 Legacy 准备边界后转绿；不得把桩里的前台状态当真实 Windows 焦点验收。完整首轮 scanner=152 通过，但 host-process 影子 C# 编译失败，整套结果仍为失败。
+- **边界：** 同一个内嵌 C# 文本新增命名空间后，LastIndexOf('}') 已不属于 MouseHelper。影子字段仅插入完整顶层 MouseHelper 类范围；生产完整 C# 仍先编译，全部 P/Invoke 必须替换，不能删断言或漏出实际桌面调用。两个夹具边界独立括号配对和21项原生声明审查吻合。
+- **清理：** 真实 RCW 重复释放没有复现异常，不冒充实机复现。受控 Marshal 释放异常会遮盖原异常，分别覆盖 InvalidComObjectException、COMException、ArgumentException，保留原审批异常并继续释放后续引用；不使用 FinalReleaseComObject。
+- **生成：** 两个候选循环都有同名阶段标签，唯一匹配守卫在写入前中止；先核实函数范围再替换。PowerShell 同分隔符 here-string 不能嵌套生成脚本，改用 Temp 文件补丁，避免生成器提前结束。
+
+## 2026-10-07 Asia/Shanghai - 正式 Legacy 窄菜单失败与观测覆盖
+
+- **已跑验证：** 正式提交双CI首次绿灯并安装运行后，真实两个浏览器域名Allow Once执行；第二项原生采样记录Note→IDE，窄按钮invoke=False/expand=True。仅替换Invoke入口不能证明展开链无焦点变化，下一步先分开观测展开与最终允许，不发布该候选。
+- **覆盖：** 自然任务比120秒观测更晚触发审批，首项没有动作时采样，只记未覆盖；180秒请求被既有ValidateRange拒绝，不修改界限掩盖。后续基于真实任务进度启动第二段，保留第一段N/T结果。
+- **快照：** IDE输入/进度AX可滞后于截图，甚至完成仍报告Working；用fresh截图、真实输出文件和日志交叉核验，不重复发送。几何失败先看确切草稿，只有未发送才能一次最新截图重试。
+- **日期：** 复用既有JSON日期经验，直接解析原始ISO文本得到319样本；六段输入只有第一段在首观察区间，不把全部输入写成连续审批期间验证。
+- **预检：** 完整类声明含sealed，过窄文本断言会误报缺契约；在已有作用域调用&导入函数会在子作用域结束后消失，独立内存夹具使用dot-source并先确认唯一完整函数边界。编译和十条实际格式断言通过后才安装诊断包。
+
+## 2026-10-07 Asia/Shanghai - 窄菜单展开定界与准备顺序
+
+- **已跑本机验证：** 完整原动作诊断在 Expand 前为 Note、返回后为 IDE，最终 Legacy Allow Once 在前台已变后才开始，无滚动。该阶段窗口定位不等于确定 OS/provider 的具体激活调用。
+- **已跑内存验证：** 默认动作可能切换菜单，先识别精确关联的已开菜单；只有确需触发时准备 Legacy。已开菜单的触发器不支持 Legacy 不应挡住本次菜单项。折叠状态 getter 与模式准备均在最终 PID/HWND、卡片身份/文案、enabled/offscreen 和父宿主检查前；getter 改名或改 HWND 的两项实际函数重放原候选触发一次、修正后拒绝。
+- **夹具：** 经典托管 UIA 没有 LegacyIAccessiblePattern 类，纯内存边界使用已对照契约的模式 ID10018，不能把夹具类型缺失当产品红灯。
+- **打包：** 根项目没有本地 vsce.cmd，使用 package.json 固定的 npx @vscode/vsce@4.0.0；调用不存在的命令时 LASTEXITCODE 不能证明成功。先确认命令路径，启用 Stop 并保留实际进程退出码。
+
+## 2026-10-07 Asia/Shanghai - Legacy 窄触发器不打开真实菜单
+
+- **已跑验证：** 第十项重放证明准备期间打开菜单会被默认动作关闭；准备后复读状态且保持最终身份检查在后，双引擎10绿、复审无新增发现。
+- **已跑本机验证：** A5CF候选普通Submit后483个样本全Note；真正窄按钮Legacy默认动作虽返回且保持Note，却 visible/new/once-items 全0、没有批准，488个后续样本仍Note。界面卡住也是失败，不能只看不抢焦点或桩里的模拟菜单打开。候选经正常Stop停止、PID94204退出，保留同一待批准卡片继续差分。
+- **下一步依据：** SDK完整展开接口四项、GUID及10005对照后，测试同一AutoSetFocus=false客户端原生Expand；契约参数预检不触碰真实桌面，焦点与审批仍须实机同时证明。
+
+## 2026-10-08 Asia/Shanghai - 原生客户端 Expand 仍会切前台
+
+- **已跑验证：** AutoSetFocus=false 原生展开契约双引擎预检和窄菜单10项内存回归绿，真实 Expand 返回后却 Note→IDE，Allow Once 完成不抵消体验失败；正常Stop后核对具体PID退出。
+- **下次做法：** 区分客户端标志、离线接口契约、真实菜单打开、最终审批和前台保持；不同层证据不互相替代。GetIAccessible 可返回 NULL，直接 provider 的可用性与对象身份需实机证明，不把源码没有显式 SetFocus 当 Windows 前台定责。
+- **工具：** get_window_state 已自动展示截图，不再 emitImage 同一 payload 作重复观察；异步 Stop 返回旧ON时用日志和固定PID核验，不能立即重复切换。
+
+## 2026-10-08 Asia/Shanghai - GetIAccessible 空指针与未执行动作的证据边界
+
+- **触发：** UIA Legacy 属性可读，但直接服务端指针取不到；原生准备失败只有 MethodInvocationException 外壳。
+- **已跑验证：** 根异常为 Native MSAA server missing，GetIAccessible 返回空；后台 Note 保持来自没有 Expand 或最终批准。两个候选具体 PID 正常 Stop 后退出，不能把观察器稳定说成审批成功。
+- **下次做法：** 记录根异常类型/HResult和阶段，不丢原错误；只抑制连续重复而非声称全局按内容去重。先核对真正支持的原生服务及完整 RuntimeId 映射，失败拒绝操作。
+- **检查：** 准备、展开、批准、工具结果、前台与输入分别给证据；观察器资源类型按实际 observed-process-resource 计数并与 end 对照。
+
+## 2026-10-08 Asia/Shanghai - 双引擎内存分配夹具不要压制过时 API 告警
+
+- **触发：** 用完整生产 COM 准备方法做纯内存身份/清理测试，需绕开真实客户端构造。
+- **现象：** Framework FormatterServices.GetUninitializedObject 在 PowerShell7 Add-Type 报 SYSLIB0050，PowerShell5.1 可编译。
+- **下次做法：** 测试夹具用反射选择 RuntimeHelpers.GetUninitializedObject，旧 Framework 才选 FormatterServices；不压告警、不改生产构造、不调用桌面。修正后十项真实方法分支双引擎均通过。
+
+## 2026-10-08 Asia/Shanghai - 原生外层窗口与 Chromium 子窗口不能混为同一目标
+
+- **已跑本机验证：** outer HWND133218 的 MSAA 对象 childCount=0，映射编号为42,133218,4,-18；真实按钮为42,198588,4,4,1,72691。沿绑定按钮 RawView 取得最近原生祖先后，映射进入198588，但命中仍返回窗口根42,198588,4,-115150，childCount=2。两轮均无展开或批准，正常Stop后具体106228/119436退出。
+- **下次做法：** 从已绑定目标确认原生归属，再比较完整 RuntimeId；不从 RuntimeId 某一整数猜 HWND，不靠名字或坐标近似放行。背景稳定仅证明拒绝路径；UIA/Chromium公开 UniqueId 到原生 child 的映射须另行验证。
+
+## 2026-10-08 Asia/Shanghai - HRESULT 诊断和观察窗口必须覆盖实际分支
+
+- **已跑内存红绿：** ThrowExceptionForHR(E_NOTIMPL/E_INVALIDARG) 可变成 NotImplementedException/ArgumentException，只有COM catch会盖住原身份拒绝。仅诊断try捕获Exception，再统一抛原绑定错误；双引擎两例保留原错、零Expand、引用释放完整。
+- **观测：** 90秒观察提前结束于scanner Start前，排除该记录；重新观察60011ms/300样本后才记录对应111368拒绝路径。新119436观察90013ms/450样本，348个交接后样本全Note；不要把结束前后覆盖或静置样本说成持续输入验收。
+- **工具：** Node REPL 新变量先var/let声明，隐式赋值可能在动作前或动作后抛错；先刷新真实状态，不能盲重试。AX旧ON/OFF与截图异步时按日志/PID交叉核验。
+
+## 2026-10-08 Asia/Shanghai - UniqueId 离线契约通过不证明本机属性可用
+
+- **已跑验证：** Registrar ABI/CLSID、PropertyInfo两位数布局与45分支双引擎绿；本机仍为Native target UniqueId missing，原生child、展开和批准都没开始。该错误不能独自定为provider接口失败或属性不支持，须区分默认值、返回类型及不支持标志。
+- **下次做法：** 不解析RuntimeId某个整数猜原生UniqueId/窗口，不以名字几何替代完整身份。Native UIA与MSAA转换可能给出不同编号，须从官方接口与本机返回建立同一对象证明，不能放宽比较来让候选通过。
+- **夹具：** PowerShell7 Marshal.SizeOf(Type)重载绑定可能选object，把RuntimeType本身当结构；用GetMethod明确Type参数签名后Invoke验证尺寸。仅夹具错误，未改变生产ABI。
+- **恢复：** 正常Stop121560核对退出，原包官方CLI恢复exit0，source/JS各自hash验证；scanner保持OFF，不让失败诊断留在用户日常运行态。
+
+## 2026-10-08 Asia/Shanghai - 同 SHA 一次重跑仍失败时保留失败并补充边界诊断
+
+- **已跑 CI：** df29655 的 PR/push 首次 PS5 均在 owned-child READY10s 超时。各自仅重跑失败作业一次后，PR attempt2 成功、push attempt2 仍在同一处失败；PS7 均通过。不能只引用 PR 绿灯或把重跑成功当作不稳定已消除。
+- **边界诊断：** 保留 10s READY、10s退出及原位数/路径/存活/退出259断言；超时记录持有的自有 child engine/PID、期望位数、退出前状态和两个读取任务状态，终止该 child 后有限等待读取READY/stderr。停止/读取异常只进诊断字段，仍抛原 ready timeout。
+- **已跑本机：** 原正常双引擎125项通过；延迟15s READY的真实自有子进程重放，旧版缺少诊断而失败，新版PS5/PS7调用32/64位子进程四项均保留超时并通过诊断及退出验证。它证明诊断有效，未证明CI原超时根因。
+- **工具坑：** JavaScript模板字面量内直接放PowerShell反引号会导致JS解析失败，尚未执行的工具不能说已创建文件；跨两层引号的精确替换先检查实际文本，匹配不唯一立即停止，再用单引号转义构造命令，不盲重跑替换。
+- **下次做法：** 下一次CI超时按实际诊断区分子进程启动、stdout读取、stderr错误、退出状态；不得继续重复重跑、放大超时或改变断言来换绿灯。正式5.3.6仍须本机后台审批验收通过后才能合并发布。
+
+## 2026-10-08 Asia/Shanghai - READY 前空输出只缩小范围，不等于已找到根因
+
+- **已跑CI：** 51ca1a4首轮PR的PS5及push的PS7各失败一次，均是caller64的child32尚未退出、两个读取任务WaitingForActivation，终止后READY/stderr为空且stopError为空；child64已通过。未再次rerun。
+- **诊断推进：** 自有child向捕获stderr写ENTERED、ENCODING_SET、READY_WRITTEN三个含PID阶段协议；成功路径要求完整内容精确等于三行，额外stderr仍失败，原10s及125项断言不变。空输出尚不能直接断言冷启动、AMSI或Console编码设置就是根因。
+- **已跑本机：** 三阶段正常协议PS5/PS7各125项通过；真实child分别在编码设置前、READY写入前延迟15s，诊断只报告已到达阶段并保留超时，均验证进程退出；独立审查实际协议比较7项内存重放通过。
+- **下次做法：** 从下一次CI真实阶段标记定位，不因当前推测改超时或增加自动重跑，不把纯测试协议修改当作插件后台审批修复。
+
+## 2026-10-08 Asia/Shanghai - 默认空值、ReservedNotSupported 与日志错误信息
+
+- **已跑本机：** 完整绑定目标的默认 UniqueId 为 S_OK 空 string，而 Ex(ignoreDefault=true) 返回 S_OK COM ReservedNotSupported 且 CheckNotSupported=true；两查询合看才能确认当前目标不提供该注册属性。只读拒绝的 173 个 Note 稳定样本不等于审批通过。
+- **下次做法：** 新增脱敏诊断用 ThrowExceptionForHR(hr, IntPtr(-1)) 忽略线程 IErrorInfo，否则调用方打印映射后的标准异常仍可能带出 provider 自定义消息；保留原身份校验的异常。PS5/7 完整方法及故障日志红绿验证不可省略。
+- **工具：** 当前 Sky element_index 输入仍需 screenshot-backed geometry；geometry unavailable 后先刷新确认开关未动，再恢复一次。异步旧 OFF/ON 由日志与持有 PID 判定，不能盲重复切换。观察启动早于工具恢复不保证覆盖实际 scanner Start；明确排除过期捕获并为实际静置另开观察。
+- **源码边界：** 新 C API/helper 完整单元放到既有 AOW 注释之前，不能插在注释与声明中间；归档后重新固定源码哈希。固定 Chromium 的页面 SetFocusedElement 不能独自证明 Windows SetForegroundWindow 或实际版本相同。
+- **毫秒筛选：** PS7.6 ConvertFrom-Json 默认自动转日期再隐式转 string 可能丢毫秒，导致区间误收边界样本；用 -DateKind String 或保留原 ISO 字符串后显式解析。本轮独立原始观测复算 173，与 Node JSON.parse 字符串筛选相同。
+
+## 2026-10-08 Asia/Shanghai - 根节点 core 编号失败不能当全树无目标
+
+- **已跑本机：** 绑定目标和native root路径推进到UiaGetRuntimeId，首节点返回E_NOINTERFACE、nodes1/core-fail，未继续后代遍历。不能称native树没有目标，也不能把客户端pattern QI某个provider IID当公开身份桥；官方控制模式契约区分client与provider接口。
+- **观测边界：** 新90s观察虽覆盖scanner Start，仍在案例结束前约13秒到期；仅归纳实际216个静置样本，缺失段不得用末尾快照或日志填成连续保证。下一次在实际capture覆盖内结束案例，必要时提前检查observer结束时间。
+- **恢复：** 正常Stop147588后CIM核对退出，官方CLI原包恢复并hash7F732F核验、UI OFF；只有只读拒绝证据，没有批准或焦点修复通过证据。
+
+## 2026-10-08 Asia/Shanghai - 空 stderr 与读取任务状态不能判定脚本未进入
+
+- **已跑 CI：** f18ed6a 首次 push 双引擎与包校验通过，首次 PR 的 PS7 在 caller64→child32 PID764 READY10s 失败，PS5 通过；没有重跑。终止后空输出和 stopError 空仍不能代替真实 WaitForExit 返回值及 HasExited 核验。
+- **已跑受控验证：** 真实自有 child 在脚本入口先 sleep、尚未取得 Console.Error getter 时，stderr 仍为空；写 marker 后 sleep 的 child 在 Kill 后则保留 marker，读取任务超时前同为 WaitingForActivation。不能由空 stderr 声称脚本未执行，也不能由该任务状态声称零字节已读；本轮不是 Console/AMSI/cold-start/ThreadPool 的根因证明。
+- **下次做法：** 第一条旁证写在任何 Console getter 前，用独占 GUID 目录、nonce/PID 与三个精确 CreateNew+close 文件；成功仍要求原精确 stderr 协议。missing/partial/读失败只记未知，READY null EOF 与空行分开，终止返回值和最终存活分别记录；诊断及文件清理失败不得盖掉原超时。
+
+## 2026-10-08 Asia/Shanghai - 首根跳过不能放宽后代身份或填补观察尾段
+
+- **已跑本机：** 精确首根runtime E_NOINTERFACE经三即时资源全清理成功后可进入FirstChild；本机186轮首后代仍runtime-core E_NOINTERFACE/nodes2。不能继续泛化跳过后代错误、手拼RuntimeId或将未比较的元素称目标；批准仍未发生。正常Stop161408后核对退出，原包CLI恢复和hash通过，OFF且Note197exact。
+- **采样坑复现：** 120s仍在案例最终读取前到期，232个实际覆盖样本Note稳定，尾段8.581s明确排除。工具返回、分析及新调用都有墙钟成本，预设120s不保证覆盖收尾；下一次将短观察区间的起止与只读结束核验放在同一受限执行单元，按实际deadline中止并保留超时，不修改案例结束时间迁就捕获。
+
+## 2026-10-08 Asia/Shanghai - 阶段旁证的异常、清理与 UTF8 边界
+
+- **已跑验证：** 冻结host源码776F1BBC双引擎各131项，实际故障边界各24及六个真实阶段延迟通过，原READY/退出10s、125项身份断言和严格stderr协议全部保留。文件missing/partial只是未证实阶段，明确区分null EOF和空READY；未定位CI原超时根因。
+- **新坑与修正：** PowerShell点属性在异常getter夹具中可返回null而不进catch，改显式同一get_HasExited并真实验证。原typed catch在完整PS5故障夹具中将路径/读取错误误分为missing，机制未定；single catch只在路径已验证且实际base exception为File/DirectoryNotFound时记missing，其它保ownership/read-error。诊断helper或JSON失败必须保护原timeout。
+- **清理：** 先确认最终绝对目录、恰好原三个basename与顺序，再做任何删除；确认自有child退出才删除三个文件及空目录。读/删/终止失败各保留状态，不能误删同目录foreign文件，不能把empty stopError当已退出。
+- **Temp编码：** PS5直接-File读取无BOM中文夹具可能误解码；固定显式UTF8 AST与major验证launcher后重放，旧解析失败日志保留。项目原UTF8 AST入口不受此次临时launcher问题影响。
+
+## 2026-10-08 Asia/Shanghai - raw 有返回仍不等于完整目标身份
+
+- **已跑本机：** 0E2519隔离候选94对root/FirstChild均raw S_OK、VT_I4一维len4/append、cleanup成功，但core仍E_NOINTERFACE且first-child原拒绝；没有批准动作。不能由core错误推论全部公开provider不可用，也不能将relative array拼接为目标full RuntimeId。
+- **观察修正：** 在同一受限单元记录10秒无输入起止与结束核验，本次52个样本完整在实际120s观察期限内，Note197逐字保留；600全记录与24 IDE资源类型由原JSON确认。零动作稳定仅限拒绝路径，不是审批体验通过。
+- **恢复：** 正常Stop168704核对退出，官方CLI原包restore0/hash7F732F、UI OFF，再恢复Note前台；正式scanner未改。
+
+## 2026-10-08 Asia/Shanghai - 只读命令目录不能把省略当不存在
+
+- **已跑本机：** getCommands(true)当前2984 ID，关键词匹配64但ASCII白名单只输出62，complete=false；另外2个未知，不能据此关闭一次审批命令假设。下一步用bounded ASCII转义JSON保留完整字符串，不执行返回ID。API仅当前已注册非下划线ID，名称不是公开target参数契约。
+- **新坑与修正：** unknown异常可能是Proxy，instanceof本身会触发getPrototypeOf并再次抛提供者文本；errorKind自身catch为固定Other，原实际编译函数红灯与最终9组mock绿灯及peer复审保留。官方VSCE会正规化README/LICENSE文件名，包字节核对应实际6entries映射，不能猜文件名。
+- **恢复：** 独立目录扩展执行后exactID官方卸载/确认不存在，原插件source/JS hash保持、OFF无child、Note197exact；只枚举目录不证明审批通过。
+
+## 2026-10-08 Asia/Shanghai - PS5 Hashtable 的 AST offset 排序须显式取 key
+
+- **已跑候选生成验证：** 新独立启动A/B候选在PS5的Sort-Object Start未按Hashtable键值排序，真实最小输入7/9/5返回5/9/7；原AST offset与Extent均正确，却因无序插入导致候选parse在任何child Start前拒绝。首失败日志保留，不能归因原CI启动问题。
+- **复用修正：** 用显式Expression={ [int]$_['Start'] }排序，并对每个原始AST插入anchor逐字校验；最终候选及CI结果须另行验证，原宿主测试及超时未改。
+
+## 2026-10-08 Asia/Shanghai - 目录 complete 的范围须限定当前过滤集合
+
+- **已跑本机：** 转义JSON补齐之前unsafe2，当前2986 registered ID里关键词64全部输出；原62全保留，额外仅Webhint浏览器检查和AutoAccept日志通道。complete=true是这一刻非下划线/关键词/长度数量集合完整，不证明隐藏或未来命令不存在，更不是审批公开参数契约。没有执行任何返回ID。
+- **恢复：** 只读GUID扩展用exactID官方卸载/list absent，原source/JS hash保持、OFF无child/pending，Note197exact并主动恢复前台；运行中host缓存的旧命令不能用list absent反推立即清空。
+
+## 2026-10-08 Asia/Shanghai - 备用日志也必须保护原异常
+
+- **已跑红绿：** 独立A/B脚本ledger写入/输出持续失败时，catch内备用Console.WriteLine再次失败会盖掉原owned-child timeout；仅已有startupFailure分支给备用输出try/catch{}，无原异常仍throw，peer用实际catch和持续stdout故障复验两边界。不能用输出恢复失败替换原启动错误。
+- **引擎边界：** 工具请求shell路径仍可能以外层PS7运行；用准确System32 PS5 exe启动被测caller并验证major/bitness，守卫在child前拒绝保留，不能归因候选。正式CRLF归一须更新候选hash并核对除换行外文本相同，原frozenhost hash不变。
+- **范围：** 独立fresh-runner A/B只提取21项，不能替代原131required回归或把一次绿灯称机制定位；不预热、不rerun、不延长原10秒。
+
+## 2026-10-08 Asia/Shanghai - A/B 两输入同绿不能定位间歇机制
+
+- **已跑远端：** de056a3 A/B四freshrunner与PR/push均首轮通过，四artifact各21/原host与scanner hash/确认退出和准确清理核对通过，无重跑。两输入均绿只能证明这轮执行结果，不隔离原f79 READY10s未知故障；CI通过也不替代pending后台审批/焦点/连续输入/多IDE实测，发布仍跳过。
+- **正文比较：** 原模板hash相同，但自有GUID/nonce/路径不同使actualbody hash各异；只称语义模板同源，不称实际正文逐字相同。
+
+## 2026-10-08 Asia/Shanghai - 公开转换成功与捕获覆盖分别核验
+
+- **已跑本机：** 188F候选root/first-child各341条公开IAccessible转换均六HR S_OK/fullSamefalse/cleanuptrue，零CLICK；证明两个非目标元素可转换，不证明整树无目标，也不能改用relative编号或名称坐标放行。原目标完整身份仍须实际命中。Stop183028/CIM退出、CLI原包hash7F/JS2F85、OFFpending、Note197exact均核对。
+- **兼容坑：** 新QueryInterface完整方法在PS7 .NET10的CS9191与PS5未知pragma CS1691分别实跑失败；只在新增方法局部1691/9191成对disable/restore后完整双引擎编译通过，不能全局IgnoreWarnings或把早期候选hash当最终包。
+- **观测：** 实际120秒捕获启动后509样本含183 IDE与326 Note，不能写全Note或无input handsoff；到Stop约3分16秒尾段未覆盖。后续在同一受限单元记录短区间、立即完成Stop/恢复再分析，避免收尾分析耗尽observer。实时目录Length显示0时实际文件读到234105字节，状态用真实读取/start-stop记录确认，不据元数据认定空观察。
+
+## 2026-10-08 Asia/Shanghai - 协作预算停止不是 provider HRESULT 失败
+
+- **已跑本机：** ACF只读sweep START1/71node，前70完整len4均不同于targetlen6，第71在ElementFromIAccessible S_OK之后预算检查中断，RuntimeId/Compare未调用；readHr80131509是managed预算异常，END1583ms/wall-budget。不能把日志format element-convert-throw当原生转换HRESULT失败，不由局部长度差异称全tree无目标。73prepare不等于73遍历，client一次消费阻止重复query。
+- **覆盖：** 手离10.448秒/52样本全Note且逐字197保留，但实际单轮查询更早在IDE前台；只证明后续拒绝路径静置稳定。Capture结束到Stop27.731秒排除，预算包含sweep内层清理但非outerbinding/finally、不取消COM。
+- **交接：** 所有root台账字段定稿后再交peer固定hash；本次peer读取期间root追加handsoffAudit使ledger hash变化，原始log/observer保持，复算按新冻结hash完成。不得将此交接顺序问题归因候选。
+- **工具：** Marketplace extensionquery必须带api-version，缺失请求被服务拒绝，3.0-preview.1实际核验成功；用Stop保留原API异常，不让后续null集合检查遮盖。Windows rg的通配文件名使用-g作用于目录，不把docs/verification-*.md当LiteralPath。
+
+## 2026-10-08 Asia/Shanghai - 可见性重读与实际宿主根分别验证
+
+- **已跑动态红绿：** 前置IsOffscreen=false不能封住旧if第二读变true的ScrollIntoView。Temp5848在旧offscreen body首句continue，保留旧body；PS5/7各3例9项确认旧Scroll1/query1到新Scroll0/query0、稳定可见collapsed query1。CandidateDiagnostic也读属性，首fixture没有触发真实旧分支；需从实际模式取得后控制时序，不把恒定属性case当race覆盖。普通路线未禁，只有browser动作拒绝边界。
+- **夹具与执行上下文：** failed Simple out不能把此前成功Fragment RCW包装混计；首次PS5日志异常后仍写PASS不算通过，最终外层catch/exit和具体pointer修正保留红绿。UTF8 ScriptBlock没有原文件PSScriptRoot，必须显式传目录；不能把这些夹具/loader错误归因native provider。
+- **已跑本机：** 实际FragmentRoot标准QI/selfSame/options226/Host/UiaNodeFromProvider全S_OK，RuntimeId仍80004002/arrayNULL，type/Compare not-called、cleanuptrue、marker1而prepare100、0CLICK。只证明root core入口成功，完整目标身份未命中，不能拿root或Host作为原More授权。
+- **UI恢复与边界：** 原history选择空白后只Reload一次，再正常history选择出现workspace picker，Open in current window恢复原审批；不是未验证的隐藏面板隔离或盲重试。Stop199752/原包hash7F/JS2F85/OFFpending/Note197exact与3repo8hash保持核对；本轮无observer，不补造后台焦点或持续输入证明。
+- **SDK 枚举须查源：** ProviderOwnsSetFocus=0x10(16)，128是HasNativeIAccessible，实际root options226不含OwnsSetFocus；不能按记忆猜bit值或从根flag直接推More动作抢焦点的根因。公开UiaNavigate返回cache SAFEARRAY/BSTR，转换函数准确名为UiaHUiaNodeFromVariant，不是直接out HUIANODE。
+
+## 2026-10-08 Asia/Shanghai - 窗口完整编号可读仍须匹配原目标
+
+- **已跑本机：** 539唯一nativeHandle的core/runtime均S_OK/完整len6，原Compare S_OK/fullSamefalse，cleanuptrue、marker1/prepare44、0CLICK。预定终态throw80131509不是provider失败；相同len不能代替目标完整ID。真实query6采样均IDE前台，不把随后Note拒绝轮询93样本称后台审批。
+- **有限夹具：** 原binding重试也会再Compare，不能用累计次数划分core阶段；只修自有fixture按acquisition状态区分，保留首两红exit1。verifier按真实完整函数字面变量名核对，不猜rootPid/nativePid。throw-out时HR占位表示未取得返回值，可能已尝试，不一概写not-called。
+- **覆盖与恢复：** Note无ROOT输入实际21.767秒，最后3.055秒超出60s observer，距末样本3.240秒；只报覆盖93样本、资源仅IDE35596，observer进程exit由ROOT工具返回归属，不由JSONLstop推出。未抓live scannerPID只可报Stop后currentparent无child。
+- **工具边界：** Sky元素输入仍须最新截图几何；首次无geometry后先fresh观察OFF再重试，AX一次刷新可滞后，不盲目二次toggle。安装JS路径从package.json.main读取，不猜包根；CIM命令行过滤须限定原extensionHost父PID，否则观测shell文本会自匹配。PowerShell foreach语句结果先赋值或用@()包裹，再接管道。
+
+## 2026-10-09 Asia/Shanghai - None 缓存带模式的真实首槽与日志共享读取
+
+- **已跑本机：** 541 唯一 UiaFind 与模式转换均 S_OK，缓存首槽非 null/DBNull而被拒绝；首槽类型和值未知，不能假定零或据此释放未知节点。零展开/批准；Stop30712确认退出、原包CLI/hash恢复、OFF/pending、Note197及用户3repo/8files逐字保持。
+- **复用边界：** WPF None 不使用首节点槽，但带模式的真实返回不能由原无模式夹具推断。明确空值和整数零与完整目标身份校验分开；非零仍拒绝且记录类型/空标志，完整RuntimeId、child、回映和最终审批守卫不得放宽。下一次后台实测在消费前检查IDE前台，拒绝不消耗唯一查询。
+- **本轮工具坑：** functions.exec 无 crypto 全局，需由宿主生成GUID；IDE日志仍打开时 ReadAllBytes 被共享模式拒绝。用显式 ReadWrite/Delete 共享的只读 FileStream、核对offset/长度并逐字读取；ErrorAction Stop 防止首次读取失败后继续产生无效切片和级联错误。Sky只输出accessibility/窗口元信息，不序列化含data URL的完整截图对象。
+- **证据边界：** activation调用开始不等于已切换完成，采样区间含人为切窗过渡时不得说全程Note稳定；observer main-process资源不证明scanner资源或泄漏，内存夹具绿不代替本机动作/焦点/连续输入/多IDE。
+## 2026-10-09 Asia/Shanghai - Full 身份成功不能补出 Legacy 服务端
+
+- **已跑本机：** 542 None 首槽实际非零 Int64，零值兼容未奏效；543 显式 Full、官方节点转换、缓存及节点完整 RuntimeId 均 S_OK/匹配，Legacy accessible 仍 S_OK NULL，零展开/批准。Null 符合公开 proxy/bridge 契约，不继续放宽身份或释放未知原始槽。
+- **调整方向：** 之前托管和 COM Expand 已实机抢前台，WPF 又使用同一 C API；再次换同一底层入口不构成新修复。产品先延后会聚焦的窄菜单动作，仅目标 IDE 前台且输入空闲时处理，普通后台审批保留；最后只读检查仍有不可原子化的外部调用竞态，不写绝对无焦点保证。
+- **工具：** 临时 launcher 实参须先读签名，run-utf8.ps1 只有 TaskScript540；错误 Path/ExpectedMajor 导致测试未进入，保留红日志后用正确参数验证，不归因候选。读取临时测试文件先列真实文件名，Windows rg 文件过滤用目录加 -g，不把通配路径当 LiteralPath。
+- **验证：** 543 三组合完整编译及各77例2227检查、独立审查与唯一 native 查询均归档；Stop11608/原包恢复、OFF/pending/Note197、3repo8files保持。查询采样只有1条、静置75条，不能称后台审批通过、scanner资源或多IDE验收。
+
+## 2026-10-09 Asia/Shanghai - 暂缓动作的续办身份与按键状态
+
+- **独立复现：** 展开后最终输入守卫暂缓会遗留无标签 portal 菜单，下一轮原“只用新菜单”过滤不能续办；原输入数组仅含鼠标与修饰键，Enter/字母长按且输入戳不变时被漏过。修复保存精确 PID/HWND 对应卡片、文本、触发器、菜单及菜单项身份，并重读全部虚拟键高位；任意用户旧菜单不借此接管。
+- **再次红灯：** PowerShell -ceq 是区分大小写的文化比较，git+[U+00AD]+hub.com 与 github.com 可判等；真实生产函数跨轮批准一次。续办文案必须使用 String.Equals Ordinal，与旧卡片验证一致。仓库加入软连字符动态拒绝用例，保留旧实现红日志。
+- **验证边界：** 三项均由独立动态夹具复现；全套及真实本机结果另行归档。前台查询与外部 UIA 动作不能原子化，不承诺任何切窗时序下绝对无焦点竞态。
+
+## 2026-10-09 Asia/Shanghai - 浏览器 tab 前台与 Windows 前台不能混计
+
+- **已跑本机：** Chrome 专用接口确认 MDN URL，并保留两段中英文输入；Page.bringToFront 改变选中 tab，但只读 Windows 采样实际仍是原前台应用，零 Chrome 样本。不能由浏览器焦点或页面输入成功写“Chrome 前台输入通过”。Windows 工具的 URL 识别保护两次终止当前 turn，立即停止；后续使用受支持的浏览器接口只证明其自身范围，不关闭保护。
+- **双窗口：** 正常新建窗口后真实两个 extensionHost；两个方向 WAITING→同 PID ready、原 owner 退出均核验。窗口一扫描器在窗口二本机前台时批准其本次域名，5 个动作时间桶采样稳定；随后模型服务 503 是任务服务问题，不等同插件批准失败或任务完成。
+- **工具坑：** CLI new-window exit0 不等于可见窗口，须核对 inventory；用实际菜单快捷键后才出现第二窗口。不要把 minified bundle 的整行 rg 匹配直接输出，先限定文件或返回文件名。JS 未创建的全局绑定不能裸赋值，统一显式 globalThis 初始化；只读失败不重复输入。gh HTTP EOF 后保留失败，再核对同一个 run id，而非重跑 CI。
+
+## 2026-10-09 Asia/Shanghai - 原生身份测试与脚本引擎启动分层
+
+- **已跑 CI：** 725aea2 首轮 PR 的 PS7、push 的 PS5 均在 caller64→PowerShell child32 READY10s 超时；三个独占 stage 均 missing，停止后 stdout null/stderr 空，child 确认退出且准确清理。未到失败 child 的生产路径查询，不能把它称为 GetProcessImagePath 错误，也未隔离 AMSI、冷启动或 OS 根因。
+- **测试边界：** 原生路径/句柄/退出身份测试可用明确架构的最小 Framework C# child，保留真实 IntPtr.Size/PID/完整路径/259/严格流/三个 nonce stage、原 131 项与 10s/45s。原 PowerShell 启动覆盖另存字节冻结入口，不能直接改 host 源后让固定 SHA/AST 的诊断失效；其 workflow filter 同时登记冻结源。
+- **清理红灯：** 独立注入 binary 目录额外 sentinel，删除空目录失败却仍 exit0/DONE131。清理旁证须在正常路径 finally 之后设失败门禁，不能在 finally 抛错覆盖先前编译或 READY 超时。编译器和 child 都须按本次 Process 对象确认退出；stage 三文件与二进制目录白名单分别校验，非递归删除，不吞外来文件。
+- **已跑本机：** 原型及最终 gate 的三 caller 各 131 项、四冻结诊断各 21 项、全套 npm test 通过；编译错误/自有编译器替身超时/native READY 延迟均保留失败，进程与目录回收另行核验。它证明测试分层与资源路径，不证明远端原启动根因修复；仍须新提交首轮 CI。

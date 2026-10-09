@@ -152,6 +152,25 @@ public class MouseHelper {
         try { return validateTarget != null && validateTarget(); }
         catch { return false; }
     }
+    // 2026-10-09：会聚焦的界面操作仅限当前前台且输入空闲；只读重查不激活窗口或恢复用户焦点。
+    public static bool CanUseForegroundUi(IntPtr target) {
+        try {
+            if (target == IntPtr.Zero || GetForegroundWindow() != target) { return false; }
+            // 2026-10-09：普通键首轮重复可能延迟，不能只靠输入年龄或鼠标、修饰键判断长按。
+            for (int key = 1; key < 256; key++) {
+                if ((GetAsyncKeyState(key) & 0x8000) != 0) { return false; }
+            }
+            uint inputTime;
+            if (!TryGetInputTime(out inputTime)) { return false; }
+            uint age = unchecked(GetTickCount() - inputTime);
+            if (age < 500 || age > Int32.MaxValue) { return false; }
+            for (int key = 1; key < 256; key++) {
+                if ((GetAsyncKeyState(key) & 0x8000) != 0) { return false; }
+            }
+            return IsInputUnchanged(inputTime) && GetForegroundWindow() == target;
+        }
+        catch { return false; }
+    }
     // 2026-10-07：归一化到像素中心，使用长整数避免负屏幕原点、边缘像素和乘法溢出。
     private static bool TryNormalizePoint(POINT point, int left, int top, int width, int height, RECT clip,
                                           out int normalizedX, out int normalizedY) {
@@ -222,6 +241,311 @@ public class MouseHelper {
         catch { return false; }
         finally {
             if (originalDpi != IntPtr.Zero) { SetThreadDpiAwarenessContext(originalDpi); }
+        }
+    }
+}
+// 2026-10-07：原生 UIA 契约按完整 SDK vtable 声明，只调用已绑定窗口中的 Legacy 默认动作。
+// SDK 快照 SHA256：66B00453430CC6884482352EBC0DDF6DB3916E38BF5684CABA79D6E86AA1F038。
+// 来源：https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/UIAutomationClient.h
+// 未使用的原生接口/缓冲区保留 IntPtr 声明；使用时必须另行满足指针和释放契约。
+namespace AntigravityUia
+{
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+    [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+    [Flags] public enum TreeScope { None = 0, Element = 1, Children = 2, Descendants = 4, Parent = 8, Ancestors = 16, Subtree = 7 }
+    [Flags] public enum PropertyConditionFlags { None = 0, IgnoreCase = 1, MatchSubstring = 2 }
+    public enum OrientationType { None = 0, Horizontal = 1, Vertical = 2 }
+
+    [ComImport, Guid("34723aff-0c9d-49d0-9896-7ab52df8cd8a"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IUIAutomation2
+    {
+        [PreserveSig] int CompareElements([MarshalAs(UnmanagedType.Interface)] IUIAutomationElement el1, [MarshalAs(UnmanagedType.Interface)] IUIAutomationElement el2, [MarshalAs(UnmanagedType.Bool)] out bool areSame);
+        [PreserveSig] int CompareRuntimeIds([MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] int[] runtimeId1, [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] int[] runtimeId2, [MarshalAs(UnmanagedType.Bool)] out bool areSame);
+        [PreserveSig] int GetRootElement([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement root);
+        [PreserveSig] int ElementFromHandle(IntPtr hwnd, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement element);
+        [PreserveSig] int ElementFromPoint(POINT pt, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement element);
+        [PreserveSig] int GetFocusedElement([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement element);
+        [PreserveSig] int GetRootElementBuildCache(IntPtr cacheRequest, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement root);
+        [PreserveSig] int ElementFromHandleBuildCache(IntPtr hwnd, IntPtr cacheRequest, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement element);
+        [PreserveSig] int ElementFromPointBuildCache(POINT pt, IntPtr cacheRequest, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement element);
+        [PreserveSig] int GetFocusedElementBuildCache(IntPtr cacheRequest, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement element);
+        [PreserveSig] int CreateTreeWalker([MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition pCondition, out IntPtr walker);
+        [PreserveSig] int get_ControlViewWalker(out IntPtr walker);
+        [PreserveSig] int get_ContentViewWalker(out IntPtr walker);
+        [PreserveSig] int get_RawViewWalker(out IntPtr walker);
+        [PreserveSig] int get_RawViewCondition([MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition condition);
+        [PreserveSig] int get_ControlViewCondition([MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition condition);
+        [PreserveSig] int get_ContentViewCondition([MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition condition);
+        [PreserveSig] int CreateCacheRequest(out IntPtr cacheRequest);
+        [PreserveSig] int CreateTrueCondition([MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition newCondition);
+        [PreserveSig] int CreateFalseCondition([MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition newCondition);
+        [PreserveSig] int CreatePropertyCondition(int propertyId, [MarshalAs(UnmanagedType.Struct)] object @value, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition newCondition);
+        [PreserveSig] int CreatePropertyConditionEx(int propertyId, [MarshalAs(UnmanagedType.Struct)] object @value, PropertyConditionFlags flags, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition newCondition);
+        [PreserveSig] int CreateAndCondition([MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition condition1, [MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition condition2, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition newCondition);
+        [PreserveSig] int CreateAndConditionFromArray([MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_UNKNOWN)] object[] conditions, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition newCondition);
+        [PreserveSig] int CreateAndConditionFromNativeArray(IntPtr conditions, int conditionCount, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition newCondition);
+        [PreserveSig] int CreateOrCondition([MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition condition1, [MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition condition2, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition newCondition);
+        [PreserveSig] int CreateOrConditionFromArray([MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_UNKNOWN)] object[] conditions, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition newCondition);
+        [PreserveSig] int CreateOrConditionFromNativeArray(IntPtr conditions, int conditionCount, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition newCondition);
+        [PreserveSig] int CreateNotCondition([MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition condition, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationCondition newCondition);
+        [PreserveSig] int AddAutomationEventHandler(int eventId, [MarshalAs(UnmanagedType.Interface)] IUIAutomationElement element, TreeScope scope, IntPtr cacheRequest, IntPtr handler);
+        [PreserveSig] int RemoveAutomationEventHandler(int eventId, [MarshalAs(UnmanagedType.Interface)] IUIAutomationElement element, IntPtr handler);
+        [PreserveSig] int AddPropertyChangedEventHandlerNativeArray([MarshalAs(UnmanagedType.Interface)] IUIAutomationElement element, TreeScope scope, IntPtr cacheRequest, IntPtr handler, IntPtr propertyArray, int propertyCount);
+        [PreserveSig] int AddPropertyChangedEventHandler([MarshalAs(UnmanagedType.Interface)] IUIAutomationElement element, TreeScope scope, IntPtr cacheRequest, IntPtr handler, [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] int[] propertyArray);
+        [PreserveSig] int RemovePropertyChangedEventHandler([MarshalAs(UnmanagedType.Interface)] IUIAutomationElement element, IntPtr handler);
+        [PreserveSig] int AddStructureChangedEventHandler([MarshalAs(UnmanagedType.Interface)] IUIAutomationElement element, TreeScope scope, IntPtr cacheRequest, IntPtr handler);
+        [PreserveSig] int RemoveStructureChangedEventHandler([MarshalAs(UnmanagedType.Interface)] IUIAutomationElement element, IntPtr handler);
+        [PreserveSig] int AddFocusChangedEventHandler(IntPtr cacheRequest, IntPtr handler);
+        [PreserveSig] int RemoveFocusChangedEventHandler(IntPtr handler);
+        [PreserveSig] int RemoveAllEventHandlers();
+        [PreserveSig] int IntNativeArrayToSafeArray(IntPtr array, int arrayCount, [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] out int[] safeArray);
+        [PreserveSig] int IntSafeArrayToNativeArray([MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] int[] intArray, out IntPtr array, out int arrayCount);
+        [PreserveSig] int RectToVariant(RECT rc, [MarshalAs(UnmanagedType.Struct)] out object var);
+        [PreserveSig] int VariantToRect([MarshalAs(UnmanagedType.Struct)] object var, out RECT rc);
+        [PreserveSig] int SafeArrayToRectNativeArray([MarshalAs(UnmanagedType.SafeArray)] Array rects, out IntPtr rectArray, out int rectArrayCount);
+        [PreserveSig] int CreateProxyFactoryEntry(IntPtr factory, out IntPtr factoryEntry);
+        [PreserveSig] int get_ProxyFactoryMapping(out IntPtr factoryMapping);
+        [PreserveSig] int GetPropertyProgrammaticName(int property, [MarshalAs(UnmanagedType.BStr)] out string name);
+        [PreserveSig] int GetPatternProgrammaticName(int pattern, [MarshalAs(UnmanagedType.BStr)] out string name);
+        [PreserveSig] int PollForPotentialSupportedPatterns([MarshalAs(UnmanagedType.Interface)] IUIAutomationElement pElement, [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] out int[] patternIds, [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BSTR)] out string[] patternNames);
+        [PreserveSig] int PollForPotentialSupportedProperties([MarshalAs(UnmanagedType.Interface)] IUIAutomationElement pElement, [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] out int[] propertyIds, [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BSTR)] out string[] propertyNames);
+        [PreserveSig] int CheckNotSupported([MarshalAs(UnmanagedType.Struct)] object @value, [MarshalAs(UnmanagedType.Bool)] out bool isNotSupported);
+        [PreserveSig] int get_ReservedNotSupportedValue([MarshalAs(UnmanagedType.IUnknown)] out object notSupportedValue);
+        [PreserveSig] int get_ReservedMixedAttributeValue([MarshalAs(UnmanagedType.IUnknown)] out object mixedAttributeValue);
+        [PreserveSig] int ElementFromIAccessible(IntPtr accessible, int childId, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement element);
+        [PreserveSig] int ElementFromIAccessibleBuildCache(IntPtr accessible, int childId, IntPtr cacheRequest, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement element);
+        [PreserveSig] int get_AutoSetFocus([MarshalAs(UnmanagedType.Bool)] out bool autoSetFocus);
+        [PreserveSig] int put_AutoSetFocus([MarshalAs(UnmanagedType.Bool)] bool autoSetFocus);
+        [PreserveSig] int get_ConnectionTimeout(out uint timeout);
+        [PreserveSig] int put_ConnectionTimeout(uint timeout);
+        [PreserveSig] int get_TransactionTimeout(out uint timeout);
+        [PreserveSig] int put_TransactionTimeout(uint timeout);
+    }
+
+    [ComImport, Guid("d22108aa-8ac5-49a5-837b-37bbb3d7591e"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IUIAutomationElement
+    {
+        [PreserveSig] int SetFocus();
+        [PreserveSig] int GetRuntimeId([MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] out int[] runtimeId);
+        [PreserveSig] int FindFirst(TreeScope scope, [MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition condition, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement found);
+        [PreserveSig] int FindAll(TreeScope scope, [MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition condition, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElementArray found);
+        [PreserveSig] int FindFirstBuildCache(TreeScope scope, [MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition condition, IntPtr cacheRequest, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement found);
+        [PreserveSig] int FindAllBuildCache(TreeScope scope, [MarshalAs(UnmanagedType.Interface)] IUIAutomationCondition condition, IntPtr cacheRequest, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElementArray found);
+        [PreserveSig] int BuildUpdatedCache(IntPtr cacheRequest, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement updatedElement);
+        [PreserveSig] int GetCurrentPropertyValue(int propertyId, [MarshalAs(UnmanagedType.Struct)] out object retVal);
+        [PreserveSig] int GetCurrentPropertyValueEx(int propertyId, [MarshalAs(UnmanagedType.Bool)] bool ignoreDefaultValue, [MarshalAs(UnmanagedType.Struct)] out object retVal);
+        [PreserveSig] int GetCachedPropertyValue(int propertyId, [MarshalAs(UnmanagedType.Struct)] out object retVal);
+        [PreserveSig] int GetCachedPropertyValueEx(int propertyId, [MarshalAs(UnmanagedType.Bool)] bool ignoreDefaultValue, [MarshalAs(UnmanagedType.Struct)] out object retVal);
+        [PreserveSig] int GetCurrentPatternAs(int patternId, ref Guid riid, out IntPtr patternObject);
+        [PreserveSig] int GetCachedPatternAs(int patternId, ref Guid riid, out IntPtr patternObject);
+        [PreserveSig] int GetCurrentPattern(int patternId, [MarshalAs(UnmanagedType.IUnknown)] out object patternObject);
+        [PreserveSig] int GetCachedPattern(int patternId, [MarshalAs(UnmanagedType.IUnknown)] out object patternObject);
+        [PreserveSig] int GetCachedParent([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement parent);
+        [PreserveSig] int GetCachedChildren([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElementArray children);
+        [PreserveSig] int get_CurrentProcessId(out int retVal);
+        [PreserveSig] int get_CurrentControlType(out int retVal);
+        [PreserveSig] int get_CurrentLocalizedControlType([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentName([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentAcceleratorKey([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentAccessKey([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentHasKeyboardFocus([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CurrentIsKeyboardFocusable([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CurrentIsEnabled([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CurrentAutomationId([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentClassName([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentHelpText([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentCulture(out int retVal);
+        [PreserveSig] int get_CurrentIsControlElement([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CurrentIsContentElement([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CurrentIsPassword([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CurrentNativeWindowHandle(out IntPtr retVal);
+        [PreserveSig] int get_CurrentItemType([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentIsOffscreen([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CurrentOrientation(out OrientationType retVal);
+        [PreserveSig] int get_CurrentFrameworkId([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentIsRequiredForForm([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CurrentItemStatus([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentBoundingRectangle(out RECT retVal);
+        [PreserveSig] int get_CurrentLabeledBy([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement retVal);
+        [PreserveSig] int get_CurrentAriaRole([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentAriaProperties([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CurrentIsDataValidForForm([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CurrentControllerFor([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElementArray retVal);
+        [PreserveSig] int get_CurrentDescribedBy([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElementArray retVal);
+        [PreserveSig] int get_CurrentFlowsTo([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElementArray retVal);
+        [PreserveSig] int get_CurrentProviderDescription([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedProcessId(out int retVal);
+        [PreserveSig] int get_CachedControlType(out int retVal);
+        [PreserveSig] int get_CachedLocalizedControlType([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedName([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedAcceleratorKey([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedAccessKey([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedHasKeyboardFocus([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CachedIsKeyboardFocusable([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CachedIsEnabled([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CachedAutomationId([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedClassName([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedHelpText([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedCulture(out int retVal);
+        [PreserveSig] int get_CachedIsControlElement([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CachedIsContentElement([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CachedIsPassword([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CachedNativeWindowHandle(out IntPtr retVal);
+        [PreserveSig] int get_CachedItemType([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedIsOffscreen([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CachedOrientation(out OrientationType retVal);
+        [PreserveSig] int get_CachedFrameworkId([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedIsRequiredForForm([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CachedItemStatus([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedBoundingRectangle(out RECT retVal);
+        [PreserveSig] int get_CachedLabeledBy([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement retVal);
+        [PreserveSig] int get_CachedAriaRole([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedAriaProperties([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int get_CachedIsDataValidForForm([MarshalAs(UnmanagedType.Bool)] out bool retVal);
+        [PreserveSig] int get_CachedControllerFor([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElementArray retVal);
+        [PreserveSig] int get_CachedDescribedBy([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElementArray retVal);
+        [PreserveSig] int get_CachedFlowsTo([MarshalAs(UnmanagedType.Interface)] out IUIAutomationElementArray retVal);
+        [PreserveSig] int get_CachedProviderDescription([MarshalAs(UnmanagedType.BStr)] out string retVal);
+        [PreserveSig] int GetClickablePoint(out POINT clickable, [MarshalAs(UnmanagedType.Bool)] out bool gotClickable);
+    }
+
+    [ComImport, Guid("14314595-b4bc-4055-95f2-58f2e42c9855"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IUIAutomationElementArray
+    {
+        [PreserveSig] int get_Length(out int length);
+        [PreserveSig] int GetElement(int index, [MarshalAs(UnmanagedType.Interface)] out IUIAutomationElement element);
+    }
+
+    [ComImport, Guid("352ffba8-0973-437c-a61f-f64cafd81df9"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IUIAutomationCondition
+    {
+    }
+
+    [ComImport, Guid("e22ad333-b25f-460c-83d0-0581107395c9"), ClassInterface(ClassInterfaceType.None)]
+    public class CUIAutomation8 { }
+
+    [ComImport, Guid("828055ad-355b-4435-86d5-3b51c14a9b1b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IUIAutomationLegacyIAccessiblePattern
+    {
+        [PreserveSig] int Select(int flagsSelect);
+        [PreserveSig] int DoDefaultAction();
+        [PreserveSig] int SetValue([MarshalAs(UnmanagedType.LPWStr)] string value);
+        [PreserveSig] int get_CurrentChildId(out int childId);
+        [PreserveSig] int get_CurrentName([MarshalAs(UnmanagedType.BStr)] out string name);
+        [PreserveSig] int get_CurrentValue([MarshalAs(UnmanagedType.BStr)] out string value);
+        [PreserveSig] int get_CurrentDescription([MarshalAs(UnmanagedType.BStr)] out string description);
+        [PreserveSig] int get_CurrentRole(out uint role);
+        [PreserveSig] int get_CurrentState(out uint state);
+        [PreserveSig] int get_CurrentHelp([MarshalAs(UnmanagedType.BStr)] out string help);
+        [PreserveSig] int get_CurrentKeyboardShortcut([MarshalAs(UnmanagedType.BStr)] out string shortcut);
+        [PreserveSig] int GetCurrentSelection(out IntPtr selection);
+        [PreserveSig] int get_CurrentDefaultAction([MarshalAs(UnmanagedType.BStr)] out string action);
+        [PreserveSig] int get_CachedChildId(out int childId);
+        [PreserveSig] int get_CachedName([MarshalAs(UnmanagedType.BStr)] out string name);
+        [PreserveSig] int get_CachedValue([MarshalAs(UnmanagedType.BStr)] out string value);
+        [PreserveSig] int get_CachedDescription([MarshalAs(UnmanagedType.BStr)] out string description);
+        [PreserveSig] int get_CachedRole(out uint role);
+        [PreserveSig] int get_CachedState(out uint state);
+        [PreserveSig] int get_CachedHelp([MarshalAs(UnmanagedType.BStr)] out string help);
+        [PreserveSig] int get_CachedKeyboardShortcut([MarshalAs(UnmanagedType.BStr)] out string shortcut);
+        [PreserveSig] int GetCachedSelection(out IntPtr selection);
+        [PreserveSig] int get_CachedDefaultAction([MarshalAs(UnmanagedType.BStr)] out string action);
+        [PreserveSig] int GetIAccessible(out IntPtr accessible);
+    }
+
+    // 2026-10-07：复用禁用自动焦点的同一个客户端，准备动作与最后审批检查分开。
+    public sealed class BackgroundClient : IDisposable
+    {
+        private IUIAutomation2 client;
+        public BackgroundClient()
+        {
+            client = (IUIAutomation2)new CUIAutomation8();
+            try
+            {
+                Marshal.ThrowExceptionForHR(client.put_AutoSetFocus(false));
+                if (AutoSetFocus) { throw new InvalidOperationException("AutoSetFocus did not disable"); }
+            }
+            catch { Dispose(); throw; }
+        }
+        public bool AutoSetFocus
+        {
+            get
+            {
+                if (client == null) { throw new ObjectDisposedException("BackgroundClient"); }
+                bool enabled;
+                Marshal.ThrowExceptionForHR(client.get_AutoSetFocus(out enabled));
+                return enabled;
+            }
+        }
+        public BackgroundInvoke Prepare(IntPtr hwnd, int[] expectedRuntimeId)
+        {
+            if (hwnd == IntPtr.Zero) { throw new ArgumentException("Missing window handle", "hwnd"); }
+            if (expectedRuntimeId == null || expectedRuntimeId.Length == 0) { throw new ArgumentException("Missing RuntimeId", "expectedRuntimeId"); }
+            if (client == null) { throw new ObjectDisposedException("BackgroundClient"); }
+            IUIAutomationElement root = null;
+            IUIAutomationElement target = null;
+            IUIAutomationCondition condition = null;
+            object acquiredPattern = null;
+            try
+            {
+                Marshal.ThrowExceptionForHR(client.ElementFromHandle(hwnd, out root));
+                if (root == null) { throw new InvalidOperationException("Window element missing"); }
+                Marshal.ThrowExceptionForHR(client.CreatePropertyCondition(30000, expectedRuntimeId, out condition));
+                Marshal.ThrowExceptionForHR(root.FindFirst(TreeScope.Descendants, condition, out target));
+                if (target == null) { throw new InvalidOperationException("RuntimeId target missing"); }
+                int[] actualRuntimeId;
+                Marshal.ThrowExceptionForHR(target.GetRuntimeId(out actualRuntimeId));
+                bool same;
+                Marshal.ThrowExceptionForHR(client.CompareRuntimeIds(expectedRuntimeId, actualRuntimeId, out same));
+                if (!same) { throw new InvalidOperationException("RuntimeId binding changed"); }
+                Marshal.ThrowExceptionForHR(target.GetCurrentPattern(10018, out acquiredPattern));
+                if (acquiredPattern == null) { throw new InvalidOperationException("Legacy default-action pattern missing"); }
+                if (AutoSetFocus) { throw new InvalidOperationException("AutoSetFocus changed after binding"); }
+                var prepared = new BackgroundInvoke((IUIAutomationLegacyIAccessiblePattern)acquiredPattern);
+                acquiredPattern = null;
+                return prepared;
+            }
+            finally
+            {
+                ReleaseOwned(acquiredPattern);
+                ReleaseOwned(condition);
+                ReleaseOwned(target);
+                ReleaseOwned(root);
+            }
+        }
+        // 2026-10-07：自己的 COM 引用清理不遮盖审批异常，也不跳过其余引用；不清空共享 RCW。
+        internal static void ReleaseOwned(object owned)
+        {
+            try
+            {
+                if (owned != null && Marshal.IsComObject(owned)) { Marshal.ReleaseComObject(owned); }
+            }
+            catch (InvalidComObjectException) { }
+            catch (COMException) { }
+            catch (ArgumentException) { }
+        }
+        public void Dispose()
+        {
+            IUIAutomation2 owned = client;
+            client = null;
+            ReleaseOwned(owned);
+        }
+    }
+    public sealed class BackgroundInvoke : IDisposable
+    {
+        private IUIAutomationLegacyIAccessiblePattern pattern;
+        internal BackgroundInvoke(IUIAutomationLegacyIAccessiblePattern pattern) { this.pattern = pattern; }
+        // 2026-10-07：最终调用只执行默认动作，全部绑定查询先于调用方最后检查。
+        public void Invoke()
+        {
+            if (pattern == null) { throw new ObjectDisposedException("BackgroundInvoke"); }
+            Marshal.ThrowExceptionForHR(pattern.DoDefaultAction());
+        }
+        public void Dispose()
+        {
+            IUIAutomationLegacyIAccessiblePattern owned = pattern;
+            pattern = null;
+            BackgroundClient.ReleaseOwned(owned);
         }
     }
 }
@@ -513,8 +837,17 @@ function Write-BrowserCandidateDiagnostic($CandidateButtons, [int]$WindowProcess
     Write-ApprovalDiagnostic "browser candidates pid=$WindowProcessId buttons=$($CandidateButtons.Count) candidates=$($candidates.Count) $summary" 'browser-candidate'
 }
 
+# 2026-10-07：仅准备原生默认动作；原宿主、控件身份和一次允许检查仍在准备完成后执行。
+function Get-BackgroundInvoke($Element, [IntPtr]$WindowHandle) {
+    if ($null -eq $script:backgroundClient) { $script:backgroundClient = [AntigravityUia.BackgroundClient]::new() }
+    return $script:backgroundClient.Prepare($WindowHandle, [int[]]$Element.GetRuntimeId())
+}
+
 # 2026-10-06：宽栏直接允许本次，窄栏展开已核验卡片的菜单，只允许此次新出现的本次菜单项。
 function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHandle) {
+    # 2026-10-09：每个窗口只保留本轮已核验的新菜单续办身份，句柄相同仍必须复核 PID 和全部控件身份。
+    if ($null -eq $script:deferredBrowserMenus) { $script:deferredBrowserMenus = @{} }
+    $deferredWindowKey = $WindowHandle.ToInt64().ToString([Globalization.CultureInfo]::InvariantCulture)
     $conversation = $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $conversationCondition)
     if ($null -eq $conversation) {
         Write-ApprovalDiagnostic "browser conversation missing pid=$WindowProcessId" 'browser-candidate'
@@ -524,6 +857,7 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
     Write-BrowserCandidateDiagnostic $conversationButtons $WindowProcessId
     foreach ($allow in $conversationButtons) {
         $stage = 'candidate'
+        $backgroundPatterns = [Collections.Generic.List[object]]::new() # 2026-10-07：所有退出路径统一释放本候选准备的原生模式。
         try {
             $actionName = $allow.Current.Name
             if ($actionName -notin @('Allow Once', 'More actions') -or -not $allow.Current.IsEnabled) { continue }
@@ -534,6 +868,11 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             if ($targets.Count -ne 1) { continue }
             $expectedTarget = @{ CardId = ($card.GetRuntimeId() -join '.'); Id = ($targets[0].GetRuntimeId() -join '.'); Name = $targets[0].Current.Name; ActionId = ($allow.GetRuntimeId() -join '.') }
             if ($actionName -eq 'More actions') {
+                # 2026-10-09：窄菜单可能激活 IDE，后台或输入繁忙时暂缓，回到前台后由下一轮自动处理。
+                if (-not [MouseHelper]::CanUseForegroundUi($WindowHandle)) {
+                    Write-ApprovalDiagnostic 'browser menu deferred until IDE foreground and input idle' 'browser-deferred'
+                    continue
+                }
                 $cardButtons = $card.FindAll([System.Windows.Automation.TreeScope]::Children, $btnCondition)
                 if (@($cardButtons | Where-Object { $_.Current.Name -eq 'Allow Once' }).Count -gt 0) { continue }
             }
@@ -553,6 +892,8 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 # 2026-10-06：宿主查询可能改变卡片状态，滚动前后的界面复核统一放在查询之后。
                 if (-not (Test-LiveBrowserPermissionCard $card $expectedTarget $allow) -or $allow.Current.Name -ne 'More actions' -or -not $allow.Current.IsEnabled) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
+                # 2026-10-09：模式和身份查询期间切走或开始输入时，不再滚动窄卡片。
+                if (-not [MouseHelper]::CanUseForegroundUi($WindowHandle)) { continue }
                 $stage = 'scroll'
                 $scrollItem.ScrollIntoView()
                 if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
@@ -568,11 +909,12 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 $actionPattern = $allow.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern)
                 $method = 'expand'
             }
-            elseif ($invokeAvailable) { $actionPattern = $allow.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) }
+            elseif ($invokeAvailable) { $actionPattern = Get-BackgroundInvoke $allow $WindowHandle; $backgroundPatterns.Add($actionPattern) } # 2026-10-07
             else { continue }
             $stage = 'before-menus'
             $beforeMenus = @{}
             $existingMenuId = $null
+            $resumedDeferredMenu = $null # 2026-10-09：无标签旧菜单只有完整自有记录命中才允许续办。
             if ($actionName -eq 'More actions') {
                 $beforeVisibleMenus = @(Get-VisibleBrowserMenus $Window $WindowProcessId)
                 foreach ($menu in $beforeVisibleMenus) { $beforeMenus[($menu.GetRuntimeId() -join '.')] = $true }
@@ -581,7 +923,22 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                     $label = $_.Current.LabeledBy
                     $null -ne $label -and ($label.GetRuntimeId() -join '.') -eq $expectedTarget.ActionId -and (Test-BrowserMenuAnchor $_.Current.BoundingRectangle $allow.Current.BoundingRectangle)
                 })
+                $deferredMenu = $script:deferredBrowserMenus[$deferredWindowKey]
+                if ($null -ne $deferredMenu -and @($beforeVisibleMenus | Where-Object { ($_.GetRuntimeId() -join '.') -eq $deferredMenu.MenuId }).Count -eq 0) {
+                    [void]$script:deferredBrowserMenus.Remove($deferredWindowKey)
+                    $deferredMenu = $null
+                }
                 if ($linkedMenus.Count -eq 1) { $existingMenuId = ($linkedMenus[0].GetRuntimeId() -join '.'); $method = 'existing-menu' }
+                elseif ($null -ne $deferredMenu -and $deferredMenu.ProcessId -eq $WindowProcessId -and
+                    $deferredMenu.Target.CardId -eq $expectedTarget.CardId -and $deferredMenu.Target.Id -eq $expectedTarget.Id -and
+                    [string]::Equals($deferredMenu.Target.Name, $expectedTarget.Name, [StringComparison]::Ordinal) -and $deferredMenu.Target.ActionId -eq $expectedTarget.ActionId) { # 2026-10-09：文案必须逐字相同。
+                    $ownedMenus = @($beforeVisibleMenus | Where-Object { ($_.GetRuntimeId() -join '.') -eq $deferredMenu.MenuId })
+                    if ($ownedMenus.Count -ne 1) { continue }
+                    $existingMenuId = $deferredMenu.MenuId
+                    $resumedDeferredMenu = $deferredMenu
+                    $method = 'existing-menu'
+                }
+                elseif ($beforeVisibleMenus.Count -gt 0) { continue } # 2026-10-09：不展开或批准未精确关联的用户旧菜单。
             }
             $stage = 'host'
             if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
@@ -590,6 +947,8 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             $stage = 'final-card'
             if (-not (Test-LiveBrowserPermissionCard $card $expectedTarget $allow) -or $allow.Current.Name -ne $actionName -or -not $allow.Current.IsEnabled -or $allow.Current.IsOffscreen) { continue }
             if (-not (Test-ParentAlive)) { return $false }
+            # 2026-10-09：紧邻窄菜单动作重查前台和输入；宽栏一次允许仍使用原后台默认动作。
+            if ($actionName -eq 'More actions' -and -not [MouseHelper]::CanUseForegroundUi($WindowHandle)) { continue }
             $stage = $method
             if ($method -eq 'expand') { $actionPattern.Expand() }
             elseif ($method -eq 'invoke') { $actionPattern.Invoke() } # 2026-10-07：已打开的精确关联菜单无需再次展开。
@@ -618,8 +977,14 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 if ($items.Count -ne 1) { continue }
                 $item = $items[0]
                 $menuId = ($menu.GetRuntimeId() -join '.'); $itemId = ($item.GetRuntimeId() -join '.') # 2026-10-07：保留取模式之前的菜单及菜单项身份。
+                # 2026-10-09：续办必须仍是原菜单中的原本次项，换项即丢弃记录，后续原归属复核照常执行。
+                if ($null -ne $resumedDeferredMenu -and ($menuId -ne $resumedDeferredMenu.MenuId -or $itemId -ne $resumedDeferredMenu.ItemId)) {
+                    [void]$script:deferredBrowserMenus.Remove($deferredWindowKey)
+                    continue
+                }
                 $stage = 'item-pattern' # 2026-10-06：菜单项模式异常单独标明阶段，便于实机定位。
-                $itemInvoke = $item.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                $itemInvoke = Get-BackgroundInvoke $item $WindowHandle # 2026-10-07
+                $backgroundPatterns.Add($itemInvoke)
                 if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
                 # 2026-10-06：宿主查询完成后复核卡片、菜单和本次菜单项，关联触发器仍保持最后复核。
@@ -638,9 +1003,15 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 if ($item.Current.Name -ne 'Allow Once' -or -not $item.Current.IsEnabled -or $item.Current.IsOffscreen) { continue }
                 # 2026-10-06：菜单项取模式和宿主查询后复核关联触发器，菜单改属其他卡片时不批准。
                 $label = $menu.Current.LabeledBy
-                if ($null -ne $existingMenuId -and $null -eq $label) { continue } # 2026-10-07：已打开菜单不能失去其精确触发器身份。
+                if ($null -ne $existingMenuId -and $null -eq $label -and $null -eq $resumedDeferredMenu) { continue } # 2026-10-09：无标签菜单仅限已完整核验的自有续办记录。
                 if ($null -ne $label -and ($label.GetRuntimeId() -join '.') -ne ($allow.GetRuntimeId() -join '.')) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
+                # 2026-10-09：展开后用户切走或开始输入时保留待批菜单，不继续提交。
+                if (-not [MouseHelper]::CanUseForegroundUi($WindowHandle)) {
+                    $script:deferredBrowserMenus[$deferredWindowKey] = @{ ProcessId = $WindowProcessId; Target = $expectedTarget; MenuId = $menuId; ItemId = $itemId }
+                    continue
+                }
+                [void]$script:deferredBrowserMenus.Remove($deferredWindowKey)
                 $stage = 'item-invoke' # 2026-10-06：明确唯一新菜单本次批准的实际调用阶段。
                 $itemInvoke.Invoke()
                 [Console]::WriteLine('___CLICK_INVOKE___:Allow Once (browser domain permission)')
@@ -653,6 +1024,7 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             # 2026-10-07：最终批准已尝试但结果未知时占用本轮，展开或滚动失败仍可继续其它候选。
             if (($stage -eq 'invoke' -and $actionName -eq 'Allow Once') -or $stage -eq 'item-invoke') { return $true }
         }
+        finally { foreach ($preparedPattern in $backgroundPatterns) { $preparedPattern.Dispose() } } # 2026-10-07
     }
     return $false
 }
@@ -663,6 +1035,7 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
     $options = $Window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $radioCondition)
     foreach ($option in $options) {
         $stage = 'candidate'
+        $backgroundPatterns = [Collections.Generic.List[object]]::new() # 2026-10-07：所有退出路径统一释放本候选准备的原生模式。
         try {
             if ($option.Current.AutomationId -notmatch '^ask-opt-.+-1$' -or -not (Test-OneTimeApprovalName $option.Current.Name)) { continue }
             if (-not $option.Current.IsEnabled) { continue }
@@ -711,7 +1084,8 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 try { $selection = $option.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern) }
                 # 2026-10-07：仅降级到托管 UIA 实际支持的调用模式，选中状态仍由 SelectionItem 复核。
                 catch {
-                    $selection = $option.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                    $selection = Get-BackgroundInvoke $option $WindowHandle # 2026-10-07
+                    $backgroundPatterns.Add($selection)
                     $selectionMethod = 'invoke'
                 }
                 if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
@@ -758,7 +1132,8 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                     Write-ApprovalDiagnostic "permission submit-scroll returned=True visible=$(-not $submit.Current.IsOffscreen)" 'permission-submit-scroll'
                 }
                 $stage = 'submit-pattern'
-                $invoke = $submit.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+                $invoke = Get-BackgroundInvoke $submit $WindowHandle # 2026-10-07
+                $backgroundPatterns.Add($invoke)
                 # 2026-10-06：模式和宿主查询完成后，再核验最终按钮状态及两端控件仍归属原权限表单。
                 if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
@@ -782,6 +1157,7 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
             # 2026-10-07：提交调用已开始即消耗本轮，异常不能导致同轮继续批准其它窗口。
             if ($stage -eq 'submit-invoke') { return $true }
         } # 2026-10-06：错误日志只含固定阶段和类型，不输出命令正文。
+        finally { foreach ($preparedPattern in $backgroundPatterns) { $preparedPattern.Dispose() } } # 2026-10-07
     }
     return $false
 }
@@ -951,6 +1327,7 @@ $restoreCursorEnabled = $RestoreCursor -notmatch '^(false|0|no)$'
 
 # 2026-07-28 多个 Antigravity 窗口只允许一个全局扫描器，避免重复点击同一权限按钮
 # 2026-10-05：等待现有扫描器释放后接管，父宿主退出时释放互斥并结束子进程。
+$script:backgroundClient = $null # 2026-10-07：客户端仅在实际准备审批时创建。
 $script:parentProcess = $null
 if ($ParentProcessId -gt 0) {
     try { $script:parentProcess = Get-Process -Id $ParentProcessId -ErrorAction Stop }
@@ -984,6 +1361,17 @@ try {
 
         try {
             $windows = @($automation.FindAll([System.Windows.Automation.TreeScope]::Children, $winCondition))
+            # 2026-10-09：窗口离开本轮快照就丢弃其纯身份记录，不把已关闭窗口的菜单延续到新窗口。
+            if ($null -ne $script:deferredBrowserMenus) {
+                $liveMenuWindowKeys = @{}
+                foreach ($menuWindow in $windows) {
+                    try { $liveMenuWindowKeys[([long]$menuWindow.Current.NativeWindowHandle).ToString([Globalization.CultureInfo]::InvariantCulture)] = $true }
+                    catch { }
+                }
+                foreach ($pendingWindowKey in @($script:deferredBrowserMenus.Keys)) {
+                    if (-not $liveMenuWindowKeys.ContainsKey($pendingWindowKey)) { [void]$script:deferredBrowserMenus.Remove($pendingWindowKey) }
+                }
+            }
             $didClick = $false
             # 2026-10-07：每轮保留窗口快照并按上次动作窗口轮转，失效句柄只跳过自身。
             $windowStart = 0
@@ -1028,15 +1416,17 @@ try {
                     foreach ($btn in $buttons) {
                         if ($didClick) { break }
                         # 2026-10-07：单个按钮失效或调用报错仅跳过该按钮，调用后报错不能再物理重试。
+                        $ip = $null # 2026-10-07：早期跳过也不能沿用上一按钮的已释放模式。
                         try {
+                            # 2026-10-07：先按名称排除普通按钮，避免无关控件的跨进程状态及几何查询。
                             $btnName = $btn.Current.Name
+                            if (-not (Test-ButtonMatch $btnName)) { continue }
                             if (-not $btn.Current.IsEnabled) { continue }
                             if ($btn.Current.IsOffscreen) { continue }
                             $rect = $btn.Current.BoundingRectangle
                             if ($null -eq (Get-ButtonCenter $rect)) { continue }
-                            if (-not (Test-ButtonMatch $btnName)) { continue }
                             $ip = $null
-                            try { $ip = $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern) }
+                            try { $ip = Get-BackgroundInvoke $btn $windowHandle } # 2026-10-07
                             catch { }
                             if ($null -ne $ip) {
                                 # 2026-10-05：调用前重读按钮并复核宿主归属，扫描期间父进程退出时不执行动作。
@@ -1098,6 +1488,7 @@ try {
                             }
                         }
                         catch { Write-ApprovalDiagnostic "button scan failed type=$($_.Exception.GetType().Name)" 'button-error' }
+                        finally { if ($null -ne $ip) { $ip.Dispose() } } # 2026-10-07
                     }
                 }
                 catch { Write-ApprovalDiagnostic "window scan failed type=$($_.Exception.GetType().Name)" 'window-error' }
@@ -1112,6 +1503,7 @@ try {
 }
 # 2026-10-05：正常退出和异常退出均释放已持有的单实例锁，等待者可继续接管。
 finally {
+    if ($null -ne $script:backgroundClient) { $script:backgroundClient.Dispose(); $script:backgroundClient = $null } # 2026-10-07
     if ($mutexOwned) { $scannerMutex.ReleaseMutex() }
     $scannerMutex.Dispose()
     if ($null -ne $script:parentProcess) { $script:parentProcess.Dispose() }

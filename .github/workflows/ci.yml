@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }} # 2026-10-07：主分支发布串行完成，避免下一次提交中断已开始的上传。
 
 jobs:
   test:
@@ -57,6 +57,9 @@ jobs:
           npm run test:repository
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run test:lifecycle
+      # 2026-10-07：执行真实发布脚本的离线边界回归，PR 不联网或使用发布凭据。
+      - name: Offline release and store publication regression
+        run: node --test tests/publish-release.test.cjs
       - name: Scanner regression on one engine
         run: |
           $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/scanner.test.ps1'))
@@ -135,3 +138,236 @@ jobs:
             ${{ steps.vsix.outputs.path }}.sha256
           if-no-files-found: error
           retention-days: 14
+
+  # 2026-10-07：只发布本仓库主分支同次绿色构建的原包，分支和 PR 不取得发布入口。
+  publish:
+    name: Release and extension stores
+    needs: package
+    if: >-
+      github.repository == 'fhgffy/antigravity-auto-accept' &&
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Compile exact source for archive validation
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run compile
+      # 2026-10-07：官方 Node 24 Action 按完整 SHA 下载当前 run 的已验包，不查询最新构建。
+      - uses: actions/download-artifact@v8.0.1
+        with:
+          name: antigravity-auto-accept-${{ github.sha }}
+          path: ${{ runner.temp }}/publish-input
+      - name: Verify input and preserve exact release assets
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_DIRECTORY: ${{ runner.temp }}/publish-input
+        run: |
+          # 2026-10-07：校验同次 CI 原包；同 SHA 重跑只补缺失资产，不替换已经公开的安装文件。
+          $ErrorActionPreference = 'Stop'
+          $manifest = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          if ($manifest.name -cne 'antigravity-auto-accept' -or $manifest.publisher -cne 'fhgffy' -or $manifest.version -notmatch '^\d+\.\d+\.\d+$') { throw 'Unexpected stable release identity' }
+          $fileName = "$($manifest.name)-$($manifest.version).vsix"
+          $inputPath = Join-Path $env:INPUT_DIRECTORY $fileName
+          $inputChecksum = "$inputPath.sha256"
+          $inputFiles = @(Get-ChildItem -LiteralPath $env:INPUT_DIRECTORY -File -Recurse)
+          if ($inputFiles.Count -ne 2 -or -not (Test-Path -LiteralPath $inputPath) -or -not (Test-Path -LiteralPath $inputChecksum)) { throw 'Unexpected CI artifact contents' }
+          function Test-PublishPackage([string]$Path, [string]$ChecksumPath) {
+            $line = [IO.File]::ReadAllText($ChecksumPath, [Text.UTF8Encoding]::new($false, $true)).Trim()
+            if ($line -notmatch ('^([a-fA-F0-9]{64})  ' + [regex]::Escape([IO.Path]::GetFileName($Path)) + '$')) { throw 'Invalid release checksum file' }
+            $expectedHash = $Matches[1]
+            if ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -ine $expectedHash) { throw 'Release checksum mismatch' }
+            & ./tests/validate-vsix.ps1 -VsixPath $Path
+          }
+          function Read-PublishGhJson([string[]]$Arguments) {
+            $raw = & gh @Arguments
+            if ($LASTEXITCODE -ne 0) { throw 'GitHub release query failed' }
+            $json = $raw -join [Environment]::NewLine
+            if (-not [string]::IsNullOrWhiteSpace($json)) { return $json | ConvertFrom-Json -Depth 100 }
+          }
+          Test-PublishPackage $inputPath $inputChecksum
+          $tag = "v$($manifest.version)"
+          $repository = $env:GITHUB_REPOSITORY
+          $references = @(Read-PublishGhJson -Arguments @('api', "repos/$repository/git/matching-refs/tags/$tag"))
+          $reference = @($references | Where-Object { $_.ref -ceq "refs/tags/$tag" })
+          if ($reference.Count -gt 1) { throw 'Ambiguous release tag' }
+          if ($reference.Count -eq 1) {
+            $target = $reference[0].object
+            for ($depth = 0; $target.type -eq 'tag' -and $depth -lt 8; $depth++) {
+              $target = (Read-PublishGhJson -Arguments @('api', "repos/$repository/git/tags/$($target.sha)")).object
+            }
+            if ($target.type -ne 'commit') { throw 'Release tag does not resolve to a commit' }
+            if ($target.sha -cne $env:GITHUB_SHA) {
+              "proceed=false" >> $env:GITHUB_OUTPUT
+              "reason=Version $($manifest.version) already belongs to another commit; no assets or stores changed." >> $env:GITHUB_OUTPUT
+              return
+            }
+          }
+          $releaseQuery = '.[] | select(.tag_name == "' + $tag + '")'
+          $release = Read-PublishGhJson -Arguments @('api', "repos/$repository/releases", '--paginate', '--jq', $releaseQuery)
+          if ($null -ne $release -and $reference.Count -ne 1) { throw 'Existing release has no exact verified tag; manual recovery required' }
+          if ($null -eq $release) {
+            if ($reference.Count -eq 0) {
+              $createdReference = Read-PublishGhJson -Arguments @('api', '--method', 'POST', "repos/$repository/git/refs", '-f', "ref=refs/tags/$tag", '-f', "sha=$env:GITHUB_SHA")
+              if ($createdReference.ref -cne "refs/tags/$tag" -or $createdReference.object.type -cne 'commit' -or $createdReference.object.sha -cne $env:GITHUB_SHA) { throw 'Created release tag is not the exact CI commit' }
+            }
+            $notesPath = Join-Path $env:RUNNER_TEMP 'publish-notes.md'
+            $notes = "Verified CI: $env:GITHUB_SERVER_URL/$repository/actions/runs/$env:GITHUB_RUN_ID" + [Environment]::NewLine + "Commit: $env:GITHUB_SHA"
+            [IO.File]::WriteAllText($notesPath, $notes, [Text.UTF8Encoding]::new($false))
+            & gh release create $tag $inputPath $inputChecksum --repo $repository --verify-tag --title $tag --notes-file $notesPath --generate-notes
+            if ($LASTEXITCODE -ne 0) { throw 'Creating GitHub release failed' }
+            $release = Read-PublishGhJson -Arguments @('api', "repos/$repository/releases/tags/$tag")
+          }
+          if ($release.draft -or $release.prerelease) { throw 'Existing release is not a public stable release' }
+          $directory = Join-Path $env:RUNNER_TEMP 'publish-release'
+          [void](New-Item -ItemType Directory -Path $directory -Force)
+          $selectedPath = Join-Path $directory $fileName
+          $selectedChecksum = "$selectedPath.sha256"
+          $names = @($release.assets | ForEach-Object { $_.name })
+          $hasPackage = $fileName -cin $names
+          $hasChecksum = "$fileName.sha256" -cin $names
+          if ($hasPackage) {
+            & gh release download $tag --repo $repository --pattern $fileName --dir $directory
+            if ($LASTEXITCODE -ne 0) { throw 'Downloading original release package failed' }
+          }
+          else { Copy-Item -LiteralPath $inputPath -Destination $selectedPath }
+          if ($hasChecksum) {
+            & gh release download $tag --repo $repository --pattern "$fileName.sha256" --dir $directory
+            if ($LASTEXITCODE -ne 0) { throw 'Downloading original release checksum failed' }
+          }
+          else {
+            $hash = (Get-FileHash -LiteralPath $selectedPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText($selectedChecksum, "$hash  $fileName" + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+          }
+          Test-PublishPackage $selectedPath $selectedChecksum
+          if (-not $hasPackage) {
+            & gh release upload $tag $selectedPath --repo $repository
+            if ($LASTEXITCODE -ne 0) { throw 'Uploading missing original package failed' }
+          }
+          if (-not $hasChecksum) {
+            & gh release upload $tag $selectedChecksum --repo $repository
+            if ($LASTEXITCODE -ne 0) { throw 'Uploading missing original checksum failed' }
+          }
+          "proceed=true" >> $env:GITHUB_OUTPUT
+          "path=$selectedPath" >> $env:GITHUB_OUTPUT
+          "version=$($manifest.version)" >> $env:GITHUB_OUTPUT
+          "url=$($release.html_url)" >> $env:GITHUB_OUTPUT
+      # 2026-10-07：凭据仅交给对应商店步骤；两次上传独立尝试，公开查询不携带发布令牌。
+      - name: Publish verified package to Marketplace
+        id: marketplace
+        if: steps.release.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+          VSIX_PATH: ${{ steps.release.outputs.path }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:VSCE_PAT)) {
+            "status=not-configured" >> $env:GITHUB_OUTPUT
+            Write-Output 'Marketplace credential missing: not published.'
+            return
+          }
+          function Test-MarketplacePublic {
+            $body = @{ filters = @(@{ pageNumber = 1; pageSize = 1; criteria = @(@{ filterType = 7; value = 'fhgffy.antigravity-auto-accept' }) }); assetTypes = @(); flags = 33 } | ConvertTo-Json -Depth 10 -Compress
+            $response = Invoke-RestMethod -Uri 'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery' -Method Post -ContentType 'application/json' -Headers @{ Accept = 'application/json;api-version=3.0-preview.1' } -Body $body -TimeoutSec 15
+            if ($response.errorCode) { return $false }
+            $extension = @($response.results | ForEach-Object { $_.extensions } | Where-Object { $_.publisher.publisherName -ceq 'fhgffy' -and $_.extensionName -ceq 'antigravity-auto-accept' })
+            return $extension.Count -eq 1 -and @($extension[0].versions | Where-Object { $_.version -ceq $env:RELEASE_VERSION }).Count -eq 1
+          }
+          $available = $false
+          try { $available = Test-MarketplacePublic } catch { Write-Output 'Marketplace public precheck unavailable.' }
+          if (-not $available) {
+            "status=upload-failed" >> $env:GITHUB_OUTPUT
+            & npx --yes --package=@vscode/vsce@4.0.0 vsce publish --packagePath $env:VSIX_PATH
+            if ($LASTEXITCODE -ne 0) { throw 'Marketplace upload failed' }
+            "status=uploaded-pending" >> $env:GITHUB_OUTPUT
+            for ($attempt = 0; $attempt -lt 3; $attempt++) {
+              try { $available = Test-MarketplacePublic } catch { Write-Output 'Marketplace public version not available yet.' }
+              if ($available) { break }
+              if ($attempt -lt 2) { Start-Sleep -Seconds 20 }
+            }
+          }
+          if (-not $available) { throw 'Marketplace upload accepted, but exact validated version is not publicly visible after bounded checks' }
+          "status=publicly-available" >> $env:GITHUB_OUTPUT
+      - name: Publish verified package to Open VSX
+        id: openvsx
+        if: steps.release.outputs.proceed == 'true'
+        continue-on-error: true
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+          VSIX_PATH: ${{ steps.release.outputs.path }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:OVSX_PAT)) {
+            "status=not-configured" >> $env:GITHUB_OUTPUT
+            Write-Output 'Open VSX credential missing: not published.'
+            return
+          }
+          function Test-OpenVsxPublic {
+            $response = Invoke-RestMethod -Uri "https://open-vsx.org/api/fhgffy/antigravity-auto-accept/$env:RELEASE_VERSION" -TimeoutSec 15
+            return -not $response.error -and $response.namespace -ceq 'fhgffy' -and $response.name -ceq 'antigravity-auto-accept' -and $response.version -ceq $env:RELEASE_VERSION -and $response.downloadable -eq $true -and -not [string]::IsNullOrWhiteSpace($response.files.download)
+          }
+          $available = $false
+          try { $available = Test-OpenVsxPublic } catch { Write-Output 'Open VSX public precheck unavailable.' }
+          if (-not $available) {
+            "status=upload-failed" >> $env:GITHUB_OUTPUT
+            & npx --yes --package=ovsx@1.2.0 ovsx publish $env:VSIX_PATH
+            if ($LASTEXITCODE -ne 0) { throw 'Open VSX upload failed' }
+            "status=uploaded-pending" >> $env:GITHUB_OUTPUT
+            for ($attempt = 0; $attempt -lt 3; $attempt++) {
+              try { $available = Test-OpenVsxPublic } catch { Write-Output 'Open VSX public version not available yet.' }
+              if ($available) { break }
+              if ($attempt -lt 2) { Start-Sleep -Seconds 20 }
+            }
+          }
+          if (-not $available) { throw 'Open VSX upload accepted, but exact downloadable version is not publicly visible after bounded checks' }
+          "status=publicly-available" >> $env:GITHUB_OUTPUT
+      # 2026-10-07：汇总区分未配置、上传待审核和公开可见；任何实际失败均恢复为作业失败。
+      - name: Report release and store outcomes
+        id: publication_summary
+        if: always()
+        env:
+          RELEASE_OUTCOME: ${{ steps.release.outcome }}
+          RELEASE_PROCEED: ${{ steps.release.outputs.proceed }}
+          RELEASE_REASON: ${{ steps.release.outputs.reason }}
+          RELEASE_URL: ${{ steps.release.outputs.url }}
+          MARKETPLACE_STATUS: ${{ steps.marketplace.outputs.status }}
+          MARKETPLACE_OUTCOME: ${{ steps.marketplace.outcome }}
+          OPENVSX_STATUS: ${{ steps.openvsx.outputs.status }}
+          OPENVSX_OUTCOME: ${{ steps.openvsx.outcome }}
+        run: |
+          $lines = @('## Publication result', '')
+          if ($env:RELEASE_OUTCOME -ne 'success') {
+            $lines += 'GitHub Release: failed or not attempted; no store publication is confirmed.'
+          }
+          elseif ($env:RELEASE_PROCEED -ne 'true') { $lines += $env:RELEASE_REASON }
+          else {
+            $lines += "GitHub Release: $env:RELEASE_URL"
+            foreach ($store in @(@{ Name = 'Marketplace'; Status = $env:MARKETPLACE_STATUS; Outcome = $env:MARKETPLACE_OUTCOME }, @{ Name = 'Open VSX'; Status = $env:OPENVSX_STATUS; Outcome = $env:OPENVSX_OUTCOME })) {
+              if ($store.Status -eq 'not-configured') { $lines += "$($store.Name): **not published — credential not configured**."; Write-Output "::warning::$($store.Name) not published: credential not configured." }
+              elseif ($store.Status -eq 'publicly-available' -and $store.Outcome -eq 'success') { $lines += "$($store.Name): exact version publicly available." }
+              elseif ($store.Status -eq 'uploaded-pending') { $lines += "$($store.Name): uploaded, **public availability unconfirmed**; review or propagation may still be pending." }
+              else { $lines += "$($store.Name): **publication failed or not attempted**." }
+            }
+          }
+          [IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, ($lines -join [Environment]::NewLine) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+          if ($env:RELEASE_OUTCOME -ne 'success' -or $env:MARKETPLACE_OUTCOME -eq 'failure' -or $env:OPENVSX_OUTCOME -eq 'failure') { throw 'One or more publication stages failed; see summary' }

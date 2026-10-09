@@ -356,15 +356,11 @@ finally { $current.Dispose() }
 Assert-Host ($null -eq [MouseHelper]::GetProcessImagePath(0)) 'real zero pid rejected'
 Assert-Host ($null -eq [MouseHelper]::GetProcessImagePath([uint32]4294967295)) 'real nonexistent pid rejected'
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'Cross-bitness test requires Windows x64' }
-<# 2026-10-09：进程身份断言使用最小明确架构 EXE；PowerShell 启动语义留在独立冻结诊断。 #>
-$compilerPath = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-$fixtureSourcePath = Join-Path $PSScriptRoot 'fixtures\host-process-child.cs'
-if (-not [IO.File]::Exists($compilerPath) -or -not [IO.File]::Exists($fixtureSourcePath)) { throw 'Owned native child compiler or source missing' }
-foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bits = 4 })) {
-    $ownedBinaryDirectory = [IO.Path]::GetFullPath([IO.Path]::Combine([IO.Path]::GetTempPath(), 'AntigravityAA-HostBinary-' + [Guid]::NewGuid().ToString('N')))
-    $ownedExpectedBinaryDirectory = $ownedBinaryDirectory
-    $fixture.Engine = [IO.Path]::Combine($ownedBinaryDirectory, 'host-child.exe')
-    $fixture.Expected = $fixture.Engine
+$system32 = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$native64 = if ([IntPtr]::Size -eq 4) { Join-Path $env:WINDIR 'Sysnative\WindowsPowerShell\v1.0\powershell.exe' } else { $system32 }
+$native32 = Join-Path $env:WINDIR 'SysWOW64\WindowsPowerShell\v1.0\powershell.exe'
+foreach ($fixture in @(@{ Engine = $native64; Expected = $system32; Bits = 8 }, @{ Engine = $native32; Expected = $native32; Bits = 4 })) {
+    if (-not [IO.File]::Exists($fixture.Engine)) { throw "Owned child engine missing: $($fixture.Engine)" }
     <# 2026-10-08：每例独占 GUID 目录和 nonce；阶段文件先于对应 Console getter/写入后的 stderr 标记。 #>
     $ownedStageDirectory = [IO.Path]::GetFullPath([IO.Path]::Combine([IO.Path]::GetTempPath(), 'AntigravityAA-HostChild-' + [Guid]::NewGuid().ToString('N')))
     $ownedExpectedDirectory = $ownedStageDirectory
@@ -374,9 +370,32 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
         [pscustomobject]@{ Stage = 'ENCODING_SET'; Path = [IO.Path]::Combine($ownedStageDirectory, 'encoding-set.stage'); Protocol = 'HOST_CHILD_ENCODING_SET' },
         [pscustomobject]@{ Stage = 'READY_WRITTEN'; Path = [IO.Path]::Combine($ownedStageDirectory, 'ready-written.stage'); Protocol = 'HOST_CHILD_READY_WRITTEN' }
     )
+    $childCommand = @'
+$nonce='__NONCE__'
+$enteredPath='__ENTERED__'
+$encodingPath='__ENCODING__'
+$readyPath='__READY__'
+$bytes=[Text.Encoding]::ASCII.GetBytes('HOST_CHILD_ENTERED:'+$PID+':'+$nonce+[Environment]::NewLine)
+$file=[IO.File]::Open($enteredPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+try{$file.Write($bytes,0,$bytes.Length)}finally{$file.Dispose()}
+[Console]::Error.WriteLine("HOST_CHILD_ENTERED:"+$PID)
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+$bytes=[Text.Encoding]::ASCII.GetBytes('HOST_CHILD_ENCODING_SET:'+$PID+':'+$nonce+[Environment]::NewLine)
+$file=[IO.File]::Open($encodingPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+try{$file.Write($bytes,0,$bytes.Length)}finally{$file.Dispose()}
+[Console]::Error.WriteLine("HOST_CHILD_ENCODING_SET:"+$PID)
+[Console]::WriteLine("READY:"+[IntPtr]::Size+":"+$PID)
+$bytes=[Text.Encoding]::ASCII.GetBytes('HOST_CHILD_READY_WRITTEN:'+$PID+':'+$nonce+[Environment]::NewLine)
+$file=[IO.File]::Open($readyPath,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read)
+try{$file.Write($bytes,0,$bytes.Length)}finally{$file.Dispose()}
+[Console]::Error.WriteLine("HOST_CHILD_READY_WRITTEN:"+$PID)
+[void][Console]::ReadLine()
+exit 259
+'@
+    $childCommand = $childCommand.Replace('__NONCE__', $ownedStageNonce).Replace('__ENTERED__', $ownedStagePaths[0].Path.Replace("'", "''")).Replace('__ENCODING__', $ownedStagePaths[1].Path.Replace("'", "''")).Replace('__READY__', $ownedStagePaths[2].Path.Replace("'", "''"))
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $fixture.Engine
-    $start.Arguments = '"' + $ownedStageDirectory + '" "' + $ownedStageNonce + '"' # 2026-10-09：只传独占阶段目录与本轮 nonce。
+    $start.Arguments = '-NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -EncodedCommand ' + [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childCommand))
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
     $start.RedirectStandardInput = $true
@@ -388,12 +407,6 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
     $child.StartInfo = $start
     $retained = [IntPtr]::Zero
     $ownedDirectoryCreated = $false
-    # 2026-10-09：分别记录编译产物与编译进程的本轮归属。
-    $ownedBinaryDirectoryCreated = $false
-    $compilerStarted = $false
-    $compilerExitConfirmed = $false
-    $compilerCleanupError = ''
-    $compilerPid = $null
     $childStarted = $false
     $ownedChildId = $null
     $exitWaitCompleted = $null
@@ -404,37 +417,6 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
         if ([IO.Directory]::Exists($ownedStageDirectory)) { throw 'Owned stage directory collision' }
         [void][IO.Directory]::CreateDirectory($ownedStageDirectory)
         $ownedDirectoryCreated = $true
-        <# 2026-10-09：编译目录独立于三个阶段文件；编译失败仍只回收持有的 compiler 和准确 EXE。 #>
-        if ([IO.Directory]::Exists($ownedBinaryDirectory)) { throw 'Owned binary directory collision' }
-        [void][IO.Directory]::CreateDirectory($ownedBinaryDirectory)
-        $ownedBinaryDirectoryCreated = $true
-        $compileStart = New-Object Diagnostics.ProcessStartInfo
-        $compileStart.FileName = $compilerPath
-        $compileStart.Arguments = '/nologo /target:exe /codepage:65001 /platform:' + $fixture.Platform + ' /out:"' + $fixture.Engine + '" "' + $fixtureSourcePath + '"'
-        $compileStart.UseShellExecute = $false
-        $compileStart.CreateNoWindow = $true
-        $compileStart.RedirectStandardOutput = $true
-        $compileStart.RedirectStandardError = $true
-        $compiler = New-Object Diagnostics.Process
-        $compiler.StartInfo = $compileStart
-        try {
-            if (-not $compiler.Start()) { throw 'Owned child compiler did not start' }
-            $compilerStarted = $true; $compilerPid = $compiler.Id
-            $compileOut = $compiler.StandardOutput.ReadToEndAsync()
-            $compileError = $compiler.StandardError.ReadToEndAsync()
-            if (-not $compiler.WaitForExit(10000)) { throw 'Owned child compile timeout' }
-            if ($compiler.ExitCode -ne 0 -or $compileOut.GetAwaiter().GetResult().Length -ne 0 -or $compileError.GetAwaiter().GetResult().Length -ne 0) { throw 'Owned child compile failed' }
-        } finally {
-            # 2026-10-09：清理旁证不覆盖原编译异常；无法确认退出时保留自有目录。
-            if ($compilerStarted) {
-                try {
-                    if (-not $compiler.get_HasExited()) { $compiler.Kill(); [void]$compiler.WaitForExit(5000) }
-                    $compilerExitConfirmed = $compiler.get_HasExited()
-                } catch { $compilerCleanupError = $_.Exception.GetType().FullName }
-            }
-            try { $compiler.Dispose() } catch { $compilerCleanupError = $_.Exception.GetType().FullName }
-        }
-        if (-not $compilerExitConfirmed -or $compilerCleanupError.Length -ne 0) { throw 'Owned child compiler cleanup failed' }
         if (-not $child.Start()) { throw 'Owned child did not start' }
         $childStarted = $true; $ownedChildId = $child.Id # 2026-10-08：只保留本次启动对象的 PID。
         $pendingReady = $child.StandardOutput.ReadLineAsync()
@@ -544,32 +526,8 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
                 } catch { $cleanup.DirectoryState = 'ownership-error'; $cleanup.DirectoryError = $_.Exception.GetType().FullName }
             } else { $cleanup.DirectoryState = 'kept-exit-unconfirmed' }
         }
-        <# 2026-10-09：子进程和编译器均确认退出后，只删登记的绝对 EXE，非递归删除独占空目录。 #>
-        $binaryCleanup = [ordered]@{ CompilerPid = $compilerPid; CompilerStarted = $compilerStarted; CompilerExitConfirmed = $compilerExitConfirmed; CompilerError = $compilerCleanupError; Directory = $ownedBinaryDirectory; State = 'not-created'; Error = '' }
-        if ($ownedBinaryDirectoryCreated) {
-            if ((-not $childStarted -or $hasExitedAfterStop -eq $true) -and (-not $compilerStarted -or $compilerExitConfirmed)) {
-                try {
-                    $binaryDirectory = [IO.Path]::GetFullPath($ownedBinaryDirectory)
-                    $binaryPath = [IO.Path]::GetFullPath($fixture.Engine)
-                    if (-not [String]::Equals($binaryDirectory, $ownedExpectedBinaryDirectory, [StringComparison]::OrdinalIgnoreCase) -or
-                        -not [IO.Path]::IsPathRooted($fixture.Engine) -or
-                        -not [String]::Equals([IO.Path]::GetDirectoryName($binaryPath), $binaryDirectory, [StringComparison]::OrdinalIgnoreCase) -or
-                        [IO.Path]::GetFileName($binaryPath) -cne 'host-child.exe') { throw 'Owned binary cleanup path changed' }
-                    [IO.File]::Delete($binaryPath)
-                    [IO.Directory]::Delete($binaryDirectory, $false)
-                    $binaryCleanup.State = 'removed'
-                } catch { $binaryCleanup.State = 'cleanup-error'; $binaryCleanup.Error = $_.Exception.GetType().FullName }
-            } else { $binaryCleanup.State = 'kept-exit-unconfirmed' }
-        }
-        try { [Console]::WriteLine('___HOST_BINARY_CLEANUP___:' + ($binaryCleanup | ConvertTo-Json -Compress)) } catch { }
         try { $child.Dispose() } catch { $cleanup.DisposeError = $_.Exception.GetType().FullName }
         try { [Console]::WriteLine('___HOST_CHILD_CLEANUP___:' + ($cleanup | ConvertTo-Json -Compress -Depth 5)) } catch { }
     }
-    # 2026-10-09：正常断言路径必须确认资源回收；置于 finally 后，原失败不被清理检查覆盖。
-    if ($binaryCleanup.State -cne 'removed' -or $binaryCleanup.Error.Length -ne 0 -or
-        -not $binaryCleanup.CompilerExitConfirmed -or $binaryCleanup.CompilerError.Length -ne 0) { throw 'Owned binary cleanup failed' }
-    if ($cleanup.HasExitedAfterStop -ne $true -or $cleanup.DirectoryState -cne 'removed' -or
-        $cleanup.QueryError.Length -ne 0 -or $cleanup.StopError.Length -ne 0 -or $cleanup.DirectoryError.Length -ne 0 -or $cleanup.DisposeError.Length -ne 0 -or
-        @($cleanup.StageFiles | Where-Object { $_.State -cne 'deleted' -or $_.Error.Length -ne 0 }).Count -ne 0) { throw 'Owned child cleanup failed' }
 }
 Write-Output "___HOST_PROCESS_TEST_DONE___:passed=$script:checks"

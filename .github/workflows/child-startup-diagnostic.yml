@@ -1,0 +1,60 @@
+# 2026-10-08：四个独立新 runner 比较一次自有 x86 child 的输入方式，不预热或自动重跑。
+name: Child startup input diagnostic
+
+on:
+  push:
+    branches:
+      - codex/scanner-idle-audit
+    paths:
+      - tests/child-startup-diagnostic.ps1
+      - tests/fixtures/host-process-startup-20261008.ps1 # 2026-10-09：冻结入口变化也触发诊断。
+      - .github/workflows/child-startup-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    name: Startup caller${{ matrix.major }} ${{ matrix.input }}
+    runs-on: windows-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        major: [5, 7]
+        input: [EncodedCommand, File]
+        include:
+          - major: 5
+            shell: powershell
+          - major: 7
+            shell: pwsh
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      # 2026-10-08：当前 runner 引擎直接执行 UTF-8 AST，只启动诊断持有的一次 child32。
+      - name: One owned child on selected input
+        env:
+          STARTUP_EVIDENCE_DIR: ${{ runner.temp }}/AntigravityAA-startup-${{ matrix.major }}-${{ matrix.input }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          if ($PSVersionTable.PSVersion.Major -ne ${{ matrix.major }}) { throw 'Unexpected selected caller' }
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/child-startup-diagnostic.ps1'))
+          $tokens = $null
+          $parseErrors = $null
+          $ast = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -ne 0) { throw 'Startup diagnostic parse errors' }
+          & ($ast.GetScriptBlock()) -InputMode '${{ matrix.input }}' -ExpectedMajor ${{ matrix.major }} -RepositoryRoot $PWD.Path -EvidenceDirectory $env:STARTUP_EVIDENCE_DIR
+      # 2026-10-08：失败也保留每例独立结果，上传不改变前一步失败结论。
+      - name: Preserve startup diagnostic result
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: startup-caller${{ matrix.major }}-${{ matrix.input }}
+          path: ${{ runner.temp }}/AntigravityAA-startup-${{ matrix.major }}-${{ matrix.input }}/result.json
+          if-no-files-found: error
+          retention-days: 14

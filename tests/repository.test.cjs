@@ -11,7 +11,7 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'ut
 const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
 const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { cwd: root })
     .toString('utf8').split('\0').filter(Boolean);
-const textFiles = files.filter(file => /\.(?:ts|ps1|cjs|json|ya?ml|md)$/i.test(file)
+const textFiles = files.filter(file => /\.(?:ts|ps1|cs|cjs|json|ya?ml|md)$/i.test(file) // 2026-10-09：新增原生测试夹具的编码检查。
     || ['.gitattributes', '.gitignore', '.vscodeignore', 'LICENSE'].includes(file));
 
 test('tracked source and maintenance files preserve strict UTF-8 without BOM and CRLF', () => {

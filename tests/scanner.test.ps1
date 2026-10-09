@@ -109,8 +109,28 @@ foreach ($name in @('Test-BrowserPermissionText', 'Test-BrowserPermissionCardSha
     if ($definition.Count -eq 0) { continue }
     # 2026-10-07：浏览器新增归属复核继续只替代外部父链读取，保留全部真实身份判断。
     $functionText = $definition[0].Extent.Text -replace '\[System\.Windows\.Automation\.TreeWalker\]::ControlViewWalker\.GetParent\((\$\w+)\)', '(Get-TestParent $1)'
+    # 2026-10-09：只替代只读前台/输入边界，完整浏览器函数与实际动作分支继续执行。
+    $functionText = $functionText.Replace('[MouseHelper]::CanUseForegroundUi($WindowHandle)', '(Get-TestForegroundUiAllowed $WindowHandle)')
     . ([scriptblock]::Create($functionText))
 }
+# 2026-10-07：只替代原生 COM 准备边界；原模式桩的身份变化、副作用和异常仍进入真实最终检查。
+function Get-BackgroundInvoke($Element, [IntPtr]$WindowHandle) {
+    if ($WindowHandle -eq [IntPtr]::Zero) { throw 'Background action must bind a window' }
+    $pattern = $Element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
+    $prepared = [pscustomobject]@{ Pattern = $pattern; Disposed = $false }
+    $script:testBackgroundPrepared++
+    $prepared | Add-Member ScriptMethod Invoke {
+        $previous = $script:testNativeActionInProgress
+        $script:testNativeActionInProgress = $true
+        try { $this.Pattern.Invoke() }
+        finally { $script:testNativeActionInProgress = $previous }
+    }
+    $prepared | Add-Member ScriptMethod Dispose {
+        if (-not $this.Disposed) { $this.Disposed = $true; $script:testBackgroundDisposed++ }
+    }
+    return $prepared
+}
+
 function Get-TestParent($Node) { return $Node.Parent }
 $script:lastApprovalDiagnosticTime = [DateTime]::MinValue
 $script:approvalDiagnosticTimes = @{}
@@ -451,6 +471,75 @@ function New-TestBrowserWindow([string]$Mode) {
     return $window
 }
 
+# 2026-10-09：后台或最后查询期间切走不得滚动、展开或批准；回到前台后同一待批卡片自动继续。
+$script:testForegroundUiAllowed = $true
+$script:testForegroundUiCalls = 0
+$script:testForegroundUiBlockAt = 0
+function Get-TestForegroundUiAllowed([IntPtr]$WindowHandle) {
+    if ($WindowHandle -ne [IntPtr]42) { throw 'Unexpected foreground target' }
+    $script:testForegroundUiCalls++
+    return $script:testForegroundUiAllowed -and ($script:testForegroundUiBlockAt -eq 0 -or $script:testForegroundUiCalls -lt $script:testForegroundUiBlockAt)
+}
+$foregroundDeferralFailures = @()
+foreach ($case in @(
+    @{ Mode = 'expand-only'; Allowed = $false; BlockAt = 0; Approvals = 0; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'scroll-expand'; Allowed = $false; BlockAt = 0; Approvals = 0; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'wide'; Allowed = $false; BlockAt = 0; Approvals = 1; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'expand-only'; Allowed = $true; BlockAt = 2; Approvals = 0; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'scroll-expand'; Allowed = $true; BlockAt = 2; Approvals = 0; Scrolls = 0; Expansions = 0 },
+    @{ Mode = 'labeled-menu'; Allowed = $true; BlockAt = 3; Approvals = 0; Scrolls = 0; Expansions = 1 }
+)) {
+    $script:testParentAlive = $true
+    $script:testForegroundUiAllowed = $case.Allowed
+    $script:testForegroundUiBlockAt = $case.BlockAt
+    $script:testForegroundUiCalls = 0
+    $browserWindow = New-TestBrowserWindow $case.Mode
+    $actual = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42)
+    $description = "mode=$($case.Mode) allowed=$($case.Allowed) blockAt=$($case.BlockAt) approve=$($browserWindow.Once.Invocations) scroll=$($browserWindow.More.Scrolls) expand=$($browserWindow.More.Expansions)"
+    if ($actual -ne ($case.Approvals -gt 0) -or $browserWindow.Once.Invocations -ne $case.Approvals -or $browserWindow.Always.Invocations -ne 0 -or $browserWindow.More.Scrolls -ne $case.Scrolls -or $browserWindow.More.Expansions -ne $case.Expansions) { $foregroundDeferralFailures += $description; Write-Output "FAIL browser foreground deferral: $description" }
+    else { $checks++; Write-Output "PASS browser foreground deferral: $description" }
+}
+$script:testForegroundUiBlockAt = 0
+$script:testForegroundUiAllowed = $false
+$browserWindow = New-TestBrowserWindow 'expand-only'
+$deferred = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42)
+if ($deferred -or $browserWindow.Once.Invocations -ne 0 -or $browserWindow.More.Expansions -ne 0) { $foregroundDeferralFailures += 'background did not defer before return' }
+$script:testForegroundUiAllowed = $true
+$resumed = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42)
+if (-not $resumed -or $browserWindow.Once.Invocations -ne 1 -or $browserWindow.More.Expansions -ne 1 -or $browserWindow.Always.Invocations -ne 0) { $foregroundDeferralFailures += 'foreground return did not resume exact one-time approval' }
+else { $checks++; Write-Output 'PASS browser foreground return resumes without manual approval' }
+if ($foregroundDeferralFailures.Count -gt 0) { throw "Browser foreground deferral regressions: $($foregroundDeferralFailures -join '; ')" }
+
+# 2026-10-09：只续办本轮已完整核验的新菜单；跨轮换卡片、文案、菜单或菜单项均不得借旧记录批准。
+foreach ($mutation in @('unchanged', 'menu', 'item', 'card', 'target-id', 'target-text', 'target-soft-hyphen', 'foreign-menu')) {
+    $script:deferredBrowserMenus = @{}
+    $script:testForegroundUiAllowed = $true
+    $script:testForegroundUiCalls = 0
+    $script:testForegroundUiBlockAt = 3
+    $browserWindow = New-TestBrowserWindow 'expand-only'
+    if ($mutation -eq 'foreign-menu') { $browserWindow.Opened = $true; $script:testForegroundUiBlockAt = 0 }
+    $first = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42)
+    if ($first -or $browserWindow.Once.Invocations -ne 0) { throw 'Deferred menu approved before foreground guard' }
+    switch ($mutation) {
+        'menu' { $browserWindow.Menu.Key = 9901 }
+        'item' { $browserWindow.Once.Key = 9902 }
+        'card' { $browserWindow.Card.Key = 9903 }
+        'target-id' { $browserWindow.Card.Texts[0].Key = 9904 }
+        'target-text' { $browserWindow.Card.Texts[0].Current.Name = 'Agent needs permission to act on example.org' }
+        'target-soft-hyphen' { $browserWindow.Card.Texts[0].Current.Name = 'Agent needs permission to act on git' + [char]0x00AD + 'hub.com' }
+    }
+    $script:testForegroundUiBlockAt = 0
+    $script:testForegroundUiCalls = 0
+    $resumed = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42)
+    $expected = $mutation -eq 'unchanged'
+    $expectedActions = if ($expected) { 1 } else { 0 }
+    $expectedExpansions = if ($mutation -eq 'foreign-menu') { 0 } else { 1 }
+    if ($resumed -ne $expected -or $browserWindow.Once.Invocations -ne $expectedActions -or $browserWindow.Always.Invocations -ne 0 -or $browserWindow.More.Expansions -ne $expectedExpansions) { throw "Deferred unlabelled menu regression: mutation=$mutation result=$resumed approve=$($browserWindow.Once.Invocations) expand=$($browserWindow.More.Expansions)" }
+    $checks++
+    Write-Output "PASS exact deferred unlabelled menu continuation: $mutation"
+}
+$script:deferredBrowserMenus = @{}
+
 # 2026-10-06：诊断仅观察结构，验证总数、离屏状态和日志中没有域名或用户消息。
 if (Get-Command Write-BrowserCandidateDiagnostic -ErrorAction SilentlyContinue) {
     $diagnosticWindow = New-TestBrowserWindow 'wide'
@@ -637,10 +726,10 @@ Write-Output 'PASS browser permission shape and global Always Allow exclusion'
 function New-TestScanWindow([int]$Handle, [string]$Mode = '') {
     $button = [pscustomobject]@{
         Current = [pscustomobject]@{ Name = 'Run'; IsEnabled = $true; IsOffscreen = $false; BoundingRectangle = @{ X = 0; Y = 0; Width = 100; Height = 40 } }
-        Invocations = 0; PhysicalClicks = 0; Mode = $Mode
+        Invocations = 0; PhysicalClicks = 0; PatternReads = 0; Mode = $Mode # 2026-10-07：记录模式查询次数，普通按钮不得触及动作模式。
     }
     $button | Add-Member ScriptMethod GetRuntimeId { return @(6001) } # 2026-10-07：原按钮身份快照具有实际 UIA 接口。
-    $button | Add-Member ScriptMethod GetCurrentPattern { param($pattern) if ($this.Mode -eq 'physical-parent-exit') { throw 'Invoke pattern unavailable in test' }; return $this }
+    $button | Add-Member ScriptMethod GetCurrentPattern { param($pattern) $this.PatternReads++; if ($this.Mode -eq 'physical-parent-exit') { throw 'Invoke pattern unavailable in test' }; return $this } # 2026-10-07
     $button | Add-Member ScriptMethod Invoke { $this.Invocations++; if ($this.Mode -eq 'invoke-throws') { throw 'Provider failed after Invoke in test' } }
     $window = [pscustomobject]@{ Current = [pscustomobject]@{ ProcessId = 123; NativeWindowHandle = $Handle }; Buttons = @($button); Action = $button; Mode = $Mode }
     $window | Add-Member ScriptMethod FindFirst { param($scope, $condition) if ($this.Mode -eq 'stale-window') { throw 'Stale window provider in test' }; return $null }
@@ -649,6 +738,32 @@ function New-TestScanWindow([int]$Handle, [string]$Mode = '') {
         $stale = [pscustomobject]@{}
         $stale | Add-Member ScriptProperty Current { throw 'Stale button provider in test' }
         $window.Buttons = @($stale, $button)
+    }
+    # 2026-10-07：记录普通按钮的每个属性读取，并用会抛错的提供者验证名称初筛先于无关状态和矩形查询。
+    if ($Mode -like 'ordinary-*' -or $Mode -like 'candidate-*') {
+        $current = [pscustomobject]@{
+            Mode = $Mode; NameValue = $(if ($Mode -like 'ordinary-*') { 'Save' } else { 'Run' })
+            EnabledValue = ($Mode -ne 'candidate-disabled'); OffscreenValue = ($Mode -eq 'candidate-offscreen')
+            RectangleValue = @{ X = 0; Y = 0; Width = $(if ($Mode -eq 'candidate-invalid-geometry') { 0 } else { 100 }); Height = 40 }
+            NameReads = 0; EnabledReads = 0; OffscreenReads = 0; RectangleReads = 0
+        }
+        $current | Add-Member ScriptProperty Name { $this.NameReads++; return $this.NameValue }
+        $current | Add-Member ScriptProperty IsEnabled {
+            $this.EnabledReads++
+            if ($this.Mode -eq 'ordinary-enabled-throws') { throw 'Unrelated enabled provider failed in test' }
+            return $this.EnabledValue
+        }
+        $current | Add-Member ScriptProperty IsOffscreen {
+            $this.OffscreenReads++
+            if ($this.Mode -eq 'ordinary-offscreen-throws') { throw 'Unrelated offscreen provider failed in test' }
+            return $this.OffscreenValue
+        }
+        $current | Add-Member ScriptProperty BoundingRectangle {
+            $this.RectangleReads++
+            if ($this.Mode -eq 'ordinary-rectangle-throws') { throw 'Unrelated rectangle provider failed in test' }
+            return $this.RectangleValue
+        }
+        $button.Current = $current
     }
     return $window
 }
@@ -723,6 +838,48 @@ finally {
     $script:scanMutationWindow = $null
 }
 if ($scanFailures.Count -gt 0) { throw "Scanner boundary failures: $($scanFailures -join '; ')" }
+
+# 2026-10-07：运行真实主循环并保留实际几何函数，只让名称匹配的候选查询状态、矩形和模式。
+$filterFailures = @()
+try {
+    function Get-TargetProcessIds([int]$ProcessId) { if ($ProcessId -eq 123) { return @{ 123 = $true } }; return @{} }
+    function Get-ButtonCenter($Rectangle) { $script:filterCenterReads++; return & $originalButtonCenter $Rectangle }
+    foreach ($mode in @('ordinary-counted', 'ordinary-enabled-throws', 'ordinary-offscreen-throws', 'ordinary-rectangle-throws', 'candidate-disabled', 'candidate-offscreen', 'candidate-invalid-geometry', 'candidate-valid')) {
+        $script:testParentAlive = $true
+        $script:filterCenterReads = 0
+        $window = New-TestScanWindow 42 $mode
+        $automation = [pscustomobject]@{ Window = $window; Scans = 0 }
+        $automation | Add-Member ScriptMethod FindAll {
+            param($scope, $condition)
+            $this.Scans++
+            if ($this.Scans -gt 1) { $script:testParentAlive = $false; return @() }
+            return @($this.Window)
+        }
+        . ([scriptblock]::Create($noClickLifecycle))
+        $button = $window.Action
+        $current = $button.Current
+        $expected = switch ($mode) {
+            'candidate-disabled' { @(1, 1, 0, 0, 0, 0, 0) }
+            'candidate-offscreen' { @(1, 1, 1, 0, 0, 0, 0) }
+            'candidate-invalid-geometry' { @(1, 1, 1, 1, 1, 0, 0) }
+            'candidate-valid' { @(2, 2, 2, 1, 1, 1, 1) }
+            default { @(1, 0, 0, 0, 0, 0, 0) }
+        }
+        $actual = @($current.NameReads, $current.EnabledReads, $current.OffscreenReads, $current.RectangleReads, $script:filterCenterReads, $button.PatternReads, $button.Invocations)
+        $description = "mode=$mode name=$($actual[0]) enabled=$($actual[1]) offscreen=$($actual[2]) rect=$($actual[3]) center=$($actual[4]) pattern=$($actual[5]) invoke=$($actual[6]) physical=$($button.PhysicalClicks)"
+        if (($actual -join ',') -cne ($expected -join ',') -or $button.PhysicalClicks -ne 0) {
+            $filterFailures += $description
+            Write-Output "FAIL scanner name filter: $description"
+        }
+        else { Write-Output "PASS scanner name filter: $description" }
+        $checks++
+    }
+}
+finally {
+    Set-Item Function:\Get-TargetProcessIds $originalTargetLookup
+    Set-Item Function:\Get-ButtonCenter $originalButtonCenter
+}
+if ($filterFailures.Count -gt 0) { throw "Scanner name filter failures: $($filterFailures -join '; ')" }
 
 # 2026-10-07：动作已经发生却抛错时，同轮后续按钮不得执行，并按配置等待下一轮。
 $attemptFailures = @()
@@ -843,6 +1000,202 @@ foreach ($mode in @('browser-wide', 'browser-menu', 'terminal-submit', 'terminal
     $checks++
 }
 if ($cardAttemptFailures.Count -gt 0) { throw "Final approval attempt failures: $($cardAttemptFailures -join '; ')" }
+
+# 2026-10-07：重放真实审批分支；托管 Invoke 模拟已复现的前台切换，原生边界仅改变动作路径。
+$backgroundFailures = @()
+foreach ($mode in @('terminal-submit', 'terminal-option-fallback', 'browser-wide', 'browser-trigger', 'browser-menu', 'generic-run')) {
+    $script:testParentAlive = $true
+    $script:testNativeActionInProgress = $false
+    $script:testForeground = 'other-app'
+    $script:testBackgroundPrepared = 0
+    $script:testBackgroundDisposed = 0
+    $expectedApprovals = 1
+    $expectedPreparations = 1
+    $script:testForegroundUiAllowed = $mode -notin @('browser-trigger', 'browser-menu')
+    if (-not $script:testForegroundUiAllowed) { $expectedApprovals = 0; $expectedPreparations = 0 }
+    if ($mode -like 'terminal-*') {
+        $window = New-TestApprovalWindow $true ($mode -eq 'terminal-submit') $true
+        $action = $window.Card.Buttons[0]
+        $action | Add-Member ScriptMethod Invoke {
+            $this.Invocations++
+            if (-not $script:testNativeActionInProgress) { $script:testForeground = 'ide' }
+        } -Force
+        if ($mode -eq 'terminal-option-fallback') {
+            $option = $window.Card.Radios[0]
+            $option.SelectionReadable = $false
+            $option | Add-Member ScriptMethod GetCurrentPattern {
+                param($pattern)
+                if ($pattern.Id -eq [System.Windows.Automation.SelectionItemPattern]::Pattern.Id) {
+                    if (-not $this.SelectionReadable) { throw 'Selection unavailable before default action' }
+                    return $this.Selection
+                }
+                if ($pattern.Id -eq [System.Windows.Automation.InvokePattern]::Pattern.Id) { return $this }
+                throw 'Unexpected option pattern'
+            } -Force
+            $option | Add-Member ScriptMethod Invoke {
+                $this.Selection.Current.IsSelected = $true
+                $this.SelectionReadable = $true
+                if (-not $script:testNativeActionInProgress) { $script:testForeground = 'ide' }
+            }
+            $expectedPreparations = 2
+        }
+        $actual = Invoke-ApprovalCards $window 123 ([IntPtr]42)
+    }
+    elseif ($mode -like 'browser-*') {
+        $shape = if ($mode -eq 'browser-wide') { 'wide' } elseif ($mode -eq 'browser-menu') { 'labeled-menu' } else { 'narrow-invoke' }
+        $window = New-TestBrowserWindow $shape
+        $action = $window.Once
+        $action | Add-Member ScriptMethod Invoke {
+            $this.Invocations++
+            if (-not $script:testNativeActionInProgress) { $script:testForeground = 'ide' }
+        } -Force
+        if ($mode -eq 'browser-trigger') {
+            $window.More | Add-Member ScriptMethod GetCurrentPropertyValue {
+                param($property)
+                return ($property.Id -ne [System.Windows.Automation.AutomationElement]::IsExpandCollapsePatternAvailableProperty.Id)
+            } -Force
+            $window.More | Add-Member ScriptMethod Invoke {
+                $this.Invocations++
+                $this.Window.Opened = $true
+                if (-not $script:testNativeActionInProgress) { $script:testForeground = 'ide' }
+            } -Force
+            $expectedPreparations = 0 # 2026-10-09：后台窄触发器在准备前暂缓。
+        }
+        $actual = Invoke-BrowserPermissionCards $window 123 ([IntPtr]42)
+    }
+    else {
+        $window = New-TestScanWindow 42
+        $action = $window.Action
+        $action | Add-Member ScriptMethod Invoke {
+            $this.Invocations++
+            if (-not $script:testNativeActionInProgress) { $script:testForeground = 'ide' }
+        } -Force
+        $automation = [pscustomobject]@{ Window = $window; Scans = 0 }
+        $automation | Add-Member ScriptMethod FindAll {
+            param($scope, $condition)
+            $this.Scans++
+            if ($this.Scans -gt 1) { $script:testParentAlive = $false; return @() }
+            return @($this.Window)
+        }
+        . ([scriptblock]::Create($noClickLifecycle))
+        $actual = $action.Invocations -eq 1
+    }
+    $description = "mode=$mode approve=$($action.Invocations) foreground=$script:testForeground prepared=$script:testBackgroundPrepared disposed=$script:testBackgroundDisposed"
+    if ($actual -ne ($expectedApprovals -gt 0) -or $action.Invocations -ne $expectedApprovals -or $script:testForeground -ne 'other-app' -or $script:testBackgroundPrepared -ne $expectedPreparations -or $script:testBackgroundDisposed -ne $expectedPreparations) {
+        $backgroundFailures += $description
+        Write-Output "FAIL background action route: $description"
+    }
+    else { $checks++; Write-Output "PASS background action route: $description" }
+}
+if ($backgroundFailures.Count -gt 0) { throw "Background action routing failures: $($backgroundFailures -join '; ')" }
+
+$script:testForegroundUiAllowed = $true # 2026-10-09：后续故障用例继续验证原前台动作路径。
+
+# 2026-10-07：最终检查拒绝或动作抛错仍释放已准备模式；不把异常转换为第二次点击。
+foreach ($mode in @('terminal-parent-exit', 'browser-relabel', 'generic-invoke-throws')) {
+    $script:testParentAlive = $true
+    $script:testBackgroundPrepared = 0
+    $script:testBackgroundDisposed = 0
+    if ($mode -eq 'terminal-parent-exit') {
+        $window = New-TestApprovalWindow $true $true $true
+        $window.Card.Buttons[0] | Add-Member ScriptMethod GetCurrentPattern { param($pattern) $script:testParentAlive = $false; return $this } -Force
+        $actual = Invoke-ApprovalCards $window 123 ([IntPtr]42)
+        $action = $window.Card.Buttons[0]
+        $expected = 0
+    }
+    elseif ($mode -eq 'browser-relabel') {
+        $window = New-TestBrowserWindow 'relabel-menu'
+        $actual = Invoke-BrowserPermissionCards $window 123 ([IntPtr]42)
+        $action = $window.Once
+        $expected = 0
+    }
+    else {
+        $window = New-TestScanWindow 42 'invoke-throws'
+        $action = $window.Action
+        $automation = [pscustomobject]@{ Window = $window; Scans = 0 }
+        $automation | Add-Member ScriptMethod FindAll {
+            param($scope, $condition)
+            $this.Scans++
+            if ($this.Scans -gt 1) { $script:testParentAlive = $false; return @() }
+            return @($this.Window)
+        }
+        . ([scriptblock]::Create($noClickLifecycle))
+        $expected = 1
+    }
+    if ($action.Invocations -ne $expected -or $script:testBackgroundPrepared -ne 1 -or $script:testBackgroundDisposed -ne 1) { throw "Background disposal regression: $mode actions=$($action.Invocations) prepared=$script:testBackgroundPrepared disposed=$script:testBackgroundDisposed" }
+    $checks++
+    Write-Output "PASS background pattern disposal: $mode actions=$($action.Invocations)"
+}
+
+# 2026-10-07：编译实际内嵌 COM 契约，预检只创建客户端和拒绝无效输入，不枚举或操作真实桌面。
+$nativeSource = [regex]::Match($source, '(?s)Add-Type -TypeDefinition @"\r?\n(.*?)\r?\n"@').Groups[1].Value
+if ([string]::IsNullOrWhiteSpace($nativeSource)) { throw 'Embedded native source missing' }
+Add-Type -TypeDefinition $nativeSource -ErrorAction Stop
+$ownedClient = [AntigravityUia.BackgroundClient]::new()
+try {
+    if ($ownedClient.AutoSetFocus) { throw 'Native client still enables automatic focus' }
+    $checks++
+    foreach ($case in @(
+        @{ Handle = [IntPtr]::Zero; RuntimeId = @(7); Parameter = 'hwnd' },
+        @{ Handle = [IntPtr]1; RuntimeId = $null; Parameter = 'expectedRuntimeId' },
+        @{ Handle = [IntPtr]1; RuntimeId = @(); Parameter = 'expectedRuntimeId' }
+    )) {
+        $observed = $null
+        try { $null = $ownedClient.Prepare($case.Handle, [int[]]$case.RuntimeId) }
+        catch { $observed = $_.Exception.GetBaseException() }
+        if ($null -eq $observed -or $observed -isnot [ArgumentException] -or $observed.ParamName -ne $case.Parameter) { throw "Native preparation failed to reject $($case.Parameter) before desktop access" }
+        $checks++
+    }
+}
+finally { $ownedClient.Dispose() }
+$ownedClient.Dispose()
+$disposedFailure = $null
+try { $null = $ownedClient.Prepare([IntPtr]1, [int[]]@(7)) }
+catch { $disposedFailure = $_.Exception.GetBaseException() }
+if ($disposedFailure -isnot [ObjectDisposedException]) { throw 'Disposed native client reached desktop access' }
+$checks++
+Write-Output 'PASS native client focus flag, early validation, and repeated disposal without desktop access'
+
+# 2026-10-07：只替代 Marshal 释放边界，真实清理代码必须继续释放后续引用并保留原动作异常。
+$releaseSource = $nativeSource.Replace('namespace AntigravityUia', 'namespace AntigravityUiaReleaseTest').Replace('MouseHelper', 'MouseHelperReleaseTest')
+$releaseSource = $releaseSource.Replace('Marshal.IsComObject(owned)', 'ComReleaseBoundary.IsComObject(owned)').Replace('Marshal.ReleaseComObject(owned)', 'ComReleaseBoundary.ReleaseComObject(owned)')
+$releaseSource += @'
+namespace AntigravityUiaReleaseTest {
+    public static class ComReleaseBoundary {
+        public static readonly System.Collections.Generic.List<string> Released = new System.Collections.Generic.List<string>();
+        public static string Failure;
+        public static bool IsComObject(object owned) { return true; }
+        public static int ReleaseComObject(object owned) {
+            string name = (string)owned;
+            Released.Add(name);
+            if (name == "first") {
+                if (Failure == "disconnected") { throw new System.Runtime.InteropServices.InvalidComObjectException("Disconnected owned reference"); }
+                if (Failure == "com") { throw new System.Runtime.InteropServices.COMException("Provider release failed"); }
+                if (Failure == "argument") { throw new System.ArgumentException("Invalid owned reference"); }
+            }
+            return 0;
+        }
+    }
+}
+'@
+Add-Type -TypeDefinition $releaseSource -ErrorAction Stop
+$releaseMethod = [AntigravityUiaReleaseTest.BackgroundClient].GetMethod('ReleaseOwned', [Reflection.BindingFlags]'Static,NonPublic')
+foreach ($mode in @('disconnected', 'com', 'argument')) {
+    [AntigravityUiaReleaseTest.ComReleaseBoundary]::Failure = $mode
+    [AntigravityUiaReleaseTest.ComReleaseBoundary]::Released.Clear()
+    $primaryFailure = $null
+    try {
+        try { throw [InvalidOperationException]::new('Primary approval failure') }
+        finally {
+            foreach ($ownedName in @('first', 'second', 'third')) { $null = $releaseMethod.Invoke($null, @([object]$ownedName)) }
+        }
+    }
+    catch { $primaryFailure = $_.Exception.GetBaseException() }
+    $released = [AntigravityUiaReleaseTest.ComReleaseBoundary]::Released -join ','
+    if ($released -ne 'first,second,third' -or $primaryFailure -isnot [InvalidOperationException] -or $primaryFailure.Message -ne 'Primary approval failure') { throw "Owned COM cleanup masked approval or skipped references: $mode released=$released" }
+    $checks++
+    Write-Output "PASS owned COM cleanup preserves original failure: $mode"
+}
 
 # 2026-10-07：生命周期子进程显式提供空窗口枚举，不能依赖旧的空进程图让扫描入口跳轮。
 $stub = $parentFunction[0].Extent.Text + [Environment]::NewLine

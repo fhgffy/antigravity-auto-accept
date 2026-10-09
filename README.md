@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.5
+# 🚀 Antigravity Auto Accept v5.3.6
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -24,6 +24,8 @@ Antigravity's [IDE settings documentation](https://antigravity.google/docs/setti
 - **Strict Mode, explicit denials, enterprise policies, sandbox restrictions, and browser denylist entries remain enforced by Antigravity.** This is not a guarantee that every command can execute.
 - Workspace trust prompts and generic `Save`, `OK`, `Yes`, or `Retry` buttons are not agent approvals and are excluded. English and Chinese approval labels are supported.
 - Command permission cards select **Yes, allow this time** and submit the same card. Browser domain cards select **Allow Once**, including the menu inside **More actions** in a narrow sidebar. Command cards in the conversation or input area keep the same strict form checks; long cards scroll only the verified action control into view. The scanner does not select **Always Allow** or expand historical command records.
+- Narrow browser menus wait until the target IDE window is foreground and user input has been idle for 500ms; scanning resumes automatically when these conditions return. Direct **Allow Once** buttons and other supported approvals retain their background action path.
+- 浏览器窄菜单在对应 IDE 窗口处于前台、输入空闲 500ms 后自动处理；切走或正在输入时暂缓，无需手动点批准。宽栏 **Allow Once** 和其它支持的审批继续使用后台动作路径。
 - `InvokePattern` can work without moving the cursor. Physical fallback yields to user input and only acts on a revalidated button in the foreground Antigravity window; covered or changed targets are skipped.
 - One scanner covers the desktop session's Antigravity windows from the same installation path. Other enabled windows wait to take over. Stop disables this window's scanner; another enabled window may continue scanning, including buttons in the stopped window. Workspace trust gates the scanner's host; scanning is not isolated per workspace.
 
@@ -148,6 +150,13 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.6 — Button Filtering and Release Delivery (2026-10-07)
+
+- Skip unrelated button state and geometry queries after the existing name filter; preserve action-time host, input and approval checks.
+- Add production-loop regressions for ordinary buttons with throwing getters and disabled, offscreen, invalid-geometry and valid approval candidates.
+- Publish verified main CI packages to GitHub Releases after tests pass. Marketplace and Open VSX publishing use configured credentials and report missing credentials explicitly.
+- See [publishing instructions](docs/publishing.md) for release retry and store verification.
 
 ### v5.3.5 — Window Process Queries (2026-10-07)
 
