@@ -1,5 +1,7 @@
 # 🚀 Antigravity Auto Accept v5.3.6
 
+> Linux maintenance status (2026-10-14): experimental read-only diagnostics only. Start runs a one-shot capability check and returns OFF; automatic approval actions are disabled. Windows UIAutomation is unchanged. See [Linux backend details](docs/linux-backend-experimental.md).
+
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
 

@@ -36,7 +36,7 @@ const prelude = [
   "function New-TestVsix([string]$Destination, [int]$Year, [bool]$BadRuntime = $false) {",
   "  $zip = [IO.Compression.ZipFile]::Open($Destination, [IO.Compression.ZipArchiveMode]::Create)",
   "  try {",
-  "    $entries = @{ 'extension.vsixmanifest' = '<PackageManifest><Metadata><Identity Version=\"1.2.3\" Id=\"antigravity-auto-accept\" Publisher=\"fhgffy\"/></Metadata></PackageManifest>'; '[Content_Types].xml' = '<Types/>'; 'extension/package.json' = [IO.File]::ReadAllText('package.json'); 'extension/src/autoClicker.ps1' = [IO.File]::ReadAllText('src/autoClicker.ps1'); 'extension/out/extension.js' = [IO.File]::ReadAllText('out/extension.js'); 'extension/icon.png' = 'icon'; 'extension/LICENSE.txt' = 'license'; 'extension/readme.md' = 'fixture readme' }",
+  "    $entries = @{ 'extension.vsixmanifest' = '<PackageManifest><Metadata><Identity Version=\"1.2.3\" Id=\"antigravity-auto-accept\" Publisher=\"fhgffy\"/></Metadata></PackageManifest>'; '[Content_Types].xml' = '<Types/>'; 'extension/package.json' = [IO.File]::ReadAllText('package.json'); 'extension/src/autoClicker.ps1' = [IO.File]::ReadAllText('src/autoClicker.ps1'); 'extension/out/extension.js' = [IO.File]::ReadAllText('out/extension.js'); 'extension/out/platformBackend.js' = [IO.File]::ReadAllText('out/platformBackend.js'); 'extension/src/linux/atspi_probe.py' = [IO.File]::ReadAllText('src/linux/atspi_probe.py'); 'extension/icon.png' = 'icon'; 'extension/LICENSE.txt' = 'license'; 'extension/readme.md' = 'fixture readme' }",
   "    if ($BadRuntime) { $entries['extension/out/extension.js'] = 'wrong runtime' }",
   "    foreach ($name in $entries.Keys) {",
   "      $entry = $zip.CreateEntry($name); $entry.LastWriteTime = [DateTimeOffset]::new($Year,1,1,0,0,0,[TimeSpan]::Zero)",
@@ -128,6 +128,9 @@ function execute(id, mode, overrides = {}) {
   }
   fs.writeFileSync(path.join(directory, 'package.json'), JSON.stringify({ name: 'antigravity-auto-accept', publisher: 'fhgffy', version: '1.2.3' }));
   fs.writeFileSync(path.join(directory, 'src/autoClicker.ps1'), '# inert fixture');
+  fs.mkdirSync(path.join(directory, 'src/linux'));
+  fs.writeFileSync(path.join(directory, 'src/linux/atspi_probe.py'), '# inert Linux fixture');
+  fs.writeFileSync(path.join(directory, 'out/platformBackend.js'), 'inert dispatcher fixture');
   fs.writeFileSync(path.join(directory, 'out/extension.js'), 'inert fixture');
   fs.writeFileSync(path.join(directory, 'icon.png'), 'icon');
   fs.writeFileSync(path.join(directory, 'LICENSE'), 'license');

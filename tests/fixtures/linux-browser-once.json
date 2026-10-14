@@ -1,0 +1,10 @@
+[
+  {"id":"frame","role":"frame","bus":":1.42","pid":200},
+  {"id":"conversation","parent":"frame","accessibleId":"conversation","bus":":1.42","pid":200},
+  {"id":"card","kind":"card","parent":"conversation","outcome":"pending","bus":":1.42","pid":200},
+  {"id":"target","kind":"browser-target","parent":"card","target":"example.invalid","bus":":1.42","pid":200},
+  {"id":"configure","role":"push button","name":"Configure","parent":"card","bus":":1.42","pid":200},
+  {"id":"deny","role":"push button","name":"Deny","parent":"card","bus":":1.42","pid":200},
+  {"id":"always","role":"push button","name":"Always Allow","parent":"card","bus":":1.42","pid":200},
+  {"id":"once","role":"push button","name":"Allow Once","parent":"card","bus":":1.42","pid":200,"states":["enabled","sensitive","showing","visible"],"actions":["click"]}
+]

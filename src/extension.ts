@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as child_process from 'child_process';
 import * as fs from 'fs';
+import { selectPlatformBackend } from './platformBackend';
 
 // 2026-03-29 v5.1.0 UIAutomation架构 — 从CDP回归UIAutomation直接按钮检测 //***
 // UIAutomation能看到Antigravity的"Run"/"Accept"等按钮并支持InvokePattern，无需CDP端口
@@ -14,7 +15,11 @@ let extensionContext: vscode.ExtensionContext;
 /* 2026-10-05：扫描会话拥有独立状态与可取消重启，避免旧进程事件污染新实例。 */
 let isActive = false;
 let restartTimer: ReturnType<typeof setTimeout> | undefined;
-let scannerState: 'starting' | 'waiting' | 'ready' | 'retrying' | undefined;
+let scannerState: 'starting' | 'waiting' | 'ready' | 'retrying' | 'diagnostic' | 'stopping' | undefined;
+let diagnosticTimer: ReturnType<typeof setTimeout> | undefined;
+let diagnosticKillTimer: ReturnType<typeof setTimeout> | undefined;
+let linuxDiagnosticStop: ((message: string) => void) | undefined;
+let linuxRestartRequested = false;
 let startAfterTrust = false; // 2026-10-07：用户停止时取消尚未授信的自动启动。
 
 // 2026-07-28 运行参数集中读取，避免启动/重启/状态栏各自散落默认值 //***
@@ -36,7 +41,7 @@ export function activate(context: vscode.ExtensionContext) {
     extensionContext = context;
     outputChannel = vscode.window.createOutputChannel('Antigravity Auto Accept');
     context.subscriptions.push(outputChannel); // 2026-10-05
-    log('🚀', `Antigravity Auto Accept ${context.extension?.packageJSON.version ?? ''} (UIAutomation) activating...`); // 2026-10-05
+    log('🚀', `Antigravity Auto Accept ${context.extension?.packageJSON.version ?? ''} (${process.platform === 'linux' ? 'Linux diagnostics' : 'UIAutomation'}) activating...`); // 2026-10-05
 
     // 状态栏按钮
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -47,6 +52,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     // 注册命令
     const toggleCmd = vscode.commands.registerCommand('antigravity-auto-accept.toggle', () => {
+        /* 2026-10-14：Linux 诊断期间点击状态栏仅停止诊断，不误报审批开启。 */
+        if (linuxDiagnosticStop) { stopAutoClicker(); updateStatusBar(); return; }
         isEnabled = !isEnabled;
         updateStatusBar();
         if (isEnabled) {
@@ -71,10 +78,17 @@ export function activate(context: vscode.ExtensionContext) {
         isEnabled = false;
         updateStatusBar();
         stopAutoClicker();
+        updateStatusBar();
         notify('Antigravity Auto Accept stopped.');
     });
 
     const restartCmd = vscode.commands.registerCommand('antigravity-auto-accept.restart', () => {
+        /* 2026-10-14：显式重启等待旧 Linux 子进程真正关闭，停止和卸载可取消等待。 */
+        if (linuxDiagnosticStop) {
+            linuxRestartRequested = true;
+            linuxDiagnosticStop('Restart requested; stopping the current Linux diagnostic.');
+            return;
+        }
         if (!isEnabled) {
             isEnabled = true;
             updateStatusBar();
@@ -111,12 +125,15 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(toggleCmd, startCmd, stopCmd, restartCmd, showOutputCmd, configWatcher, trustWatcher);
 
     // 自动启动
-    isEnabled = getConfig().autoStart;
+    /* 2026-10-14：Linux 仍未实现审批，启动插件不自动连接辅助功能或运行探针。 */
+    isEnabled = process.platform !== 'linux' && getConfig().autoStart;
     updateStatusBar();
     if (isEnabled) {
         startAutoClicker();
     } else {
-        log('ℹ️', 'Auto start disabled by setting.');
+        log('ℹ️', process.platform === 'linux'
+            ? 'Linux automatic approvals are unavailable. Use Start to run a read-only diagnostic.'
+            : 'Auto start disabled by setting.');
     }
 }
 
@@ -124,15 +141,11 @@ function startAutoClicker() {
     /* 2026-10-05：仅在 Windows Antigravity 的可信工作区启动，卸载后的遗留命令不再创建进程。 */
     if (!isActive) { isEnabled = false; return; }
     if (!isEnabled) { return; }
-    if (psProcess) { return; }
-    const unavailableReason = process.platform !== 'win32'
-        ? 'UIAutomation requires Windows.'
-        : !/^antigravity(?: ide)?\.exe$/i.test(path.win32.basename(process.execPath))
-            ? 'This extension only runs inside Antigravity IDE.'
-            : !vscode.workspace.isTrusted ? 'Workspace trust is required before auto-accept can start.' : undefined;
-    if (unavailableReason) {
-        startAfterTrust = !vscode.workspace.isTrusted; // 2026-10-07：记录被信任边界暂缓的启动意图。
-        log('ℹ️', unavailableReason);
+    if (psProcess) { if (process.platform === 'linux') { isEnabled = false; } return; }
+    const backend = selectPlatformBackend(process.platform, process.execPath, vscode.workspace.isTrusted);
+    if (backend.kind === 'unsupported') {
+        startAfterTrust = process.platform === 'win32' && !vscode.workspace.isTrusted;
+        log('ℹ️', backend.reason);
         isEnabled = false;
         scannerState = undefined;
         updateStatusBar();
@@ -140,6 +153,8 @@ function startAutoClicker() {
     }
     startAfterTrust = false; // 2026-10-07：已通过宿主边界，无须等待后续信任事件。
     if (restartTimer !== undefined) { clearTimeout(restartTimer); restartTimer = undefined; }
+
+    if (backend.kind === 'linux-atspi-diagnostic') { startLinuxDiagnostic(backend.script); return; }
 
     const config = getConfig();
     const scriptPath = extensionContext.asAbsolutePath(path.join('src', 'autoClicker.ps1'));
@@ -282,10 +297,108 @@ function startAutoClicker() {
     });
 }
 
+/* 2026-10-14：Linux 只运行可取消的单次只读探针，绝不复用 Windows READY 或重启协议。 */
+function startLinuxDiagnostic(relativeScript: string) {
+    isEnabled = false;
+    const scriptPath = extensionContext.asAbsolutePath(relativeScript);
+    if (!fs.existsSync(scriptPath)) {
+        log('❌', 'Linux diagnostic script is missing from the extension package.');
+        updateStatusBar();
+        return;
+    }
+    let child: child_process.ChildProcess;
+    try {
+        /* 2026-10-14：固定系统解释器和参数数组，避免工作区 PATH、Python 环境或 shell 注入。 */
+        child = child_process.spawn('/usr/bin/python3', [
+            '-I', '-B', scriptPath, '--probe', '--parent-pid', String(process.pid),
+            '--host-executable', process.execPath,
+        ], { stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+    } catch {
+        log('❌', 'Linux diagnostics could not start. System Python 3 is required.');
+        updateStatusBar();
+        return;
+    }
+    psProcess = child;
+    scannerState = 'diagnostic';
+    updateStatusBar();
+    outputChannel.show(true);
+    log('ℹ️', 'Running a read-only Linux capability diagnostic. Automatic approvals remain disabled.');
+    let stdout = '';
+    let stopping = false;
+    const current = () => psProcess === child;
+    const stop = (message: string) => {
+        if (!current() || stopping) { return; }
+        stopping = true;
+        if (diagnosticTimer !== undefined) { clearTimeout(diagnosticTimer); diagnosticTimer = undefined; }
+        scannerState = 'stopping';
+        isEnabled = false;
+        if (isActive) { log('ℹ️', message); updateStatusBar(); }
+        /* 2026-10-14：先请求退出，宽限后只强制结束该子进程；close 前绝不释放所有权。 */
+        try { child.kill('SIGTERM'); } catch { /* 2026-10-14：继续执行有界的强制结束。 */ }
+        if (!current()) { return; }
+        diagnosticKillTimer = setTimeout(() => {
+            diagnosticKillTimer = undefined;
+            if (!current()) { return; }
+            try { child.kill('SIGKILL'); } catch { /* 2026-10-14：失败仍保持 STOPPING，不允许重叠启动。 */ }
+            if (isActive) { log('ℹ️', 'Linux diagnostic termination requested; waiting for the child to close.'); }
+        }, 1000);
+    };
+    linuxDiagnosticStop = stop;
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (data: Buffer | string) => {
+        if (!current() || !isActive || stopping) { return; }
+        stdout += data.toString();
+        if (stdout.length > 65536) { stop('Linux diagnostic output exceeded its limit; stopping the diagnostic.'); }
+    });
+    /* 2026-10-14：不打印可能含界面隐私的底层 stderr；关闭时只解释已校验的固定 JSON 协议。 */
+    child.stderr?.on('data', () => {});
+    for (const stream of [child.stdout, child.stderr]) {
+        stream?.on('error', () => stop('Linux diagnostic pipe failed; stopping the diagnostic.'));
+    }
+    child.on('error', () => stop('Linux diagnostics could not start. Check system Python 3; waiting for cleanup.'));
+    child.on('close', (code: number | null) => {
+        if (!current()) { return; }
+        if (diagnosticTimer !== undefined) { clearTimeout(diagnosticTimer); diagnosticTimer = undefined; }
+        if (diagnosticKillTimer !== undefined) { clearTimeout(diagnosticKillTimer); diagnosticKillTimer = undefined; }
+        psProcess = undefined;
+        linuxDiagnosticStop = undefined;
+        scannerState = undefined;
+        isEnabled = false;
+        const restartRequested = linuxRestartRequested && isActive;
+        linuxRestartRequested = false;
+        if (!isActive) { return; }
+        let message = 'Linux diagnostic stopped. Automatic approvals remain disabled.';
+        if (!stopping) {
+            try {
+                const report: unknown = JSON.parse(stdout.trim());
+                if (typeof report !== 'object' || report === null) { throw new Error('invalid protocol'); }
+                const result = report as Record<string, unknown>;
+                if (result.schemaVersion !== 1 || result.backend !== 'linux-atspi' || result.actionsEnabled !== false
+                    || typeof result.message !== 'string' || result.message.length > 2000
+                    || !((code === 0 && result.status === 'diagnostic-only') || (code === 2 && result.status === 'unavailable'))) {
+                    throw new Error('invalid protocol');
+                }
+                message = `Linux diagnostic: ${result.message}`;
+            } catch {
+                message = 'Linux diagnostics did not return a valid read-only result. Automatic approvals remain disabled.';
+            }
+        }
+        log('ℹ️', message);
+        updateStatusBar();
+        if (restartRequested) { isEnabled = true; startAutoClicker(); }
+    });
+    diagnosticTimer = setTimeout(() => stop('Linux diagnostics timed out; stopping the diagnostic.'), 15000);
+}
+
 function stopAutoClicker() {
+    /* 2026-10-14：Linux close 之前保留所有权，卸载后也必须执行强制结束计时器。 */
+    linuxRestartRequested = false;
+    if (linuxDiagnosticStop) { linuxDiagnosticStop('Stopping the Linux diagnostic.'); return; }
     startAfterTrust = false; // 2026-10-07：停止同时撤销尚未授信的启动意图。
     /* 2026-10-05：先撤销计时器和实例所有权，再结束进程，异步 exit 不再修改后续实例。 */
     if (restartTimer !== undefined) { clearTimeout(restartTimer); restartTimer = undefined; }
+    if (diagnosticTimer !== undefined) { clearTimeout(diagnosticTimer); diagnosticTimer = undefined; }
     scannerState = undefined;
     if (psProcess) {
         log('⏹️', 'Stopping scanner...');
@@ -312,7 +425,11 @@ function restartAutoClicker(reason: string) {
 // 2026-07-28 状态栏直接展示当前扫描节奏，减少必须打开日志排查的成本 //***
 function updateStatusBar() {
     const config = getConfig();
-    if (isEnabled) {
+    if (scannerState === 'diagnostic' || scannerState === 'stopping') {
+        statusBarItem.text = scannerState === 'stopping' ? '◌ AutoAccept: STOPPING' : '◌ AutoAccept: DIAGNOSTIC';
+        statusBarItem.tooltip = 'Linux read-only diagnostic. Automatic approvals are disabled.\nClick to stop.';
+        statusBarItem.backgroundColor = undefined;
+    } else if (isEnabled) {
         /* 2026-10-05：只有收到 READY 才显示 ON，等待接管与重启期间显示实际状态。 */
         const state = scannerState === 'ready' ? 'ON' : (scannerState ?? 'starting').toUpperCase();
         statusBarItem.text = `${scannerState === 'waiting' ? '⏳' : '⚡'} AutoAccept: ${state}`;
@@ -320,7 +437,9 @@ function updateStatusBar() {
         statusBarItem.backgroundColor = undefined;
     } else {
         statusBarItem.text = '✕ AutoAccept: OFF';
-        statusBarItem.tooltip = 'Antigravity Auto Accept: OFF\nClick to toggle ON';
+        statusBarItem.tooltip = process.platform === 'linux'
+            ? 'Linux automatic approvals are unavailable.\nClick to run a read-only diagnostic.'
+            : 'Antigravity Auto Accept: OFF\nClick to toggle ON';
         statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
     }
 }
@@ -352,5 +471,11 @@ function notify(message: string) {
 export function deactivate() {
     isActive = false; // 2026-10-05
     isEnabled = false;
+    const linuxChild = linuxDiagnosticStop ? psProcess : undefined;
     stopAutoClicker();
+    /* 2026-10-14：卸载后扩展宿主可能立即退出，不能依靠将来的计时器回收只读 Linux 子进程。 */
+    if (linuxChild) {
+        if (diagnosticKillTimer !== undefined) { clearTimeout(diagnosticKillTimer); diagnosticKillTimer = undefined; }
+        try { linuxChild.kill('SIGKILL'); } catch { /* 2026-10-14：仅针对已拥有的 Linux 子进程。 */ }
+    }
 }

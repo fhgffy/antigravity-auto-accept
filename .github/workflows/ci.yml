@@ -1,5 +1,5 @@
 # 2026-10-07：两种实际 PowerShell 引擎独立验证，打包只在全部回归通过后执行。
-name: Windows validation
+name: Cross-platform validation
 
 on:
   push:
@@ -104,9 +104,27 @@ jobs:
           if ($parseErrors.Count -gt 0) { throw 'Concurrency test parse errors' }
           & ($testAst.GetScriptBlock()) -PowerShellEngines @('${{ matrix.executable }}')
 
+  # 2026-10-14：Linux 只运行离线诊断夹具，不连接桌面或执行真实审批。
+  linux:
+    name: Linux read-only diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Portable lifecycle and platform boundaries
+        run: npm run test:portable
+      - name: Read-only AT-SPI adapter and negative fixtures
+        run: npm run test:linux
+
   package:
     name: Verified VSIX
-    needs: test
+    needs: [test, linux]
     runs-on: windows-latest
     timeout-minutes: 15
     steps:

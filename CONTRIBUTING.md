@@ -26,3 +26,7 @@ For a real IDE test, install the generated VSIX with the Antigravity IDE CLI, re
 - Never commit tokens, credentials, IDE databases, user settings, local app logs, or test workspace contents.
 
 For issues, include Windows/IDE/extension versions, local or remote mode, the exact approval label, minimized/covered-window state, and sanitized extension output. Do not attach private source code or command secrets.
+
+## Linux diagnostic maintenance
+
+Linux currently has read-only diagnostics, with approval actions disabled. Use `npm run test:portable` and `npm run test:linux` for offline lifecycle, platform and adapter tests. These do not require a desktop or AT-SPI installation. The Linux CI job runs these checks separately from the unchanged Windows scanner matrix. See [the experimental Linux backend notes](docs/linux-backend-experimental.md) for capability requirements and the remaining integration-test boundary.

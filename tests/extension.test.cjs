@@ -13,6 +13,12 @@ const compiled = ts.transpileModule(fs.readFileSync(sourcePath, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 
+/* 2026-10-14：分派模块同样从生产源码加载，测试不依赖旧 out 构建产物。 */
+const backendExports = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname, '..', 'src', 'platformBackend.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, { exports: backendExports, require });
+
 /* 2026-10-05：仅替代不可在 Node 中加载的 IDE 与进程依赖，命令、事件和状态变更均由生产源码执行。 */
 function createHarness(options = {}) {
     const commands = new Map();
@@ -66,11 +72,12 @@ function createHarness(options = {}) {
     const childProcess = {
         spawn: (command, args, spawnOptions) => {
             if (options.spawnThrows) { throw new Error('spawn rejected'); }
-            const child = new EventEmitter();
-            child.stdout = new PassThrough();
-            child.stderr = new PassThrough();
+            const child = options.spawnImplementation ? options.spawnImplementation() : new EventEmitter();
+            if (!options.spawnImplementation) { child.stdout = new PassThrough(); child.stderr = new PassThrough(); }
             child.killCalls = 0;
-            child.kill = () => { child.killCalls++; return true; };
+            child.killSignals = [];
+            const nativeKill = options.spawnImplementation ? child.kill.bind(child) : () => true;
+            child.kill = signal => { child.killCalls++; child.killSignals.push(signal); return nativeKill(signal); };
             children.push({ child, command, args, options: spawnOptions });
             return child;
         },
@@ -87,6 +94,7 @@ function createHarness(options = {}) {
         },
         clearTimeout: id => timers.delete(id),
         require: name => {
+            if (name === './platformBackend') { return backendExports; }
             if (name === 'vscode') { return vscode; }
             if (name === 'child_process') { return childProcess; }
             if (name === 'fs') { return { existsSync: () => options.scriptExists ?? true }; }
@@ -518,5 +526,226 @@ test('错误类型的通知配置不显示通知，真实布尔值仍生效', ()
         harness.changeConfig({ showNotifications: true });
         harness.command('stop');
         assert.equal(harness.info.length, 1);
+    }
+});
+
+/* 2026-10-14：Linux 后端只允许显式启动一次诊断，所有事件都不能进入 ON 或自动重试。 */
+function linuxHarness(options = {}) {
+    return createHarness({ platform: 'linux', execPath: '/opt/Antigravity IDE/antigravity-ide', ...options });
+}
+
+test('Linux 激活、授信和配置变更均不自动运行诊断', () => {
+    const harness = linuxHarness();
+    harness.grantTrust();
+    harness.changeConfig({ pollMs: 600, autoStart: true });
+    harness.flushTimers();
+    assert.equal(harness.children.length, 0);
+    assert.match(harness.status.text, /OFF/);
+    assert.match(harness.status.tooltip, /read-only diagnostic/);
+});
+
+test('Linux 显式启动使用系统 Python 和参数数组并始终禁止审批', () => {
+    const harness = linuxHarness({ config: { showNotifications: true } });
+    harness.command('start');
+    const spawn = harness.children[0];
+    assert.equal(spawn.command, '/usr/bin/python3');
+    assert.deepEqual(Array.from(spawn.args.slice(0, 2)), ['-I', '-B']);
+    assert.ok(spawn.args.includes('--probe'));
+    assert.ok(spawn.args.includes('4321'));
+    assert.equal(spawn.args.at(-1), '/opt/Antigravity IDE/antigravity-ide');
+    assert.equal(spawn.options.shell, false);
+    assert.match(harness.status.text, /DIAGNOSTIC/);
+    assert.equal(harness.info.length, 0);
+    harness.command('start');
+    assert.equal(harness.children.length, 1);
+    assert.equal(harness.info.length, 0);
+});
+
+test('Linux 完成或缺依赖后恢复 OFF 且不重启', () => {
+    for (const [code, status] of [[0, 'diagnostic-only'], [2, 'unavailable']]) {
+        const harness = linuxHarness();
+        harness.command('start');
+        const child = harness.children[0].child;
+        child.stdout.emit('data', JSON.stringify({ schemaVersion: 1, backend: 'linux-atspi', actionsEnabled: false, status, message: 'Read-only result.' }));
+        child.emit('exit', code);
+        child.emit('close', code);
+        assert.match(harness.status.text, /OFF/);
+        assert.equal(harness.timers.size, 0);
+        harness.flushTimers();
+        assert.equal(harness.children.length, 1);
+        assert.ok(harness.logs.some(line => line.includes('Read-only result.')));
+    }
+});
+
+test('Linux 拒绝 Windows READY 协议和伪造动作启用结果', () => {
+    for (const stdout of ['___AUTOCLICK_READY___\n', JSON.stringify({ schemaVersion: 1, backend: 'linux-atspi', actionsEnabled: true, status: 'diagnostic-only', message: 'Unsafe' })]) {
+        const harness = linuxHarness();
+        harness.command('start');
+        const child = harness.children[0].child;
+        child.stdout.emit('data', stdout);
+        assert.doesNotMatch(harness.status.text, /: ON/);
+        child.emit('close', 0);
+        assert.match(harness.status.text, /OFF/);
+        assert.equal(harness.timers.size, 0);
+        assert.ok(harness.logs.some(line => line.includes('valid read-only result')));
+    }
+});
+
+test('Linux 停止、切换和卸载取消诊断并忽略旧结果', () => {
+    for (const action of ['stop', 'toggle', 'deactivate']) {
+        const harness = linuxHarness();
+        harness.command('start');
+        const child = harness.children[0].child;
+        if (action === 'deactivate') { harness.exports.deactivate(); } else { harness.command(action); }
+        const count = harness.logs.length;
+        child.stdout.emit('data', '___AUTOCLICK_READY___\n');
+        child.emit('close', 0);
+        assert.equal(harness.logs.length, count + (action === 'deactivate' ? 0 : 1));
+        assert.equal(harness.logs.some(line => line.includes('___AUTOCLICK_READY___')), false);
+        assert.equal(child.killCalls, action === 'deactivate' ? 2 : 1);
+        assert.equal(harness.timers.size, 0);
+        if (action !== 'deactivate') { assert.match(harness.status.text, /OFF/); }
+    }
+});
+
+test('Linux 超时、输出过长和管道失败终止探针且不重试', () => {
+    for (const mode of ['timeout', 'overflow', 'pipe-error', 'spawn-error']) {
+        const harness = linuxHarness();
+        harness.command('start');
+        const child = harness.children[0].child;
+        if (mode === 'timeout') { harness.flushTimers(); }
+        if (mode === 'overflow') { child.stdout.emit('data', 'x'.repeat(65537)); }
+        if (mode === 'pipe-error') { child.stdout.emit('error', new Error('broken')); }
+        if (mode === 'spawn-error') { child.emit('error', new Error('ENOENT')); }
+        child.emit('close', 1);
+        assert.match(harness.status.text, /OFF/);
+        assert.equal(harness.timers.size, 0);
+        assert.equal(harness.children.length, 1);
+        assert.equal(child.killCalls, 1);
+    }
+});
+
+test('Linux 手动重启不会让旧探针输出污染新实例', () => {
+    const harness = linuxHarness();
+    harness.command('start');
+    const first = harness.children[0].child;
+    harness.command('restart');
+    assert.equal(first.killCalls, 1);
+    assert.equal(harness.children.length, 1);
+    assert.match(harness.status.text, /STOPPING/);
+    harness.command('start');
+    harness.command('restart');
+    assert.equal(harness.children.length, 1);
+    first.emit('close', 0);
+    assert.equal(harness.children.length, 2);
+    first.emit('error', new Error('stale'));
+    assert.match(harness.status.text, /DIAGNOSTIC/);
+    assert.equal(harness.timers.size, 1);
+});
+
+test('Linux 未授信、错误宿主、缺少脚本或同步启动失败均关闭', () => {
+    for (const options of [{ trusted: false }, { execPath: '/opt/code' }, { scriptExists: false }, { spawnThrows: true }]) {
+        const harness = linuxHarness(options);
+        harness.command('start');
+        assert.equal(harness.children.length, 0);
+        assert.match(harness.status.text, /OFF/);
+        harness.grantTrust();
+        harness.flushTimers();
+        assert.equal(harness.children.length, 0);
+    }
+});
+
+/* 2026-10-14：取消不等于子进程已退出；close 前保持 STOPPING 并阻止重叠。 */
+test('Linux 所有取消路径先 TERM 再 KILL，并保留所有权到 close', () => {
+    for (const mode of ['stop', 'timeout', 'overflow', 'pipe-error', 'deactivate']) {
+        const harness = linuxHarness();
+        harness.command('start');
+        const child = harness.children[0].child;
+        if (mode === 'stop') { harness.command('stop'); }
+        if (mode === 'timeout') { harness.flushTimers(); }
+        if (mode === 'overflow') { child.stdout.emit('data', 'x'.repeat(65537)); }
+        if (mode === 'pipe-error') { child.stderr.emit('error', new Error('broken')); }
+        if (mode === 'deactivate') { harness.exports.deactivate(); }
+        assert.deepEqual(child.killSignals, mode === 'deactivate' ? ['SIGTERM', 'SIGKILL'] : ['SIGTERM']);
+        assert.equal(harness.timers.size, mode === 'deactivate' ? 0 : 1);
+        if (mode !== 'deactivate') {
+            assert.match(harness.status.text, /STOPPING/);
+            harness.command('start');
+            assert.equal(harness.children.length, 1);
+        }
+        harness.flushTimers();
+        assert.deepEqual(child.killSignals, ['SIGTERM', 'SIGKILL']);
+        child.emit('exit', null, 'SIGKILL');
+        if (mode !== 'deactivate') {
+            assert.match(harness.status.text, /STOPPING/);
+            harness.command('start');
+            assert.equal(harness.children.length, 1);
+        }
+        child.emit('close', null, 'SIGKILL');
+        assert.equal(harness.timers.size, 0);
+        if (mode !== 'deactivate') { assert.match(harness.status.text, /OFF/); }
+    }
+});
+
+test('Linux 及时 close 取消强制结束，Stop 可撤销排队的手动重启', () => {
+    const harness = linuxHarness();
+    harness.command('start');
+    const child = harness.children[0].child;
+    harness.command('restart');
+    harness.command('stop');
+    child.emit('close', 0);
+    harness.flushTimers();
+    assert.deepEqual(child.killSignals, ['SIGTERM']);
+    assert.equal(harness.children.length, 1);
+    assert.equal(harness.timers.size, 0);
+    assert.match(harness.status.text, /OFF/);
+});
+
+test('Linux 真实 Python 阻塞导入替身会被有界强制结束且不会访问桌面', { skip: process.platform !== 'linux', timeout: 5000 }, async () => {
+    const { spawn } = require('node:child_process');
+    const probePath = path.join(__dirname, '..', 'src', 'linux', 'atspi_probe.py');
+    const stub = [
+        'import importlib.util, sys, time',
+        `spec = importlib.util.spec_from_file_location("probe", ${JSON.stringify(probePath)})`,
+        'probe = importlib.util.module_from_spec(spec)',
+        'sys.modules["probe"] = probe',
+        'spec.loader.exec_module(probe)',
+        'def blocked_import():',
+        '    print("fixture-ready", flush=True)',
+        '    time.sleep(30)',
+        'probe.load_gi = blocked_import',
+        'probe.main(["--probe"])',
+    ].join('\n');
+    for (const mode of ['stop', 'deactivate']) {
+        const harness = linuxHarness({ spawnImplementation: () => spawn('/usr/bin/python3', ['-I', '-B', '-c', stub], { stdio: ['ignore', 'pipe', 'pipe'] }) });
+        harness.command('start');
+        const child = harness.children[0].child;
+        const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
+        try {
+            await new Promise((resolve, reject) => {
+                child.stdout.once('data', data => data.toString().includes('fixture-ready') ? resolve() : reject(new Error('Missing fixture readiness')));
+                child.once('error', reject);
+            });
+            if (mode === 'deactivate') {
+                harness.exports.deactivate();
+                assert.deepEqual(child.killSignals, ['SIGTERM', 'SIGKILL']);
+                assert.equal(harness.timers.size, 0);
+            } else {
+                harness.command('stop');
+                await new Promise(resolve => setTimeout(resolve, 50));
+                assert.equal(child.exitCode, null);
+                assert.equal(child.signalCode, null);
+                assert.match(harness.status.text, /STOPPING/);
+                harness.flushTimers();
+            }
+            const result = await closed;
+            assert.equal(result.signal, 'SIGKILL');
+            assert.deepEqual(child.killSignals, ['SIGTERM', 'SIGKILL']);
+            if (mode !== 'deactivate') { assert.match(harness.status.text, /OFF/); }
+            assert.equal(harness.timers.size, 0);
+        } finally {
+            if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); }
+            await closed;
+        }
     }
 });

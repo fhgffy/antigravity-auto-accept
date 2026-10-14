@@ -1,7 +1,7 @@
 {
   "name": "antigravity-auto-accept",
   "displayName": "Antigravity Auto Accept",
-  "description": "Automatically accept supported Antigravity IDE agent approval buttons on Windows. No debug port or command allowlist setup.",
+  "description": "Automatically accept supported Antigravity IDE approval buttons on Windows; experimental read-only Linux diagnostics. No debug port.",
   "version": "5.3.6",
   "license": "MIT",
   "icon": "icon.png",
@@ -27,7 +27,9 @@
   "activationEvents": [
     "onStartupFinished"
   ],
-  "extensionKind": ["ui"],
+  "extensionKind": [
+    "ui"
+  ],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
@@ -67,7 +69,7 @@
         "antigravityAutoAccept.autoStart": {
           "type": "boolean",
           "default": true,
-          "description": "Start the auto-accept scanner automatically when the extension activates."
+          "description": "Start the Windows auto-accept scanner automatically. Linux diagnostics run only when explicitly started."
         },
         "antigravityAutoAccept.pollMs": {
           "type": "number",
@@ -110,8 +112,11 @@
     "test:scanner": "powershell.exe -NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -Command \"$ProgressPreference='SilentlyContinue'; $testPath=[IO.Path]::GetFullPath('./tests/scanner.test.ps1'); $tokens=$null; $errors=$null; $ast=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($testPath,[Text.Encoding]::UTF8),$testPath,[ref]$tokens,[ref]$errors); if($errors.Count){throw 'Scanner test parse failed'}; & $ast.GetScriptBlock()\"",
     "test:host": "powershell.exe -NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -Command \"$ProgressPreference='SilentlyContinue'; $testPath=[IO.Path]::GetFullPath('./tests/host-process.test.ps1'); $tokens=$null; $errors=$null; $ast=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($testPath,[Text.Encoding]::UTF8),$testPath,[ref]$tokens,[ref]$errors); if($errors.Count){throw 'Host process test parse failed'}; & $ast.GetScriptBlock()\"",
     "test:mouse": "powershell.exe -NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -Command \"$ProgressPreference='SilentlyContinue'; $testPath=[IO.Path]::GetFullPath('./tests/mouse-helper.test.ps1'); $tokens=$null; $errors=$null; $ast=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($testPath,[Text.Encoding]::UTF8),$testPath,[ref]$tokens,[ref]$errors); if($errors.Count){throw 'Mouse helper test parse failed'}; & $ast.GetScriptBlock()\"",
-    "test": "npm run compile && npm run typecheck && npm run test:repository && npm run test:publication && npm run selftest && npm run test:lifecycle && npm run test:scanner && npm run test:host && npm run test:mouse && npm run test:concurrency",
-    "package": "npx --yes @vscode/vsce@4.0.0 package --no-dependencies"
+    "test": "npm run compile && npm run typecheck && npm run test:repository && npm run test:platform && npm run test:publication && npm run selftest && npm run test:lifecycle && npm run test:scanner && npm run test:host && npm run test:mouse && npm run test:concurrency",
+    "package": "npx --yes @vscode/vsce@4.0.0 package --no-dependencies",
+    "test:platform": "node --test tests/platform-backend.test.cjs",
+    "test:linux": "python3 -B tests/linux-backend.test.py",
+    "test:portable": "npm run compile && npm run typecheck && npm run test:repository && npm run test:lifecycle && npm run test:platform"
   },
   "devDependencies": {
     "@types/node": "^18.0.0",

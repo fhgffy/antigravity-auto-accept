@@ -26,7 +26,7 @@ function Get-VsixEntryBytes($Archive, [string]$Name) {
 
 $archive = [IO.Compression.ZipFile]::OpenRead($packagePath)
 try {
-    $allowed = @('extension.vsixmanifest', '[Content_Types].xml', 'extension/icon.png', 'extension/LICENSE.txt', 'extension/package.json', 'extension/readme.md', 'extension/out/extension.js', 'extension/src/autoClicker.ps1')
+    $allowed = @('extension.vsixmanifest', '[Content_Types].xml', 'extension/icon.png', 'extension/LICENSE.txt', 'extension/package.json', 'extension/readme.md', 'extension/out/extension.js', 'extension/src/autoClicker.ps1', 'extension/out/platformBackend.js', 'extension/src/linux/atspi_probe.py')
     $entries = @($archive.Entries | Where-Object { -not $_.FullName.EndsWith('/') } | Select-Object -ExpandProperty FullName)
     if ($entries.Count -ne $allowed.Count -or @($entries | Select-Object -Unique).Count -ne $entries.Count) { throw 'Unexpected or duplicate VSIX entries' }
     foreach ($entry in $entries) { if ($entry -cnotin $allowed) { throw "Unexpected VSIX entry: $entry" } }
@@ -39,6 +39,8 @@ try {
     # 2026-10-07：README 可能被 VSCE 正常改写相对链接；运行代码与二进制资源仍要求原字节一致。
     $runtimeFiles = @{
         'extension/out/extension.js' = 'out/extension.js'
+        'extension/out/platformBackend.js' = 'out/platformBackend.js'
+        'extension/src/linux/atspi_probe.py' = 'src/linux/atspi_probe.py'
         'extension/src/autoClicker.ps1' = 'src/autoClicker.ps1'
         'extension/icon.png' = 'icon.png'
         'extension/LICENSE.txt' = 'LICENSE'
