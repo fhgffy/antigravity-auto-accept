@@ -329,11 +329,12 @@ function updateStatusBar() {
 function getConfig(): AutoAcceptConfig {
     const config = vscode.workspace.getConfiguration('antigravityAutoAccept');
     return {
-        autoStart: config.get<boolean>('autoStart', true),
+        /* 2026-10-14：布尔配置必须在运行时收窄，错误类型不自动启动、不通知并保持光标恢复。 */
+        autoStart: config.get<unknown>('autoStart', true) === true,
         pollMs: clamp(config.get<number>('pollMs', 500), 100, 5000),
         cooldownMs: clamp(config.get<number>('cooldownMs', 1500), 300, 10000),
-        restoreCursor: config.get<boolean>('restoreCursor', true),
-        showNotifications: config.get<boolean>('showNotifications', false),
+        restoreCursor: config.get<unknown>('restoreCursor', true) !== false,
+        showNotifications: config.get<unknown>('showNotifications', false) === true,
     };
 }
 

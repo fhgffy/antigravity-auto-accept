@@ -29,7 +29,8 @@ function createHarness(options = {}) {
     const output = { appendLine: line => logs.push(line), show() {}, dispose() {} };
     const workspace = {
         isTrusted: options.trusted ?? true,
-        getConfiguration: () => ({ get: (key, fallback) => config[key] ?? fallback }),
+        // 2026-10-14：与配置 API 一致，仅缺少值时回退；显式 null 必须交给生产校验。
+        getConfiguration: () => ({ get: (key, fallback) => config[key] === undefined ? fallback : config[key] }),
         onDidChangeConfiguration: listener => {
             configListener = listener;
             return { dispose() {} };
@@ -479,5 +480,43 @@ test('用户停止或卸载后不会再输出死亡实例的尾部诊断', () =>
         child.emit('close', 1);
         assert.equal(harness.logs.length, logCount);
         assert.equal(harness.timers.size, 0);
+    }
+});
+
+/* 2026-10-14：配置泛型不提供运行时校验，错误类型不能启动扫描或进入 PowerShell 命令。 */
+test('错误类型的自动启动配置保持 OFF，显式手动启动仍可使用', () => {
+    for (const autoStart of ['false', 'true', '', 0, 1, null, [], {}]) {
+        const harness = createHarness({ config: { autoStart } });
+        assert.equal(harness.children.length, 0, `autoStart=${JSON.stringify(autoStart)}`);
+        assert.match(harness.status.text, /OFF/);
+        harness.grantTrust();
+        harness.flushTimers();
+        assert.equal(harness.children.length, 0);
+        harness.command('start');
+        assert.equal(harness.children.length, 1);
+    }
+});
+
+test('错误类型的光标恢复配置只输出安全布尔值', () => {
+    for (const restoreCursor of ["invalid'quote", 'false', 'true', '', 0, 1, null, [], {}]) {
+        const harness = createHarness({ config: { restoreCursor } });
+        const command = getScannerCommand(harness.children[0]);
+        assert.match(command, /-RestoreCursor 'true' -ParentProcessId/);
+        assert.equal(command.includes("invalid'quote"), false);
+        harness.changeConfig({ restoreCursor: false });
+        harness.flushTimers();
+        assert.match(getScannerCommand(harness.children[1]), /-RestoreCursor 'false' -ParentProcessId/);
+    }
+});
+
+test('错误类型的通知配置不显示通知，真实布尔值仍生效', () => {
+    for (const showNotifications of ['false', 'true', '', 0, 1, null, [], {}]) {
+        const harness = createHarness({ config: { showNotifications } });
+        harness.command('stop');
+        harness.command('start');
+        assert.equal(harness.info.length, 0, `showNotifications=${JSON.stringify(showNotifications)}`);
+        harness.changeConfig({ showNotifications: true });
+        harness.command('stop');
+        assert.equal(harness.info.length, 1);
     }
 });
