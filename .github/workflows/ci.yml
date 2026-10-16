@@ -68,6 +68,11 @@ jobs:
           $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
           if ($parseErrors.Count -gt 0) { throw 'Scanner test parse errors' }
           & ($testAst.GetScriptBlock()) -PowerShellEngines @('${{ matrix.executable }}')
+      # 2026-10-16：先注入真实四十五秒停滞，验证失败诊断和回收；成功标记不能使超时变绿。
+      - name: Host wrapper timeout diagnostics and failure boundaries
+        env:
+          HOST_WRAPPER_ENGINE: ${{ matrix.executable }}
+        run: npm run test:host-wrapper
       # 2026-10-07：实际查询自有跨位数进程路径，退出、权限及缓冲边界只替原生依赖。
       - name: Host process identity across architectures
         run: |
