@@ -111,6 +111,7 @@ foreach ($name in @('Test-BrowserPermissionText', 'Test-BrowserPermissionCardSha
     $functionText = $definition[0].Extent.Text -replace '\[System\.Windows\.Automation\.TreeWalker\]::ControlViewWalker\.GetParent\((\$\w+)\)', '(Get-TestParent $1)'
     # 2026-10-09：只替代只读前台/输入边界，完整浏览器函数与实际动作分支继续执行。
     $functionText = $functionText.Replace('[MouseHelper]::CanUseForegroundUi($WindowHandle)', '(Get-TestForegroundUiAllowed $WindowHandle)')
+    $functionText = $functionText.Replace('[MouseHelper]::ForegroundUiBlockReason', "'test-blocked'") # 2026-10-17：固定诊断边界不查询真实前台或按键。
     . ([scriptblock]::Create($functionText))
 }
 # 2026-10-07：只替代原生 COM 准备边界；原模式桩的身份变化、副作用和异常仍进入真实最终检查。

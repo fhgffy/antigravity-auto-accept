@@ -92,7 +92,7 @@ $nativeBodies = @{
     IsIconic = 'return false;'
     GetWindowThreadProcessId = 'processId = 123; if (FakeCase == "validation-move" && FakeCursorCalls > 0 && !FakeMoved) { UserMove(); } return 1;'
     GetForegroundWindow = 'FakeForegroundReads++; return new IntPtr(FakeBackground || FakeCase == "background" || FakeCase == "foreground-ui-switch" && FakeForegroundReads > 1 ? 43 : 42);'
-    GetAsyncKeyState = 'return FakeKeys.Contains(virtualKey) ? unchecked((short)0x8000) : (short)0;'
+    GetAsyncKeyState = 'if (virtualKey == 1) { FakeKeyScans++; } if (FakeCase == "media-second-scan" && FakeKeyScans >= 2 || FakeCase == "media-third-scan" && FakeKeyScans >= 3) { FakeKeys.Add(65); } return FakeKeys.Contains(virtualKey) ? unchecked((short)0x8000) : (short)0;' # 2026-10-17：仅在原生边界模拟后续扫描中新出现的真实输入键。
     GetLastInputInfo = 'FakeInputReads++; if (FakeCase == "foreground-ui-input-throw") { throw new InvalidOperationException(); } if (FakeCase == "foreground-ui-input-change" && FakeInputReads > 1) { FakeInputTime++; } info.dwTime = FakeInputTime; return FakeCase != "input-unreadable";'
     GetTickCount = 'return FakeTick;'
     SetThreadDpiAwarenessContext = 'FakeDpiCalls++; if (FakeCase == "dpi-unsupported") { throw new EntryPointNotFoundException(); } if (FakeCase == "dpi-failed") { return IntPtr.Zero; } IntPtr prior = new IntPtr(FakeDpi); FakeDpi = context.ToInt32(); return prior;'
@@ -118,6 +118,7 @@ $shadow = $shadow.Replace('System.Threading.Thread.Sleep(', 'MemorySleep(')
 $stateCode = @'
     // 2026-10-07：时序只改变内存，按绝对坐标像素映射记录整个批次，不向桌面注入事件。
     public static int FakeForegroundReads, FakeInputReads; // 2026-10-09：只读守卫重读期间注入前台和输入变化。
+    public static int FakeKeyScans; // 2026-10-17：每轮从首键开始计数，避免把允许动作依赖于循环查询总量。
     public static string FakeCase;
     public static int FakeX, FakeY, FakeSetCalls, FakeDown, FakeUp, FakeDownX, FakeUpX, FakeDownY, FakeUpY, FakeSendCalls, FakeCursorCalls;
     public static int FakeValidatorCalls, FakeDpiCalls, FakeDpi, FakeLeft, FakeTop, FakeWidth, FakeHeight, FakeClipCalls;
@@ -134,6 +135,7 @@ $stateCode = @'
         FakeLeft = 0; FakeTop = 0; FakeWidth = 1920; FakeHeight = 1080;
         FakeMoved = false; FakeTargetMatches = true; FakeCovered = false; FakeBackground = false;
         FakeKeys.Clear(); FakeRequested.Clear(); FakeFlags.Clear();
+        FakeKeyScans = 0; // 2026-10-17
         if (name == "left-held") { FakeKeys.Add(1); } if (name == "right-held") { FakeKeys.Add(2); }
         if (name == "middle-held") { FakeKeys.Add(4); } if (name == "xbutton-held") { FakeKeys.Add(5); }
         if (name == "shift-held") { FakeKeys.Add(16); } if (name == "control-held") { FakeKeys.Add(17); }
@@ -269,14 +271,82 @@ foreach ($heldKey in @(
         }
     }
 }
+# 2026-10-17：媒体键状态卡住不应永久阻止空闲 IDE 的批准；仍执行真实物理批次及最终回调。
+foreach ($mediaKey in @(173, 174, 175, 176, 177, 178, 179)) {
+    foreach ($phase in @('held', 'during-validation')) {
+        foreach ($restore in @($true, $false)) {
+            [MouseHelperMemory]::Reset('media-held')
+            if ($phase -eq 'held') { [void][MouseHelperMemory]::FakeKeys.Add($mediaKey) }
+            $validation = [Func[bool]] {
+                if ($phase -eq 'during-validation') { [void][MouseHelperMemory]::FakeKeys.Add($mediaKey) }
+                return Test-MemoryTargetCurrent
+            }
+            $actual = [bool]$method.Invoke($null, @([int]50, [int]20, [bool]$restore, [IntPtr]42, [uint32]123, $validation))
+            $expectedX = if ($restore) { 5 } else { 50 }
+            $expectedY = if ($restore) { 6 } else { 20 }
+            if (-not $actual -or [MouseHelperMemory]::FakeDown -ne 1 -or [MouseHelperMemory]::FakeUp -ne 1 -or [MouseHelperMemory]::FakeSendCalls -ne 1 -or [MouseHelperMemory]::FakeX -ne $expectedX -or [MouseHelperMemory]::FakeY -ne $expectedY -or -not [MouseHelperMemory]::FakeKeys.Contains($mediaKey)) {
+                throw "Media key blocks idle approval: key=$mediaKey phase=$phase restore=$restore result=$actual"
+            }
+            $checks++
+        }
+    }
+}
+# 2026-10-17：媒体状态不能掩盖同时按下的输入键，也不能截断对媒体范围之后键位的检查。
+foreach ($inputKey in @(1, 65, 160, 172, 180, 231)) {
+    foreach ($phase in @('held', 'during-validation')) {
+        [MouseHelperMemory]::Reset('media-with-input')
+        [void][MouseHelperMemory]::FakeKeys.Add(176)
+        if ($phase -eq 'held') { [void][MouseHelperMemory]::FakeKeys.Add($inputKey) }
+        $validation = [Func[bool]] {
+            if ($phase -eq 'during-validation') { [void][MouseHelperMemory]::FakeKeys.Add($inputKey) }
+            return Test-MemoryTargetCurrent
+        }
+        $actual = [bool]$method.Invoke($null, @([int]50, [int]20, $true, [IntPtr]42, [uint32]123, $validation))
+        if ($actual -or [MouseHelperMemory]::FakeSendCalls -ne 0 -or [MouseHelperMemory]::FakeDown -ne 0 -or [MouseHelperMemory]::FakeUp -ne 0 -or [MouseHelperMemory]::FakeX -ne 5 -or [MouseHelperMemory]::FakeY -ne 6) { throw "Media state masks real input: key=$inputKey phase=$phase" }
+        $checks++
+    }
+}
 # 2026-10-09：界面操作仅在目标前台且输入空闲时放行，临界值、回绕及最后重读均执行实际生产方法。
 $foregroundUiMethod = [MouseHelperMemory].GetMethod('CanUseForegroundUi')
 if ($null -eq $foregroundUiMethod) { throw 'Foreground UI guard missing: real browser Expand can activate another foreground app' }
+# 2026-10-17：每次诊断必须反映本次拒绝原因，不泄露窗口标题、按键或沿用上次失败状态。
+$foregroundReason = [MouseHelperMemory].GetProperty('ForegroundUiBlockReason')
+if ($null -eq $foregroundReason) { throw 'Foreground UI refusal diagnostics missing' }
+$foregroundReasons = @{
+    'good' = 'none'; 'background' = 'other-foreground'; 'input-unreadable' = 'input-unreadable';
+    'recent-input' = 'recent-input'; 'shift-held' = 'held-key'; 'enter-held' = 'held-key';
+    'letter-held' = 'held-key'; 'function-held' = 'held-key'; 'tick-wrap' = 'none';
+    'left-held' = 'held-key'; 'pause-held' = 'held-key';
+    'reserved-held' = 'held-key'; 'packet-held' = 'held-key';
+    'mute-held' = 'none'; 'volume-down-held' = 'none'; 'volume-up-held' = 'none';
+    'next-track-held' = 'none'; 'previous-track-held' = 'none'; 'stop-held' = 'none'; 'play-held' = 'none';
+    'browser-back-held' = 'held-key'; 'browser-home-held' = 'held-key'; 'launch-mail-held' = 'held-key'; 'launch-app-held' = 'held-key';
+    'media-and-letter' = 'held-key'; 'media-recent-input' = 'recent-input';
+    'media-and-mouse' = 'held-key'; 'media-and-shift' = 'held-key'; 'media-and-packet' = 'held-key';
+    'media-idle500' = 'none'; 'media-second-scan' = 'held-key'; 'media-third-scan' = 'input-changed';
+    'zero-target' = 'invalid-target'; 'age499' = 'recent-input'; 'age500' = 'none';
+    'future-input' = 'invalid-input-time'; 'foreground-ui-switch' = 'foreground-changed';
+    'foreground-ui-input-change' = 'input-changed'; 'foreground-ui-input-throw' = 'query-error'
+}
 foreach ($case in @(
     @{ Mode = 'good'; Expected = $true }, @{ Mode = 'background'; Expected = $false },
     @{ Mode = 'input-unreadable'; Expected = $false }, @{ Mode = 'recent-input'; Expected = $false },
     @{ Mode = 'shift-held'; Expected = $false }, @{ Mode = 'enter-held'; Key = 13; Expected = $false },
+    @{ Mode = 'left-held'; Expected = $false }, @{ Mode = 'pause-held'; Key = 19; Expected = $false }, # 2026-10-17
     @{ Mode = 'letter-held'; Key = 65; Expected = $false }, @{ Mode = 'function-held'; Key = 116; Expected = $false },
+    @{ Mode = 'reserved-held'; Key = 255; Expected = $false }, @{ Mode = 'packet-held'; Key = 231; Expected = $false }, # 2026-10-17
+    @{ Mode = 'mute-held'; Key = 173; Expected = $true }, @{ Mode = 'volume-down-held'; Key = 174; Expected = $true },
+    @{ Mode = 'volume-up-held'; Key = 175; Expected = $true }, @{ Mode = 'next-track-held'; Key = 176; Expected = $true },
+    @{ Mode = 'previous-track-held'; Key = 177; Expected = $true }, @{ Mode = 'stop-held'; Key = 178; Expected = $true },
+    @{ Mode = 'play-held'; Key = 179; Expected = $true }, @{ Mode = 'browser-back-held'; Key = 166; Expected = $false },
+    @{ Mode = 'browser-home-held'; Key = 172; Expected = $false }, @{ Mode = 'launch-mail-held'; Key = 180; Expected = $false },
+    @{ Mode = 'launch-app-held'; Key = 183; Expected = $false }, @{ Mode = 'media-and-letter'; Key = 176; OtherKey = 65; Expected = $false },
+    @{ Mode = 'media-recent-input'; Key = 176; Age = 499; Expected = $false },
+    @{ Mode = 'media-idle500'; Key = 176; Age = 500; Expected = $true },
+    @{ Mode = 'media-and-mouse'; Key = 176; OtherKey = 1; Expected = $false },
+    @{ Mode = 'media-and-shift'; Key = 176; OtherKey = 160; Expected = $false },
+    @{ Mode = 'media-and-packet'; Key = 176; OtherKey = 231; Expected = $false },
+    @{ Mode = 'media-second-scan'; Key = 176; Expected = $false }, @{ Mode = 'media-third-scan'; Key = 176; Expected = $false },
     @{ Mode = 'tick-wrap'; Expected = $true },
     @{ Mode = 'zero-target'; Expected = $false }, @{ Mode = 'age499'; Expected = $false },
     @{ Mode = 'age500'; Expected = $true }, @{ Mode = 'future-input'; Expected = $false },
@@ -285,6 +355,9 @@ foreach ($case in @(
 )) {
     [MouseHelperMemory]::Reset($case.Mode)
     if ($case.ContainsKey('Key')) { [void][MouseHelperMemory]::FakeKeys.Add($case.Key) } # 2026-10-09：普通键已按住且输入戳超过500ms。
+    # 2026-10-17：媒体键与真实输入并存时仍应暂缓，不能用媒体键绕过键盘或空闲检查。
+    if ($case.ContainsKey('OtherKey')) { [void][MouseHelperMemory]::FakeKeys.Add($case.OtherKey) }
+    if ($case.ContainsKey('Age')) { [MouseHelperMemory]::FakeInputTime = [MouseHelperMemory]::FakeTick - $case.Age }
     [MouseHelperMemory]::FakeForegroundReads = 0
     [MouseHelperMemory]::FakeInputReads = 0
     if ($case.Mode -eq 'age499') { [MouseHelperMemory]::FakeInputTime = [MouseHelperMemory]::FakeTick - 499 }
@@ -293,6 +366,7 @@ foreach ($case in @(
     $target = if ($case.Mode -eq 'zero-target') { [IntPtr]::Zero } else { [IntPtr]42 }
     $actual = [bool]$foregroundUiMethod.Invoke($null, @($target))
     if ($actual -ne $case.Expected -or [MouseHelperMemory]::FakeSendCalls -ne 0 -or [MouseHelperMemory]::FakeSetCalls -ne 0) { throw "Foreground UI guard regression: mode=$($case.Mode) actual=$actual" }
+    if ($foregroundReason.GetValue($null) -cne $foregroundReasons[$case.Mode]) { throw "Foreground refusal reason mismatch: mode=$($case.Mode) reason=$($foregroundReason.GetValue($null))" } # 2026-10-17
     $checks++
     Write-Output "PASS foreground UI idle guard: $($case.Mode)"
 }
