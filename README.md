@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.6
+# 🚀 Antigravity Auto Accept v5.3.7
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -150,6 +150,13 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.7 — Held-key Input Protection (2026-10-16)
+
+- Pause physical approval clicks while any keyboard or mouse button is held, including ordinary keys whose repeat has not yet updated the input timestamp.
+- Recheck held keys immediately before the input batch; retain cursor, foreground, host and approval-identity guards.
+- Add 28 production-path regressions covering held keys and keys pressed during final validation, with cursor restoration enabled and disabled.
+- 物理回退补齐普通键长按保护；按住 Enter、字母、方向键等时暂缓点击，松开并恢复空闲后自动继续，无需新增配置。
 
 ### v5.3.6 — Button Filtering and Release Delivery (2026-10-07)
 
