@@ -26,8 +26,11 @@ if (-not $InProcess) {
         [void]$process.Start()
         $pendingOut = $process.StandardOutput.ReadToEndAsync()
         $pendingError = $process.StandardError.ReadToEndAsync()
+        # 2026-10-16：单独标记原四十五秒超时，finally 保留旁证时不能覆盖原失败。
+        $timedOut = $false
         try {
-            if (-not $process.WaitForExit(45000)) { throw "Host test timeout: $engine" }
+            $timedOut = -not $process.WaitForExit(45000)
+            if ($timedOut) { throw "Host test timeout: $engine" }
             $output = $pendingOut.GetAwaiter().GetResult()
             $errorOutput = $pendingError.GetAwaiter().GetResult()
             Write-Output $output.TrimEnd()
@@ -35,8 +38,27 @@ if (-not $InProcess) {
             Write-Output "PASS host process engine: $engine"
         }
         finally {
-            if (-not $process.HasExited) { $process.Kill(); [void]$process.WaitForExit(5000) }
-            $process.Dispose()
+            # 2026-10-16：超时只停止持有的子进程，有限收集已写输出；读取或清理失败仍保留原超时。
+            if ($timedOut) {
+                $diagnostic = [ordered]@{ Pid = $process.Id; ExitConfirmed = $false; StdoutComplete = $false; StderrComplete = $false; Stdout = $null; Stderr = $null; StopError = ''; ReadError = ''; DisposeError = '' }
+                try {
+                    if (-not $process.HasExited) { $process.Kill() }
+                    $diagnostic.ExitConfirmed = $process.WaitForExit(5000)
+                } catch { $diagnostic.StopError = $_.Exception.GetType().FullName }
+                foreach ($stream in @(@{ Name = 'Stdout'; Task = $pendingOut }, @{ Name = 'Stderr'; Task = $pendingError })) {
+                    try {
+                        if ($stream.Task.Wait(1000)) {
+                            $diagnostic[$stream.Name] = $stream.Task.GetAwaiter().GetResult()
+                            $diagnostic[$stream.Name + 'Complete'] = $true
+                        }
+                    } catch { $diagnostic.ReadError += $stream.Name + ':' + $_.Exception.GetType().FullName + ';' }
+                }
+                try { $process.Dispose() } catch { $diagnostic.DisposeError = $_.Exception.GetType().FullName }
+                try { [Console]::WriteLine('___HOST_WRAPPER_TIMEOUT___:' + ($diagnostic | ConvertTo-Json -Compress)) } catch { }
+            } else {
+                if (-not $process.HasExited) { $process.Kill(); [void]$process.WaitForExit(5000) }
+                $process.Dispose()
+            }
         }
     }
     exit 0
