@@ -244,6 +244,31 @@ foreach ($name in @('good', 'no-restore', 'covered', 'window-gone', 'background'
     else { Write-Output "PASS mouse helper: $description" }
     $checks++
 }
+# 2026-10-16：普通键长按及最终核验期间按键，即使输入戳未变化，也不能物理点击或移动指针。
+foreach ($heldKey in @(
+    @{ Name = 'enter'; Code = 13 }, @{ Name = 'letter'; Code = 65 },
+    @{ Name = 'function'; Code = 116 }, @{ Name = 'arrow'; Code = 37 },
+    @{ Name = 'numpad'; Code = 96 }, @{ Name = 'tab'; Code = 9 }, @{ Name = 'space'; Code = 32 }
+)) {
+    foreach ($phase in @('held', 'during-validation')) {
+        foreach ($restore in @($true, $false)) {
+            [MouseHelperMemory]::Reset('ordinary-key-fallback')
+            $originalX = [MouseHelperMemory]::FakeX
+            $originalY = [MouseHelperMemory]::FakeY
+            if ($phase -eq 'held') { [void][MouseHelperMemory]::FakeKeys.Add($heldKey.Code) }
+            $validation = [Func[bool]] {
+                if ($phase -eq 'during-validation') { [void][MouseHelperMemory]::FakeKeys.Add($heldKey.Code) }
+                return Test-MemoryTargetCurrent
+            }
+            $actual = [bool]$method.Invoke($null, @([int]50, [int]20, [bool]$restore, [IntPtr]42, [uint32]123, $validation))
+            $passed = -not $actual -and [MouseHelperMemory]::FakeSendCalls -eq 0 -and [MouseHelperMemory]::FakeDown -eq 0 -and [MouseHelperMemory]::FakeUp -eq 0 -and [MouseHelperMemory]::FakeSetCalls -eq 0 -and [MouseHelperMemory]::FakeX -eq $originalX -and [MouseHelperMemory]::FakeY -eq $originalY -and [MouseHelperMemory]::FakeKeys.Contains($heldKey.Code)
+            $description = "key=$($heldKey.Name) phase=$phase restore=$restore result=$actual send-calls=$([MouseHelperMemory]::FakeSendCalls)"
+            if (-not $passed) { $failures += $description; Write-Output "FAIL mouse held-key guard: $description" }
+            else { Write-Output "PASS mouse held-key guard: $description" }
+            $checks++
+        }
+    }
+}
 # 2026-10-09：界面操作仅在目标前台且输入空闲时放行，临界值、回绕及最后重读均执行实际生产方法。
 $foregroundUiMethod = [MouseHelperMemory].GetMethod('CanUseForegroundUi')
 if ($null -eq $foregroundUiMethod) { throw 'Foreground UI guard missing: real browser Expand can activate another foreground app' }

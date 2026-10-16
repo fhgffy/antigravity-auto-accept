@@ -114,8 +114,6 @@ public class MouseHelper {
     }
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     public const uint MOUSEEVENTF_LEFTUP = 0x0004;
-    // 2026-10-07：不接管用户正在按住的鼠标键、修饰键或系统快捷键。
-    private static readonly int[] inputKeys = { 1, 2, 4, 5, 6, 16, 17, 18, 91, 92 };
     public static bool IsHitTargetWindow(IntPtr target, IntPtr root, bool exists, bool visible,
                                         bool enabled, bool iconic, uint actualProcessId, uint expectedProcessId) {
         return target != IntPtr.Zero && root == target && exists && visible && enabled && !iconic &&
@@ -138,8 +136,10 @@ public class MouseHelper {
         inputTime = info.dwTime;
         return true;
     }
+    // 2026-10-07：不接管用户正在按住的鼠标键、修饰键或系统快捷键。
     private static bool AreInputKeysReleased() {
-        foreach (int key in inputKeys) {
+        // 2026-10-16：覆盖全部虚拟键，普通键长按或最终核验期间按键也必须让出物理点击。
+        for (int key = 1; key < 256; key++) {
             if ((GetAsyncKeyState(key) & 0x8000) != 0) { return false; }
         }
         return true;
