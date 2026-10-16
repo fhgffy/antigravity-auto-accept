@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.7
+# 🚀 Antigravity Auto Accept v5.3.8
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -150,6 +150,14 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.8 — Media-key Approval Recovery (2026-10-17)
+
+- Prevent a stuck volume or playback key from indefinitely blocking approval in an otherwise idle foreground IDE.
+- Keep typing, mouse, modifier, browser-navigation and application-launch keys protected, including rechecks immediately before an action.
+- Report fixed reasons when browser menus are deferred, without logging typed text or key codes.
+- 修复媒体键残留按下状态导致窄侧栏浏览器授权一直等待；本机原卡片已自动选择 Allow Once，无需扩大侧栏或设置 Always Allow。
+- See [verification](docs/verification-2026-10-17-media-keys.md) for the reproduced cause and test scope.
 
 ### v5.3.7 — Held-key Input Protection (2026-10-16)
 

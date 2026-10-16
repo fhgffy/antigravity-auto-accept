@@ -140,6 +140,8 @@ public class MouseHelper {
     private static bool AreInputKeysReleased() {
         // 2026-10-16：覆盖全部虚拟键，普通键长按或最终核验期间按键也必须让出物理点击。
         for (int key = 1; key < 256; key++) {
+            // 2026-10-17：音量和媒体播放键不输入 IDE；设备残留的媒体键按下状态不能永久阻止空闲审批。
+            if (key >= 0xAD && key <= 0xB3) { continue; }
             if ((GetAsyncKeyState(key) & 0x8000) != 0) { return false; }
         }
         return true;
@@ -152,24 +154,37 @@ public class MouseHelper {
         try { return validateTarget != null && validateTarget(); }
         catch { return false; }
     }
+    // 2026-10-17：只记录固定拒绝原因，区分前台、长按和输入竞态，不收集窗口标题或按键内容。
+    public static string ForegroundUiBlockReason { get; private set; }
     // 2026-10-09：会聚焦的界面操作仅限当前前台且输入空闲；只读重查不激活窗口或恢复用户焦点。
     public static bool CanUseForegroundUi(IntPtr target) {
         try {
-            if (target == IntPtr.Zero || GetForegroundWindow() != target) { return false; }
+            ForegroundUiBlockReason = "invalid-target";
+            if (target == IntPtr.Zero) { return false; }
+            ForegroundUiBlockReason = "other-foreground";
+            if (GetForegroundWindow() != target) { return false; }
             // 2026-10-09：普通键首轮重复可能延迟，不能只靠输入年龄或鼠标、修饰键判断长按。
-            for (int key = 1; key < 256; key++) {
-                if ((GetAsyncKeyState(key) & 0x8000) != 0) { return false; }
-            }
+            // 2026-10-17：菜单和物理回退共用相同输入键边界，媒体键不会单独锁死菜单。
+            ForegroundUiBlockReason = "held-key";
+            if (!AreInputKeysReleased()) { return false; }
             uint inputTime;
+            ForegroundUiBlockReason = "input-unreadable"; // 2026-10-17
             if (!TryGetInputTime(out inputTime)) { return false; }
             uint age = unchecked(GetTickCount() - inputTime);
+            // 2026-10-17：区分刚有输入与异常时间戳，原有阻止动作的条件不变。
+            ForegroundUiBlockReason = age > Int32.MaxValue ? "invalid-input-time" : "recent-input";
             if (age < 500 || age > Int32.MaxValue) { return false; }
-            for (int key = 1; key < 256; key++) {
-                if ((GetAsyncKeyState(key) & 0x8000) != 0) { return false; }
-            }
-            return IsInputUnchanged(inputTime) && GetForegroundWindow() == target;
+            ForegroundUiBlockReason = "held-key";
+            if (!AreInputKeysReleased()) { return false; } // 2026-10-17
+            // 2026-10-17：每次重置诊断，成功不能沿用前次失败原因。
+            ForegroundUiBlockReason = "input-changed";
+            if (!IsInputUnchanged(inputTime)) { return false; }
+            ForegroundUiBlockReason = "foreground-changed";
+            if (GetForegroundWindow() != target) { return false; }
+            ForegroundUiBlockReason = "none";
+            return true;
         }
-        catch { return false; }
+        catch { ForegroundUiBlockReason = "query-error"; return false; } // 2026-10-17
     }
     // 2026-10-07：归一化到像素中心，使用长整数避免负屏幕原点、边缘像素和乘法溢出。
     private static bool TryNormalizePoint(POINT point, int left, int top, int width, int height, RECT clip,
@@ -870,7 +885,7 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             if ($actionName -eq 'More actions') {
                 # 2026-10-09：窄菜单可能激活 IDE，后台或输入繁忙时暂缓，回到前台后由下一轮自动处理。
                 if (-not [MouseHelper]::CanUseForegroundUi($WindowHandle)) {
-                    Write-ApprovalDiagnostic 'browser menu deferred until IDE foreground and input idle' 'browser-deferred'
+                    Write-ApprovalDiagnostic ('browser menu deferred reason=' + [MouseHelper]::ForegroundUiBlockReason) 'browser-deferred' # 2026-10-17
                     continue
                 }
                 $cardButtons = $card.FindAll([System.Windows.Automation.TreeScope]::Children, $btnCondition)
