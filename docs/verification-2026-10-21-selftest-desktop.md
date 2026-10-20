@@ -25,6 +25,14 @@
 - 5.3.11 的 M1–M8 原生证据见 [并发验收](verification-2026-10-20-concurrency.md)；这里只按正常扫描路径字节/控制流等价复用，不声称对 5.3.12 重新运行 35.56 分钟实机测试。
 - 完整 Node 22.23.3 `npm test` 退出 0：扫描器184、进程检查每引擎131、包装器24、鼠标判定每引擎188、并发22；`full-test-selftest-desktop-5312-node22.log`。本地 VSIX 8项/运行字节校验通过，`vsix-5312-local-validation.log`。
 - 普通启动及显式 `-SelfTest:$false` 两引擎4项均进入原初始化分支；使用同一 getter 异常探针而不访问真实桌面，`normal-initialization-5312-results.json`。独立审查者另在 Node22 下运行完整源码探针及15秒超时共4项，全部通过，`review-5312-selftest-independent.log`。
-- 精确 head 的 push/PR CI、main CI 与三处实际下载核验仍须作为后续发布门禁；执行回执保存在本轮证据目录。5.3.11 标签和原包不可覆盖；本次生产源变更使用新补丁 5.3.12。
+- 最终head `c264b5cb1c778fd33b25dc6735c71f08b744f1ab` 的 push39472559033、PR39472569252均success，两个测试引擎及VSIX成功，非main发布按条件skip。独立最终head审查无阻塞；精确门禁通过后PR #25合并至 `3f5155521e53edeecf013d83d371da69970c3796`，Issue #26关闭。main39473575714四作业均success，原日志 `main-ci-39473575714.log` 保留。
 
 证据根目录：`F:\CodexTests\AntigravityAA\concurrency-20261020-7d2c\evidence`。最终发布结果及用户待办收录于上级目录的 `final-report.md`。
+
+## 发布快照
+
+5.3.12 正式原包已由 main 39473575714 四作业成功后生成，标签固定3f5155521e53edeecf013d83d371da69970c3796，资产660118710、82204字节。下载包、GitHub digest、校验文件及8项VSIX/运行字节校验通过，SHA-256为a62d7cc64dc4079b86d597f9182cc6465a601e3b3b26c90ff47c41cadaf06a4d。
+
+发布快照时间（UTC）：2026-10-20T18:29:37.3454587Z。Open VSX于2026-10-21 02:29:37+08:00通过原CI函数的精确版本及实际公开下载SHA核验，与GitHub原包一致，public-final12-openvsx.json；首次审核中404及会话Forbidden仍保留；Marketplace已选正式原包、需本人完成新图片验证码。该快照不计三处完成，不创建新凭据或绕过验证码。最新公开下载核验与完整收尾状态以 [Release记录](https://github.com/fhgffy/antigravity-auto-accept/releases/tag/v5.3.12) 及本轮 final-report.md 为准。
+
+GitHub核验回执：`github-original-final12-verification.json`。Open VSX首次Forbidden、刷新后接收审核、首次公开404及Marketplace人工验证码现场均保留；无重复上传审核中的版本。CI未配置商店凭据，日志明确not-configured；后续沿用已有网页账号发布，不将CI作业success当作两个商店发布成功。
