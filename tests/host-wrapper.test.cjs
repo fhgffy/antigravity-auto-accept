@@ -184,7 +184,8 @@ for (const [index, engine] of engines.entries()) {
                 try {
                     assert.ifError(result.error);
                     assert.notEqual(result.status, 0, 'ledger failure must remain a failure');
-                    assert.ok(result.stderr.includes(pidFile), 'original ledger write error retained');
+                    // 2026-10-21：远端断言失败必须保留真实子进程两条流，不能只报一个缺少路径的布尔结果。
+                    assert.ok(result.stderr.includes(pidFile), 'original ledger write error retained: ' + JSON.stringify({ pidFile, status: result.status, stdout: result.stdout, stderr: result.stderr }));
                     const line = result.stdout.split(/\r?\n/).find(value => value.startsWith('___SCANNER_SELFTEST_OBSERVER_CLEANUP___:'));
                     assert.ok(line, 'failed observer must report owned child cleanup');
                     const detail = JSON.parse(line.slice('___SCANNER_SELFTEST_OBSERVER_CLEANUP___:'.length));
