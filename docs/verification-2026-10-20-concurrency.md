@@ -78,8 +78,30 @@ C 宿主整棵进程树的私有内存为 2326.98–3293.67 MiB，包含模型�
 
 独立审查确认 `C5-single-m1-terminal-result.png` 与 `A5-m7-mid-result.png` 是 276×45 的空白捕获，均保留为观察失败，不用于成功结论。M1 终端的批准归属由成功日志和精确目标指纹证明；模型回复中的输出标记不能替代原始终端 stdout。
 
+## 发布记录分支触发的 CI 测试工具缺陷
+
+文档提交 `86dc867` 的 push CI [39459549275](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39459549275) 在 PS7 SelfTest 子进程等待 15 秒后失败；同提交 PR CI [39459563497](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39459563497) 成功。失败未重跑，原始作业日志保存在 `ci-job-118755108720-first-failure.log`。首次失败没有子进程输出，不能确认该次远端超时的具体原因。
+
+[Issue #24](https://github.com/fhgffy/antigravity-auto-accept/issues/24) 独立复现测试包装器的管道反压：原真实循环先等退出、后读输出，子自测写 131072 字符及有效完成标记后仍在 15.12 秒超时。`selftest-pipe-first-red.log/.json`、`selftest-wrapper-regression-red.log` 保留红例。测试包装器现并发排空 stdout/stderr，原 15 秒上限、退出码、stderr 和完成标记要求保留；超时按现有宿主包装器样式保存两条输出及退出确认。
+
+`selftest-wrapper-regression-green.log` 中两个实际引擎共 10 个新用例通过：大 stdout、stderr、非零退出、缺少完成标记、打印完成标记后仍停滞 15 秒。它证明测试工具行为，不能据此宣称远端原超时根因已修复；完整回归及最终 CI 单独记录。插件源码、JavaScript、manifest 和已发布 VSIX 均不变，本项不发布空补丁版本。
+独立审查还复现新增测试观察函数在回执写入失败后遗留已启动子进程。`review-selftest-ledger-failure-red.*` 保存独立脚本、原始结果与身份核对后的回收；`selftest-observer-ledger-red.log` 为仓库新用例在旧观察函数上的失败。当前观察函数持有原 Process 对象有限回收，保留写入异常；`selftest-wrapper-final-green.log` 为两个引擎共 12 项通过，包含两项回执写入故障。旧 `full-test-selftest-pipes.log` 退出 0 仅属发现清理缺口前的中间候选，最终完整回归另存，不冒充修正后结果。
+此前 c1f0a2f 管道及回执修正候选的完整 npm test 退出 0，原始日志为 full-test-selftest-pipes-final.log：编译、类型检查、仓库与发布边界、生命周期、扫描器 184、两引擎宿主各 131、包装器 22、两引擎输入各 188、并发 22 项均通过。selftest-pipes-independent-final-review.json 固定此前候选两个测试文件 SHA-256，独立运行 12 项通过且无阻塞发现；UTF-8 无 BOM、CRLF、diff 检查及原发布包 8 项校验通过。最终提交的远端 CI 结果单独核对。
+提交 c1f0a2f 的 push 39463650377 和 PR 39463658507 四个作业均在新增回执故障用例的路径断言失败，其余每作业 10 项通过；完整首次失败与作业 JSON 保留。8a03381 只补诊断，PR CI 39464541635 原始两流证实：TEMP 为 RUNNER~1 短名，WriteAllText 原异常展开为 runneradmin，原错误与退出回收都保留，严格子串断言因此假红。夹具目录现用 realpathSync.native 规范化，全部原断言不变。Node 22.23.3 定向 12 项通过；F 工作目录没有真实短名别名，只读 C:\PROGRA~1 探针证明同一规范化语义，不写 C 盘，也不冒充本地真实短名 TEMP 红绿。修后实际短名绿例须以最终 CI 为准，首轮 86dc867 的 SelfTest 超时仍不推断同因。
+本轮路径规范化候选在 Node 22.23.3 下完整 npm test 退出 0，原始结果为 full-test-canonical-node22-final.log；两引擎定向 12 项及包装器全套 22 项均通过，其他扫描器/宿主/输入/并发检查均保持通过。独立审查另跑 12 项通过，selftest-canonical-independent-review.json 固定包装器源码 SHA-256 为 b90081189c3a0ea172dc087305a1e00e97ca3eda4ef8ae04fa72a76558da5092；源码编码及完整 diff 复核通过。最终提交的真实短名 CI 结果仍单独核对。
+
 ## 发布与收尾
 
-[PR #22](https://github.com/fhgffy/antigravity-auto-accept/pull/22) 合并前核对最后提交的完整 CI 及本矩阵；它包含归属和资源两个修复，原诊断草稿 #20 已关闭。合并后再核对 main CI。GitHub Release 原包发布后，两个商店上传同一原包，实际公开下载须通过 CI 现有原生产查询函数，逐项核对发布者、精确版本及 SHA-256。
+[PR #22](https://github.com/fhgffy/antigravity-auto-accept/pull/22) 已合并归属和资源两个修复，Issues #19/#21 已关闭，原诊断草稿 #20 由它取代。最终提交 `ecbae104bed26e9d29dd2d981f25d139acfea9cb` 的 [push CI](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39456496751) 与 [PR CI](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39456504321) 均成功；非主线发布作业按条件跳过。main 合并提交为 `d1a1532782d968a724044f2158846c09eaec7d1c`。
+
+PR #22 已合并，main CI [39457516301](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39457516301) 全绿；[GitHub v5.3.11](https://github.com/fhgffy/antigravity-auto-accept/releases/tag/v5.3.11) 原包及 Open VSX 精确版本公开下载的 SHA-256 均为 `2da1df5fcea17e3792aeffa15bb5d9f644bee14e9e690bc3d1b4254b87a9252e`。Marketplace 上传触发本人图片验证码，尚未完成，不能将三处发布标为通过。
+
+| 渠道 | 5.3.11 状态 | 证据 |
+| --- | --- | --- |
+| GitHub Release | 已公开，原包及校验文件一致 | `github-original-final11-verification.json`；资产 659864061，81822 字节，标签准确指向上述 main 提交。 |
+| Open VSX | 已公开，精确版本及实际下载哈希一致 | `public-final11-openvsx.json`，直接装载 CI 原函数 `Test-OpenVsxPublic`，2026-10-21 00:36:43+08:00 通过。 |
+| Marketplace | 未完成，本人图片验证码待处理 | 已选择同一个 GitHub 原包，`marketplace-final11-captcha.jpg`；公开页面当前仍为 5.3.10，不能将上传尝试计为发布。 |
+
+CI 没有配置两个商店发布令牌，作业明确报告未上传；商店记录来自后续本人登录会话的网页上传与公开包核验。Open VSX 首次 Forbidden 后正常刷新原有 OAuth 会话才接收，首轮失败及审核中截图保留；管理页 Public 不代替精确公开版本下载。没有创建新凭据或扩大权限。
 
 发布回执及最终矩阵保存在测试根目录的 `final-report.md`；本机候选通过、PR 合并、商店上传回执和商店实际公开下载是不同证据，不互相替代。临时配置、浏览器及测试进程仅在记录身份核对退出后按固定目录白名单清理；证据目录保留。原工作区已有 lessons 改动完整保留，仅追加本轮经验。
