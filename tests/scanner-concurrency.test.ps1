@@ -19,6 +19,15 @@ $checks = 0
 # 2026-10-07：独立进程采用显式 UTF-8 输出与隐藏窗口，避免 PS5 无 BOM 解码和多应用界面干扰。
 function Start-ConcurrencyProcess([string]$Executable, [string]$Command) {
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Command))
+    # 2026-10-20：较长的真实扫描尾段超过 Windows 命令行上限时，使用自删的 UTF-8 临时脚本引导。
+    $commandPath = $null
+    if ($encoded.Length -gt 24000) {
+        $commandPath = Join-Path ([IO.Path]::GetTempPath()) ('antigravity-scanner-test-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+        [IO.File]::WriteAllText($commandPath, $Command, [Text.UTF8Encoding]::new($false))
+        $quotedPath = $commandPath.Replace("'", "''")
+        $bootstrap = "`$testCommandText = [IO.File]::ReadAllText('$quotedPath', [Text.Encoding]::UTF8); [IO.File]::Delete('$quotedPath'); . ([scriptblock]::Create(`$testCommandText))"
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bootstrap))
+    }
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $Executable
     $start.Arguments = "-NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -EncodedCommand $encoded"
@@ -30,7 +39,21 @@ function Start-ConcurrencyProcess([string]$Executable, [string]$Command) {
     $start.StandardErrorEncoding = [Text.Encoding]::UTF8
     $process = New-Object Diagnostics.Process
     $process.StartInfo = $start
-    [void]$process.Start()
+    try {
+        [void]$process.Start()
+        # 2026-10-20：父进程返回前确认子进程已读取并删除自有载荷，启动失败也不遗留测试文件或进程。
+        if ($null -ne $commandPath) {
+            $deadline = [DateTime]::UtcNow.AddSeconds(8)
+            while ([IO.File]::Exists($commandPath) -and -not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+            if ([IO.File]::Exists($commandPath)) { throw 'UTF-8 test bootstrap did not consume its payload' }
+        }
+    }
+    catch {
+        try { if ($process.Id -gt 0 -and -not $process.HasExited) { $process.Kill(); $process.WaitForExit() } } catch { }
+        if ($null -ne $commandPath -and [IO.File]::Exists($commandPath)) { [IO.File]::Delete($commandPath) }
+        $process.Dispose()
+        throw
+    }
     return $process
 }
 

@@ -763,6 +763,14 @@ function Write-ApprovalDiagnostic([string]$Message, [string]$Category = 'approva
     [Console]::WriteLine("___SCANNER_DIAGNOSTIC___:$Message")
 }
 
+# 2026-10-20：成功事件绑定已核验的窗口、卡片及精确目标指纹，不输出命令或域名正文。
+function Get-ApprovalEventContext([int]$WindowProcessId, [IntPtr]$WindowHandle, [string]$CardId, [string]$Target) {
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    try { $digest = [BitConverter]::ToString($algorithm.ComputeHash([Text.Encoding]::UTF8.GetBytes($Target))).Replace('-', '').ToLowerInvariant() }
+    finally { $algorithm.Dispose() }
+    return "pid=$WindowProcessId hwnd=$($WindowHandle.ToInt64()) card=$CardId target-sha256=$digest"
+}
+
 # 2026-10-06：浏览器权限文案必须包含真实主机名，不把普通消息或网址正文当作审批。
 function Test-BrowserPermissionText([string]$Name) {
     if ($Name -notmatch '^Agent needs permission to act on (\S+)$') { return $false }
@@ -882,6 +890,8 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             $targets = @($card.FindAll([System.Windows.Automation.TreeScope]::Children, $textCondition) | Where-Object { Test-BrowserPermissionText $_.Current.Name })
             if ($targets.Count -ne 1) { continue }
             $expectedTarget = @{ CardId = ($card.GetRuntimeId() -join '.'); Id = ($targets[0].GetRuntimeId() -join '.'); Name = $targets[0].Current.Name; ActionId = ($allow.GetRuntimeId() -join '.') }
+            # 2026-10-20：在原有最终归属复核前准备日志快照，动作后不再读取可能已消失的卡片。
+            $eventContext = Get-ApprovalEventContext $WindowProcessId $WindowHandle $expectedTarget.CardId $expectedTarget.Name
             if ($actionName -eq 'More actions') {
                 # 2026-10-09：窄菜单可能激活 IDE，后台或输入繁忙时暂缓，回到前台后由下一轮自动处理。
                 if (-not [MouseHelper]::CanUseForegroundUi($WindowHandle)) {
@@ -968,7 +978,7 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
             if ($method -eq 'expand') { $actionPattern.Expand() }
             elseif ($method -eq 'invoke') { $actionPattern.Invoke() } # 2026-10-07：已打开的精确关联菜单无需再次展开。
             if ($actionName -eq 'Allow Once') {
-                [Console]::WriteLine('___CLICK_INVOKE___:Allow Once (browser domain permission)')
+                [Console]::WriteLine("___CLICK_INVOKE___:Allow Once (browser domain permission) [$eventContext]") # 2026-10-20
                 return $true
             }
             $stage = 'menu-query'
@@ -1029,7 +1039,7 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
                 [void]$script:deferredBrowserMenus.Remove($deferredWindowKey)
                 $stage = 'item-invoke' # 2026-10-06：明确唯一新菜单本次批准的实际调用阶段。
                 $itemInvoke.Invoke()
-                [Console]::WriteLine('___CLICK_INVOKE___:Allow Once (browser domain permission)')
+                [Console]::WriteLine("___CLICK_INVOKE___:Allow Once (browser domain permission) [$eventContext]") # 2026-10-20
                 return $true
             }
             Write-ApprovalDiagnostic "browser menu method=$method action-returned=True before=$($beforeMenus.Count) visible=$menuCount new=$newMenuCount once-items=$itemCount" 'browser-menu'
@@ -1071,6 +1081,8 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
             }
             catch { }
             $expectedTarget = @{ Id = ($target.GetRuntimeId() -join '.'); Value = $target.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value }
+            # 2026-10-20：指纹来自当前目标快照，随后仍执行原有逐次宿主、归属、选中状态复核。
+            $eventContext = Get-ApprovalEventContext $WindowProcessId $WindowHandle $cardId $expectedTarget.Value
             # 2026-10-06：仅对已核验表单报告固定模式布尔值，候选日志不抢占滚动和错误诊断。
             try {
                 $selectionAvailable = $option.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty)
@@ -1163,7 +1175,7 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 if (-not (Test-ParentAlive)) { return $false }
                 $stage = 'submit-invoke' # 2026-10-07：最终批准阶段紧邻调用，选中、模式及只读查询失败不能误计为批准尝试。
                 $invoke.Invoke()
-                [Console]::WriteLine('___CLICK_INVOKE___:Submit (one-time permission)')
+                [Console]::WriteLine("___CLICK_INVOKE___:Submit (one-time permission) [$eventContext]") # 2026-10-20
                 return $true
             }
         }
@@ -1440,6 +1452,8 @@ try {
                             if ($btn.Current.IsOffscreen) { continue }
                             $rect = $btn.Current.BoundingRectangle
                             if ($null -eq (Get-ButtonCenter $rect)) { continue }
+                            # 2026-10-20：保留准备调用模式前的按钮身份，成功日志不在动作后重读失效控件。
+                            $eventCardId = ($btn.GetRuntimeId() -join '.')
                             $ip = $null
                             try { $ip = Get-BackgroundInvoke $btn $windowHandle } # 2026-10-07
                             catch { }
@@ -1450,13 +1464,16 @@ try {
                                 if ($win.Current.NativeWindowHandle -ne $windowHandle.ToInt64() -or $win.Current.ProcessId -ne $windowProcessId) { continue }
                                 $btnName = $btn.Current.Name
                                 if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen -or -not (Test-ButtonMatch $btnName)) { continue }
+                                $eventContext = Get-ApprovalEventContext $windowProcessId $windowHandle $eventCardId $btnName # 2026-10-20
+                                # 2026-10-20：仅转义日志标签换行，原始目标哈希与最终批准核验保持不变。
+                                $eventLabel = $btnName.Replace("`r", '\r').Replace("`n", '\n')
                                 if (-not (Test-ParentAlive)) { break }
                                 # 2026-10-07：提供者可能在动作后抛错，先占用本轮和窗口轮换；慢调用的冷却从结束时计时。
                                 $didClick = $true
                                 $lastServedWindowHandle = $windowHandle
                                 try {
                                     $ip.Invoke()
-                                    [Console]::WriteLine("___CLICK_INVOKE___:$btnName")
+                                    [Console]::WriteLine("___CLICK_INVOKE___:$eventLabel [$eventContext]") # 2026-10-20
                                 }
                                 finally { $lastClickTime = [DateTime]::Now }
                             }
@@ -1473,6 +1490,9 @@ try {
                                 # 2026-10-07：移动前保存原按钮身份，回退时从实际像素命中沿父链核对同一按钮。
                                 $physicalButtonId = $btn.GetRuntimeId() -join '.'
                                 $physicalButtonName = $btnName
+                                $eventContext = Get-ApprovalEventContext $windowProcessId $windowHandle $physicalButtonId $physicalButtonName # 2026-10-20
+                                # 2026-10-20：仅转义日志标签换行，原始目标哈希与最终批准核验保持不变。
+                                $eventLabel = $btnName.Replace("`r", '\r').Replace("`n", '\n')
                                 $physicalValidator = [Func[bool]] {
                                     try {
                                         if (-not (Get-TargetProcessIds $windowProcessId).ContainsKey($windowProcessId)) { return $false } # 2026-10-07
@@ -1496,7 +1516,7 @@ try {
                                 $lastServedWindowHandle = $windowHandle
                                 try {
                                     if ([MouseHelper]::Click($center.X, $center.Y, $restoreCursorEnabled, $windowHandle, [uint32]$windowProcessId, $physicalValidator)) {
-                                        [Console]::WriteLine("___CLICK_PHYSICAL___:$btnName at ($($center.X),$($center.Y))")
+                                        [Console]::WriteLine("___CLICK_PHYSICAL___:$eventLabel at ($($center.X),$($center.Y)) [$eventContext]") # 2026-10-20
                                     }
                                 }
                                 finally { $lastClickTime = [DateTime]::Now }

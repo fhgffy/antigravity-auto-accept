@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.10
+# 🚀 Antigravity Auto Accept v5.3.11
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -150,6 +150,12 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.11 — Attributable Approval Events (2026-10-20)
+
+- Include the target window PID/handle, approval element identity and exact target SHA-256 in successful approval events, so concurrent tasks can be correlated with their recorded cards.
+- Hash permission targets instead of adding command or domain text to the log; compute context before the existing final approval checks and do not query a disappeared card after the action.
+- 并发批准日志补齐窗口、卡片和目标指纹，便于核对每张审批卡的实际提交；一次允许、单实例及输入保护规则保持原行为。
 
 ### v5.3.10 — Accurate Scanner Status (2026-10-20)
 
