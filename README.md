@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.9
+# 🚀 Antigravity Auto Accept v5.3.10
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -150,6 +150,12 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.10 — Accurate Scanner Status (2026-10-20)
+
+- Only complete READY/WAITING protocol lines acknowledge scanner startup; diagnostic text mentioning those markers no longer cancels recovery or falsely changes the status bar.
+- Approval and error events must start a protocol line, and their complete payload is retained even when it contains another marker.
+- 修复普通日志提及握手标记时误报 ON/WAITING、导致启动恢复失效的问题；保留分段输出、空白边界及旧版等待握手兼容。
 
 ### v5.3.9 — Startup Recovery (2026-10-20)
 
