@@ -22,6 +22,15 @@ foreach ($name in @('targetPrefixes', 'excludeExact', 'exactOnly')) {
 # 2026-10-05：通过 UTF-8 读取后创建脚本块，兼容 Windows PowerShell 5 的无 BOM 文件。
 function Start-TestProcess([string]$Executable, [string]$Command) {
     $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Command))
+    # 2026-10-20：较长的真实扫描尾段超过 Windows 命令行上限时，使用自删的 UTF-8 临时脚本引导。
+    $commandPath = $null
+    if ($encoded.Length -gt 24000) {
+        $commandPath = Join-Path ([IO.Path]::GetTempPath()) ('antigravity-scanner-test-' + [Guid]::NewGuid().ToString('N') + '.ps1')
+        [IO.File]::WriteAllText($commandPath, $Command, [Text.UTF8Encoding]::new($false))
+        $quotedPath = $commandPath.Replace("'", "''")
+        $bootstrap = "`$testCommandText = [IO.File]::ReadAllText('$quotedPath', [Text.Encoding]::UTF8); [IO.File]::Delete('$quotedPath'); . ([scriptblock]::Create(`$testCommandText))"
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($bootstrap))
+    }
     $start = New-Object Diagnostics.ProcessStartInfo
     $start.FileName = $Executable
     $start.Arguments = "-NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -EncodedCommand $encoded"
@@ -33,7 +42,21 @@ function Start-TestProcess([string]$Executable, [string]$Command) {
     $start.StandardErrorEncoding = [Text.Encoding]::UTF8
     $process = New-Object Diagnostics.Process
     $process.StartInfo = $start
-    [void]$process.Start()
+    try {
+        [void]$process.Start()
+        # 2026-10-20：父进程返回前确认子进程已读取并删除自有载荷，启动失败也不遗留测试文件或进程。
+        if ($null -ne $commandPath) {
+            $deadline = [DateTime]::UtcNow.AddSeconds(8)
+            while ([IO.File]::Exists($commandPath) -and -not $process.HasExited -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 20 }
+            if ([IO.File]::Exists($commandPath)) { throw 'UTF-8 test bootstrap did not consume its payload' }
+        }
+    }
+    catch {
+        try { if ($process.Id -gt 0 -and -not $process.HasExited) { $process.Kill(); $process.WaitForExit() } } catch { }
+        if ($null -ne $commandPath -and [IO.File]::Exists($commandPath)) { [IO.File]::Delete($commandPath) }
+        $process.Dispose()
+        throw
+    }
     return $process
 }
 
@@ -89,9 +112,11 @@ $checks++
 
 # 2026-10-05：执行实际卡片函数，只将外部 UIA 父节点查找替换成可控树，所有点击为计数桩。
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes # 2026-10-07：空树回放不会触发实际 UIA 对象的依赖加载。
-$testFunctions = @('Test-OneTimeApprovalName', 'Test-ApprovalCardShape', 'Test-ApprovalOptionSelected', 'Test-LiveApprovalCard', 'Write-ApprovalDiagnostic', 'Invoke-ApprovalCards', 'Get-ButtonCenter', 'Test-ButtonMatch', 'Test-PrefixBoundary')
+$testFunctions = @('Test-OneTimeApprovalName', 'Test-ApprovalCardShape', 'Test-ApprovalOptionSelected', 'Test-LiveApprovalCard', 'Write-ApprovalDiagnostic', 'Get-ApprovalEventContext', 'Invoke-ApprovalCards', 'Get-ButtonCenter', 'Test-ButtonMatch', 'Test-PrefixBoundary') # 2026-10-20
 foreach ($name in $testFunctions) {
     $definition = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
+    # 2026-10-20：只读旧源码回放允许缺少新增格式函数，仍须由真实旧成功事件触发归属断言红灯。
+    if ($definition.Count -eq 0 -and $name -eq 'Get-ApprovalEventContext' -and -not [string]::IsNullOrWhiteSpace($ScannerSourcePath)) { continue }
     if ($definition.Count -ne 1) { throw "Missing card function: $name" }
     $functionText = $definition[0].Extent.Text
     if ($name -eq 'Invoke-ApprovalCards') {
@@ -280,6 +305,32 @@ foreach ($case in @(
 }
 Write-Output 'PASS permission-card scope, one-time selection, and unreadable selection skip'
 
+# 2026-10-20：同进程的不同窗口及目标必须产生可归属且不泄漏目标正文的单行成功事件。
+$contextHashes = @('629e03708df0a25747132bce12870c566762445ffa946ee06ca7964ccae787a1', '975defd3a6acf6c99b2de9d4dc56c831580586ba235f9681f43019cf4f986a82')
+$contextEvents = @()
+for ($contextIndex = 0; $contextIndex -lt 2; $contextIndex++) {
+    $window = New-TestApprovalWindow $true $true $true
+    $window.Current.NativeWindowHandle = 42 + $contextIndex
+    $window.Card.Key = 824 + $contextIndex
+    $window.Card.Edits[0].Current.Value = 'Write-Output TOKEN_TEST_' + [char](65 + $contextIndex) + "`r`n___AUTOCLICK_READY___"
+    $contextWriter = [IO.StringWriter]::new()
+    $contextOriginalWriter = [Console]::Out
+    try {
+        [Console]::SetOut($contextWriter)
+        $accepted = Invoke-ApprovalCards $window 123 ([IntPtr]$window.Current.NativeWindowHandle)
+        $contextOutput = $contextWriter.ToString()
+    }
+    finally { [Console]::SetOut($contextOriginalWriter); $contextWriter.Dispose() }
+    $events = @($contextOutput -split '\r?\n' | Where-Object { $_.StartsWith('___CLICK_INVOKE___:') })
+    $expectedEvent = '___CLICK_INVOKE___:Submit (one-time permission) [pid=123 hwnd=' + (42 + $contextIndex) + ' card=' + (824 + $contextIndex) + ' target-sha256=' + $contextHashes[$contextIndex] + ']'
+    if (-not $accepted -or $window.Card.Buttons[0].Invocations -ne 1 -or $events.Count -ne 1 -or $events[0] -cne $expectedEvent) { throw 'Approval success lacks the matching window/card/target fingerprint' }
+    if ($contextOutput.Contains('TOKEN_TEST_') -or $contextOutput.Contains('___AUTOCLICK_READY___')) { throw 'Approval target leaked into the protocol' }
+    $contextEvents += $events[0]
+    $checks++
+}
+if ($contextEvents[0] -ceq $contextEvents[1]) { throw 'Distinct approval targets have indistinguishable events' }
+Write-Output 'PASS approval context distinguishes windows and cards without leaking target text'
+
 # 2026-10-06：真实窗口候选中包含会话外专用表单，普通问答及滚动后失效仍必须保持零提交。
 $externalFailures = @()
 foreach ($case in @(
@@ -367,6 +418,7 @@ $legacyButton = [pscustomobject]@{
     Invocations = 0
 }
 $legacyButton | Add-Member ScriptMethod Invoke { $this.Invocations++ }
+$legacyButton | Add-Member ScriptMethod GetRuntimeId { return @(5001) } # 2026-10-20：父宿主退出用例也提供真实调用路径已有的 UIA 身份接口。
 $legacyButton | Add-Member ScriptMethod GetCurrentPattern { param($pattern) return $this }
 $legacyWindow = [pscustomobject]@{ Current = [pscustomobject]@{ ProcessId = 123; NativeWindowHandle = 42 }; Buttons = @($legacyButton) }
 $legacyWindow | Add-Member ScriptMethod FindFirst { param($scope, $condition) return $null }
@@ -723,6 +775,28 @@ if (Test-ButtonMatch 'Always Allow') { throw 'Global Always Allow matcher must r
 $checks++
 Write-Output 'PASS browser permission shape and global Always Allow exclusion'
 
+# 2026-10-20：宽栏与窄菜单的实际成功路径都必须报告原卡片和权限目标指纹，不能记录始终允许。
+foreach ($contextMode in @('wide', 'expand-only')) {
+    $script:testParentAlive = $true
+    $script:testForegroundUiAllowed = $true
+    $script:testForegroundUiCalls = 0
+    $script:testForegroundUiBlockAt = 0
+    $browserWindow = New-TestBrowserWindow $contextMode
+    $contextWriter = [IO.StringWriter]::new()
+    $contextOriginalWriter = [Console]::Out
+    try {
+        [Console]::SetOut($contextWriter)
+        $accepted = Invoke-BrowserPermissionCards $browserWindow 123 ([IntPtr]42)
+        $contextOutput = $contextWriter.ToString()
+    }
+    finally { [Console]::SetOut($contextOriginalWriter); $contextWriter.Dispose() }
+    $events = @($contextOutput -split '\r?\n' | Where-Object { $_.StartsWith('___CLICK_INVOKE___:') })
+    if (-not $accepted -or $browserWindow.Once.Invocations -ne 1 -or $browserWindow.Always.Invocations -ne 0 -or $events.Count -ne 1 -or $events[0] -cne '___CLICK_INVOKE___:Allow Once (browser domain permission) [pid=123 hwnd=42 card=3001 target-sha256=96eb7c452bebeababb3b9f982e1168a34528f6aefda960ad163ddf6673bbc9e7]') { throw ('Browser approval context mismatch: ' + $contextMode) }
+    if ($contextOutput.Contains('github.com')) { throw 'Browser target leaked into success event' }
+    $checks++
+}
+Write-Output 'PASS browser approval events retain card identity in wide and menu routes'
+
 # 2026-10-07：执行实际扫描尾段覆盖多窗口公平性、失效节点及动作竞态，物理回退仅累计内存计数。
 function New-TestScanWindow([int]$Handle, [string]$Mode = '') {
     $button = [pscustomobject]@{
@@ -884,10 +958,12 @@ if ($filterFailures.Count -gt 0) { throw "Scanner name filter failures: $($filte
 
 # 2026-10-07：动作已经发生却抛错时，同轮后续按钮不得执行，并按配置等待下一轮。
 $attemptFailures = @()
-foreach ($mode in @('invoke-throws', 'physical-throws', 'physical-false', 'slow-invoke-throws', 'slow-invoke-success', 'slow-physical-throws', 'slow-physical-success')) {
+foreach ($mode in @('invoke-throws', 'physical-throws', 'physical-false', 'slow-invoke-throws', 'slow-invoke-success', 'slow-physical-throws', 'slow-physical-success', 'slow-invoke-newline-success', 'slow-physical-newline-success')) {
     $script:testParentAlive = $true
     $script:testFirstActionTime = $null
     $firstWindow = New-TestScanWindow 42 $mode
+    # 2026-10-20：快捷键跨行的真实通用标签仍须单行携带完整归属，哈希必须基于原始标签。
+    if ($mode -like '*-newline-success') { $firstWindow.Action.Current.Name = "Run`r`nAlt+Y" }
     $secondAction = (New-TestScanWindow 43).Action
     $firstWindow.Buttons += $secondAction
     if ($mode -like '*invoke-*') {
@@ -895,7 +971,7 @@ foreach ($mode in @('invoke-throws', 'physical-throws', 'physical-false', 'slow-
             $this.Invocations++
             if ($this.Mode -like 'slow-*') { Start-Sleep -Milliseconds 300 }
             $script:testFirstActionTime = [DateTime]::UtcNow
-            if ($this.Mode -ne 'slow-invoke-success') { throw 'Provider failed after Invoke in test' }
+            if ($this.Mode -notlike 'slow-invoke*success') { throw 'Provider failed after Invoke in test' }
         } -Force
     }
     else {
@@ -923,11 +999,16 @@ foreach ($mode in @('invoke-throws', 'physical-throws', 'physical-false', 'slow-
     finally { $CooldownMs = $savedCooldown; [Console]::SetOut($savedConsole) }
     $successProtocol = $attemptWriter.ToString() -match '___CLICK_(INVOKE|PHYSICAL)___'
     $expectedSuccess = $mode -like '*-success'
+    # 2026-10-20：真实 Invoke 与物理回退的成功事件都必须保留本窗口及原按钮身份。
+    $expectedTargetHash = if ($mode -like '*-newline-success') { 'fe40832dc07306410d20b3d105a36eb8a6eba0e6ac71db7b61965bdafe04f871' } else { '00d60e31a4e6b8344d4201f25a6a7dee770713107f6d097abb01559d32b17f26' }
+    $successLines = @($attemptWriter.ToString() -split '\r?\n' | Where-Object { $_ -match '^___CLICK_(INVOKE|PHYSICAL)___:' })
+    $hasEventContext = $successLines.Count -eq 1 -and $successLines[0].Contains('[pid=123 hwnd=42 card=6001 target-sha256=' + $expectedTargetHash + ']')
+    if ($mode -like '*-newline-success') { $hasEventContext = $hasEventContext -and $successLines[0].Contains('Run\r\nAlt+Y') }
     $attemptWriter.Dispose()
     $firstAction = $firstWindow.Action
     $actualFirst = $firstAction.Invocations + $firstAction.PhysicalClicks
-    $description = "mode=$mode first=$actualFirst second=$($secondAction.Invocations) gap-ms=$([int]$automation.GapMs) success-protocol=$successProtocol"
-    if ($actualFirst -ne 1 -or $secondAction.Invocations -ne 0 -or $automation.GapMs -lt 200 -or $successProtocol -ne $expectedSuccess) {
+    $description = "mode=$mode first=$actualFirst second=$($secondAction.Invocations) gap-ms=$([int]$automation.GapMs) success-protocol=$successProtocol context=$hasEventContext"
+    if ($actualFirst -ne 1 -or $secondAction.Invocations -ne 0 -or $automation.GapMs -lt 200 -or $successProtocol -ne $expectedSuccess -or ($successProtocol -and -not $hasEventContext)) {
         $attemptFailures += $description
         Write-Output "FAIL scanner action cooldown: $description"
     }
@@ -1127,6 +1208,135 @@ foreach ($mode in @('terminal-parent-exit', 'browser-relabel', 'generic-invoke-t
     $checks++
     Write-Output "PASS background pattern disposal: $mode actions=$($action.Invocations)"
 }
+
+# 2026-10-20：真实扫描循环先遇到一次宿主查询或 UIA 失效，恢复后只批准一次并继续观察后续轮次。
+$recoveryLookup = (Get-Item Function:\Get-TargetProcessIds).ScriptBlock
+try {
+    foreach ($recoveryMode in @('host-query-failed', 'uia-element-stale')) {
+        $script:testParentAlive = $true
+        $script:testRecoveryMode = $recoveryMode
+        $script:testRecoveryInjected = 0
+        $recoveryWindow = New-TestScanWindow 42
+        $recoveryWindow.Action | Add-Member ScriptMethod Invoke { $this.Invocations++; $this.Current.IsEnabled = $false } -Force
+        function Get-TargetProcessIds([int]$ProcessId) {
+            if ($script:testRecoveryMode -eq 'host-query-failed' -and $script:testRecoveryInjected -eq 0) { $script:testRecoveryInjected++; throw 'Injected transient host query failure' }
+            if ($ProcessId -eq 123) { return @{ 123 = $true } }
+            return @{}
+        }
+        $automation = [pscustomobject]@{ Window = $recoveryWindow; Scans = 0 }
+        $automation | Add-Member ScriptMethod FindAll {
+            param($scope, $condition)
+            $this.Scans++
+            if ($this.Scans -gt 3) { $script:testParentAlive = $false; return @() }
+            if ($script:testRecoveryMode -eq 'uia-element-stale' -and $script:testRecoveryInjected -eq 0) { $script:testRecoveryInjected++; throw [System.Windows.Automation.ElementNotAvailableException]::new('Injected stale UIA query') }
+            return @($this.Window)
+        }
+        $savedConsole = [Console]::Out
+        $recoveryWriter = New-Object IO.StringWriter
+        try { [Console]::SetOut($recoveryWriter); . ([scriptblock]::Create($noClickLifecycle)) }
+        finally { [Console]::SetOut($savedConsole) }
+        $recoveryEvents = @($recoveryWriter.ToString() -split '\r?\n' | Where-Object { $_.StartsWith('___CLICK_INVOKE___:') })
+        $recoveryWriter.Dispose()
+        if ($script:testRecoveryInjected -ne 1 -or $automation.Scans -ne 4 -or $recoveryWindow.Action.Invocations -ne 1 -or $recoveryWindow.Action.PhysicalClicks -ne 0 -or $recoveryEvents.Count -ne 1 -or $recoveryEvents[0] -notmatch 'pid=123 hwnd=42 card=6001 target-sha256=') { throw "Scanner recovery mismatch: $recoveryMode scans=$($automation.Scans) actions=$($recoveryWindow.Action.Invocations) events=$($recoveryEvents.Count)" }
+        $checks++
+        Write-Output "PASS scanner transient recovery: mode=$recoveryMode injected=1 scans=4 approvals=1"
+    }
+}
+finally { Set-Item Function:\Get-TargetProcessIds $recoveryLookup }
+
+# 2026-10-20：只替代单调时钟，执行实际扫描尾段；到期释放所有权前仍须遵守上一动作冷却。
+$resourceLifecycle = $noClickLifecycle.Replace('[Diagnostics.Stopwatch]::StartNew()', '(New-TestScannerLifetime)').Replace('[MouseHelper]::IsIconic($menuWindowHandle)', '(Get-TestScannerWindowIconic $menuWindowHandle)')
+function Get-TestScannerWindowIconic([IntPtr]$WindowHandle) { return $script:testScannerWindowIconic }
+foreach ($resourceMode in @('unexpired', 'expired-pending', 'expires-after-action')) {
+    $script:testParentAlive = $true
+    $script:testResourceMode = $resourceMode
+    $script:deferredBrowserMenus = @{}; $script:testScannerWindowIconic = $false
+    $script:testResourceMilliseconds = if ($resourceMode -eq 'expired-pending') { 900000 } else { 899999 }
+    function New-TestScannerLifetime {
+        $clock = [pscustomobject]@{}
+        $clock | Add-Member ScriptProperty Elapsed { return [TimeSpan]::FromMilliseconds($script:testResourceMilliseconds) }
+        return $clock
+    }
+    $resourceWindow = New-TestScanWindow 42
+    $resourceWindow.Action | Add-Member ScriptMethod Invoke {
+        $this.Invocations++
+        $this.Current.IsEnabled = $false
+        $script:testResourceActionAt = [DateTime]::UtcNow
+        if ($script:testResourceMode -eq 'expires-after-action') { $script:testResourceMilliseconds = 900000 }
+    } -Force
+    $automation = [pscustomobject]@{ Window = $resourceWindow; Scans = 0 }
+    $automation | Add-Member ScriptMethod FindAll {
+        param($scope,$condition)
+        $this.Scans++
+        if ($this.Scans -gt 1) { $script:testParentAlive = $false; return @() }
+        return @($this.Window)
+    }
+    $savedConsole=[Console]::Out;$resourceWriter=New-Object IO.StringWriter
+    $savedCooldown=$CooldownMs;$CooldownMs=250
+    try { [Console]::SetOut($resourceWriter); . ([scriptblock]::Create($resourceLifecycle)) }
+    finally { [Console]::SetOut($savedConsole);$CooldownMs=$savedCooldown }
+    $resourceLines=@($resourceWriter.ToString() -split '\r?\n')
+    $resourceWriter.Dispose()
+    $recycles=@($resourceLines|Where-Object{$_ -ceq '___SCANNER_RECYCLE___'}).Count
+    $approvals=@($resourceLines|Where-Object{$_.StartsWith('___CLICK_INVOKE___:')}).Count
+    $expectedApprovals=if($resourceMode -eq 'expired-pending'){0}else{1}
+    $expectedRecycles=if($resourceMode -eq 'unexpired'){0}else{1}
+    # 2026-10-20：到期交接先取得窗口快照以清理失效菜单；零批准与原冷却断言保持不变。
+    $expectedScans=if($resourceMode -eq 'expired-pending'){1}else{2}
+    if($recycles -ne $expectedRecycles -or $approvals -ne $expectedApprovals -or $resourceWindow.Action.Invocations -ne $expectedApprovals -or $resourceWindow.Action.PhysicalClicks -ne 0 -or $automation.Scans -ne $expectedScans){throw "Scanner lifetime mismatch: $resourceMode recycles=$recycles approvals=$approvals scans=$($automation.Scans)"}
+    if($resourceMode -eq 'expires-after-action' -and ([DateTime]::UtcNow-$script:testResourceActionAt).TotalMilliseconds -lt 200){throw 'Scanner recycled before the completed action cooldown'}
+    $checks++
+    Write-Output "PASS scanner owner lifetime: mode=$resourceMode recycles=$recycles approvals=$approvals scans=$($automation.Scans)"
+}
+
+# 2026-10-20：到期不能遗失已展开的无标签菜单；只有确认菜单消失才允许清理并交接。
+foreach($menuLifetimeMode in @('continued','gone','minimized','offscreen','query-throws','handle-read-throws')) {
+    $script:testParentAlive=$true;$script:deferredBrowserMenus=@{}
+    $script:testForegroundUiAllowed=$true;$script:testForegroundUiCalls=0;$script:testForegroundUiBlockAt=3
+    $menuLifetimeWindow=New-TestBrowserWindow 'expand-only'
+    $primed=Invoke-BrowserPermissionCards $menuLifetimeWindow 123 ([IntPtr]42)
+    if($primed -or $menuLifetimeWindow.Once.Invocations -ne 0 -or $script:deferredBrowserMenus.Count -ne 1 -or -not $menuLifetimeWindow.Opened){throw 'Lifetime test did not create real deferred menu state'}
+    $script:testResourceMilliseconds=900000
+    $script:testScannerWindowIconic=$menuLifetimeMode -eq 'minimized'
+    $script:testForegroundUiAllowed=$menuLifetimeMode -in @('continued','gone')
+    $script:testForegroundUiCalls=0;$script:testForegroundUiBlockAt=0
+    $menuLifetimeWindow.Current|Add-Member NoteProperty IsOffscreen ($menuLifetimeMode -eq 'offscreen')
+    # 2026-10-20：快照句柄首次读取失败不代表原窗口关闭，必须保留已有菜单归属。
+    if($menuLifetimeMode -eq 'handle-read-throws'){
+        $script:testLifetimeHandleReads=0
+        $menuLifetimeWindow.Current|Add-Member ScriptProperty NativeWindowHandle { $script:testLifetimeHandleReads++;if($script:testLifetimeHandleReads -eq 1){throw 'Injected window handle read failure'};return 42 } -Force
+    }
+    if($menuLifetimeMode -eq 'gone'){$menuLifetimeWindow.Opened=$false}
+    if($menuLifetimeMode -eq 'query-throws'){
+        $menuLifetimeWindow|Add-Member ScriptMethod FindAll {
+            param($scope,$condition)
+            if($condition -eq 'menu'){throw 'Injected menu query failure'}
+            if($condition -eq 'button'){return $this.Card.Buttons}
+            return @()
+        } -Force
+    }
+    $automation=[pscustomobject]@{Window=$menuLifetimeWindow;Scans=0}
+    $automation|Add-Member ScriptMethod FindAll {
+        param($scope,$condition)
+        $this.Scans++
+        if($this.Scans -ge 3){$script:testParentAlive=$false}
+        return @($this.Window)
+    }
+    $savedConsole=[Console]::Out;$menuLifetimeWriter=New-Object IO.StringWriter
+    $savedCooldown=$CooldownMs;$CooldownMs=250
+    try{[Console]::SetOut($menuLifetimeWriter);. ([scriptblock]::Create($resourceLifecycle))}
+    finally{[Console]::SetOut($savedConsole);$CooldownMs=$savedCooldown}
+    $menuLifetimeLines=@($menuLifetimeWriter.ToString() -split '\r?\n');$menuLifetimeWriter.Dispose()
+    $menuLifetimeRecycles=@($menuLifetimeLines|Where-Object{$_ -ceq '___SCANNER_RECYCLE___'}).Count
+    $expectedOnce=if($menuLifetimeMode -eq 'continued'){1}else{0}
+    $expectedRecycle=if($menuLifetimeMode -in @('continued','gone')){1}else{0}
+    $expectedDeferred=if($expectedRecycle -eq 1){0}else{1}
+    if($menuLifetimeWindow.Once.Invocations -ne $expectedOnce -or $menuLifetimeWindow.Always.Invocations -ne 0 -or $menuLifetimeWindow.More.Expansions -ne 1 -or $menuLifetimeRecycles -ne $expectedRecycle -or $script:deferredBrowserMenus.Count -ne $expectedDeferred){throw "Deferred lifetime mismatch: mode=$menuLifetimeMode once=$($menuLifetimeWindow.Once.Invocations) recycles=$menuLifetimeRecycles deferred=$($script:deferredBrowserMenus.Count)"}
+    $checks++
+    Write-Output "PASS deferred menu lifetime: mode=$menuLifetimeMode once=$expectedOnce recycles=$menuLifetimeRecycles deferred=$expectedDeferred"
+}
+$script:deferredBrowserMenus=@{};$script:testScannerWindowIconic=$false
+$script:testForegroundUiAllowed=$true;$script:testForegroundUiCalls=0;$script:testForegroundUiBlockAt=0
 
 # 2026-10-07：编译实际内嵌 COM 契约，预检只创建客户端和拒绝无效输入，不枚举或操作真实桌面。
 $nativeSource = [regex]::Match($source, '(?s)Add-Type -TypeDefinition @"\r?\n(.*?)\r?\n"@').Groups[1].Value
