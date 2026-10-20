@@ -32,10 +32,14 @@ Marketplace 使用固定版本 @vscode/vsce 4.0.0 的 publish --packagePath；Op
 
 缺少凭据时，summary 明确记录 not published / credential not configured；GitHub Release 可以完成，但双商店仍未发布。有凭据时两个商店独立尝试，任一实际失败最终使发布作业失败。
 
-上传后最多进行三次公开版本查询，每次超时15秒，两次间隔各20秒。查询期间不会再次上传：
+公开版本与公开包均通过验证才算商店发布成功（2026-10-20）。上传前先查询；上传后最多复查三次，元数据查询每次超时15秒，包下载每次超时30秒，两次间隔各20秒。查询期间不会再次上传：
 
-- Marketplace 请求公开 extensionquery，flags=33，即 IncludeVersions=1 与 ExcludeNonValidated=32；核对publisher、扩展名、精确版本，排除Verifying版本。
+- Marketplace 请求公开 extensionquery，flags=35，即 IncludeVersions=1、IncludeFiles=2 与 ExcludeNonValidated=32；核对publisher、扩展名、精确版本，排除Verifying版本，并取得唯一VSIXPackage文件。
 - Open VSX 请求精确版本API，核对namespace、name、version、无error、downloadable与下载地址。
+- 两者均只从对应商店的HTTPS下载地址读取公开VSIX，不传发布凭据；全包SHA-256必须与本次选定的原GitHub Release资产一致。下载的临时文件在成功、失败或不一致时均尝试清理。
+- 清理失败会使本轮发布失败，记录cleanup-failed；已发现字节不符时优先保留package-mismatch，不能因清理异常被覆盖而重试成成功。
+- 同版本公开包的字节不一致立即失败，记录package-mismatch，不重传或覆盖已有版本。
+- 已看到精确公开版本，但下载暂时失败、地址缺失或不符合来源要求时，记录verification-pending并有限复查；不重复上传，也不报成功。
 - uploaded-pending 表示上传已接受但公开可用尚未确认；作业失败，不能称为已上架。审核时间可能超过此有限等待，稍后重跑时先查询精确版本，已经公开则不重复上传。
 
 CLI或公开查询的实际失败必须保留。GitHub CI的测试成功、Release成功、商店上传成功、商店公开可用是四种不同证据。
@@ -48,4 +52,4 @@ CLI或公开查询的实际失败必须保留。GitHub CI的测试成功、Relea
 
 ## 离线回归
 
-运行 node --test tests/publish-release.test.cjs。测试从CI读取实际发布脚本，替换GitHub、商店与等待边界；真实归档仍由validate-vsix校验。覆盖原资产保留、部分上传恢复、校验失败、旧标签保护、缺凭据和公开版本检查；不联网、不操作桌面、不使用真实凭据。
+运行 node --test tests/publish-release.test.cjs。测试从CI读取实际发布脚本，替换GitHub、商店与等待边界；真实归档仍由validate-vsix校验。覆盖原资产保留、部分上传恢复、校验失败、旧标签保护、缺凭据、公开版本与完整包字节检查、下载失败重试、临时文件清理及避免重复上传；不联网、不操作桌面、不使用真实凭据。
