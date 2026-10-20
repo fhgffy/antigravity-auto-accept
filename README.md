@@ -151,11 +151,13 @@ The defaults still work with zero configuration. Advanced users can tune these i
 
 ## 📋 Changelog | 更新日志
 
-### v5.3.11 — Attributable Approval Events (2026-10-20)
+### v5.3.11 — Approval Attribution and Scanner Resource Lifetime (2026-10-20)
 
 - Include the target window PID/handle, approval element identity and exact target SHA-256 in successful approval events, so concurrent tasks can be correlated with their recorded cards.
 - Hash permission targets instead of adding command or domain text to the log; compute context before the existing final approval checks and do not query a disappeared card after the action.
 - 并发批准日志补齐窗口、卡片和目标指纹，便于核对每张审批卡的实际提交；一次允许、单实例及输入保护规则保持原行为。
+- Refresh a scanning owner after 15 minutes through the existing handoff/retry path, limiting observed private-memory growth during repeated UIAutomation queries. An expanded browser menu awaiting continuation delays refresh until it completes or is confirmed gone; this is a cooperative refresh rather than a hard memory cap. A sole enabled window may briefly show RETRYING during automatic restart.
+- 长时扫描到期后自动交接或重试，无需手动重启；已展开的待续办菜单保留原所有者，最小化、隐藏或无法确认菜单状态时继续等待，避免刷新丢失审批归属。
 
 ### v5.3.10 — Accurate Scanner Status (2026-10-20)
 

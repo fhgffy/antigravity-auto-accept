@@ -1379,25 +1379,50 @@ try {
     [Console]::WriteLine('___AUTOCLICK_READY___')
     $lastClickTime = [DateTime]::MinValue
     $lastServedWindowHandle = [IntPtr]::Zero # 2026-10-07：最终批准尝试后从下一窗口开始，持续审批的首窗不能饿死其余窗口。
+    # 2026-10-20：观察到重复 UIA 查询时私有内存持续增长；限制可安全交接时的所有者寿命，由既有接管/重试路径自动续接。
+    $scannerLifetime = [Diagnostics.Stopwatch]::StartNew()
 
     while (Test-ParentAlive) {
         Start-Sleep -Milliseconds $PollMs
         if (-not (Test-ParentAlive)) { break }
         $elapsed = ([DateTime]::Now - $lastClickTime).TotalMilliseconds
         if ($elapsed -lt $CooldownMs) { continue }
+        $recycleDue = $scannerLifetime.Elapsed.TotalMinutes -ge 15 # 2026-10-20：到期后先核对待续办菜单，不能丢失原归属。
 
         try {
             $windows = @($automation.FindAll([System.Windows.Automation.TreeScope]::Children, $winCondition))
-            # 2026-10-09：窗口离开本轮快照就丢弃其纯身份记录，不把已关闭窗口的菜单延续到新窗口。
+            # 2026-10-20：完整窗口身份快照确认窗口关闭后才丢弃菜单记录，读取失败保留续办归属。
             if ($null -ne $script:deferredBrowserMenus) {
                 $liveMenuWindowKeys = @{}
+                $liveMenuWindowSnapshotComplete = $true # 2026-10-20：身份读取失败不能作为窗口已关闭的依据。
                 foreach ($menuWindow in $windows) {
-                    try { $liveMenuWindowKeys[([long]$menuWindow.Current.NativeWindowHandle).ToString([Globalization.CultureInfo]::InvariantCulture)] = $true }
-                    catch { }
+                    try {
+                        $menuWindowHandle = $menuWindow.Current.NativeWindowHandle
+                        if ($null -eq $menuWindowHandle -or [long]$menuWindowHandle -eq 0) { throw 'Window handle unavailable' }
+                        $liveMenuWindowKeys[([long]$menuWindowHandle).ToString([Globalization.CultureInfo]::InvariantCulture)] = $true
+                    }
+                    catch { $liveMenuWindowSnapshotComplete = $false }
                 }
                 foreach ($pendingWindowKey in @($script:deferredBrowserMenus.Keys)) {
-                    if (-not $liveMenuWindowKeys.ContainsKey($pendingWindowKey)) { [void]$script:deferredBrowserMenus.Remove($pendingWindowKey) }
+                    if (-not $liveMenuWindowSnapshotComplete) { continue } # 2026-10-20：本轮身份快照不完整时保留所有续办记录。
+                    if (-not $liveMenuWindowKeys.ContainsKey($pendingWindowKey)) { [void]$script:deferredBrowserMenus.Remove($pendingWindowKey); continue }
+                    # 2026-10-20：到期时仅清理可读取的非最小化窗口中已消失的原菜单；异常或隐藏状态保留续办记录。
+                    if (-not $recycleDue) { continue }
+                    try {
+                        $menuWindow = @($windows | Where-Object { ([long]$_.Current.NativeWindowHandle).ToString([Globalization.CultureInfo]::InvariantCulture) -eq $pendingWindowKey })[0]
+                        $menuWindowHandle = [IntPtr]$menuWindow.Current.NativeWindowHandle
+                        if ([MouseHelper]::IsIconic($menuWindowHandle) -or $menuWindow.Current.IsOffscreen) { continue }
+                        $pendingMenu = $script:deferredBrowserMenus[$pendingWindowKey]
+                        $remainingMenus = @($menuWindow.FindAll([System.Windows.Automation.TreeScope]::Descendants, $menuCondition) | Where-Object { ($_.GetRuntimeId() -join '.') -eq $pendingMenu.MenuId -and $_.Current.ProcessId -eq $pendingMenu.ProcessId })
+                        if ($remainingMenus.Count -eq 0) { [void]$script:deferredBrowserMenus.Remove($pendingWindowKey) }
+                    }
+                    catch { Write-ApprovalDiagnostic 'lifetime menu state unavailable; retaining ownership' 'lifetime-menu' }
                 }
+            }
+            # 2026-10-20：只在上一动作冷却后且无已核验待续办菜单时释放；沿用正常 finally 和自动接管/重试。
+            if ($recycleDue -and ($null -eq $script:deferredBrowserMenus -or $script:deferredBrowserMenus.Count -eq 0)) {
+                [Console]::WriteLine('___SCANNER_RECYCLE___')
+                break
             }
             $didClick = $false
             # 2026-10-07：每轮保留窗口快照并按上次动作窗口轮转，失效句柄只跳过自身。

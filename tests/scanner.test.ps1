@@ -1209,6 +1209,135 @@ foreach ($mode in @('terminal-parent-exit', 'browser-relabel', 'generic-invoke-t
     Write-Output "PASS background pattern disposal: $mode actions=$($action.Invocations)"
 }
 
+# 2026-10-20：真实扫描循环先遇到一次宿主查询或 UIA 失效，恢复后只批准一次并继续观察后续轮次。
+$recoveryLookup = (Get-Item Function:\Get-TargetProcessIds).ScriptBlock
+try {
+    foreach ($recoveryMode in @('host-query-failed', 'uia-element-stale')) {
+        $script:testParentAlive = $true
+        $script:testRecoveryMode = $recoveryMode
+        $script:testRecoveryInjected = 0
+        $recoveryWindow = New-TestScanWindow 42
+        $recoveryWindow.Action | Add-Member ScriptMethod Invoke { $this.Invocations++; $this.Current.IsEnabled = $false } -Force
+        function Get-TargetProcessIds([int]$ProcessId) {
+            if ($script:testRecoveryMode -eq 'host-query-failed' -and $script:testRecoveryInjected -eq 0) { $script:testRecoveryInjected++; throw 'Injected transient host query failure' }
+            if ($ProcessId -eq 123) { return @{ 123 = $true } }
+            return @{}
+        }
+        $automation = [pscustomobject]@{ Window = $recoveryWindow; Scans = 0 }
+        $automation | Add-Member ScriptMethod FindAll {
+            param($scope, $condition)
+            $this.Scans++
+            if ($this.Scans -gt 3) { $script:testParentAlive = $false; return @() }
+            if ($script:testRecoveryMode -eq 'uia-element-stale' -and $script:testRecoveryInjected -eq 0) { $script:testRecoveryInjected++; throw [System.Windows.Automation.ElementNotAvailableException]::new('Injected stale UIA query') }
+            return @($this.Window)
+        }
+        $savedConsole = [Console]::Out
+        $recoveryWriter = New-Object IO.StringWriter
+        try { [Console]::SetOut($recoveryWriter); . ([scriptblock]::Create($noClickLifecycle)) }
+        finally { [Console]::SetOut($savedConsole) }
+        $recoveryEvents = @($recoveryWriter.ToString() -split '\r?\n' | Where-Object { $_.StartsWith('___CLICK_INVOKE___:') })
+        $recoveryWriter.Dispose()
+        if ($script:testRecoveryInjected -ne 1 -or $automation.Scans -ne 4 -or $recoveryWindow.Action.Invocations -ne 1 -or $recoveryWindow.Action.PhysicalClicks -ne 0 -or $recoveryEvents.Count -ne 1 -or $recoveryEvents[0] -notmatch 'pid=123 hwnd=42 card=6001 target-sha256=') { throw "Scanner recovery mismatch: $recoveryMode scans=$($automation.Scans) actions=$($recoveryWindow.Action.Invocations) events=$($recoveryEvents.Count)" }
+        $checks++
+        Write-Output "PASS scanner transient recovery: mode=$recoveryMode injected=1 scans=4 approvals=1"
+    }
+}
+finally { Set-Item Function:\Get-TargetProcessIds $recoveryLookup }
+
+# 2026-10-20：只替代单调时钟，执行实际扫描尾段；到期释放所有权前仍须遵守上一动作冷却。
+$resourceLifecycle = $noClickLifecycle.Replace('[Diagnostics.Stopwatch]::StartNew()', '(New-TestScannerLifetime)').Replace('[MouseHelper]::IsIconic($menuWindowHandle)', '(Get-TestScannerWindowIconic $menuWindowHandle)')
+function Get-TestScannerWindowIconic([IntPtr]$WindowHandle) { return $script:testScannerWindowIconic }
+foreach ($resourceMode in @('unexpired', 'expired-pending', 'expires-after-action')) {
+    $script:testParentAlive = $true
+    $script:testResourceMode = $resourceMode
+    $script:deferredBrowserMenus = @{}; $script:testScannerWindowIconic = $false
+    $script:testResourceMilliseconds = if ($resourceMode -eq 'expired-pending') { 900000 } else { 899999 }
+    function New-TestScannerLifetime {
+        $clock = [pscustomobject]@{}
+        $clock | Add-Member ScriptProperty Elapsed { return [TimeSpan]::FromMilliseconds($script:testResourceMilliseconds) }
+        return $clock
+    }
+    $resourceWindow = New-TestScanWindow 42
+    $resourceWindow.Action | Add-Member ScriptMethod Invoke {
+        $this.Invocations++
+        $this.Current.IsEnabled = $false
+        $script:testResourceActionAt = [DateTime]::UtcNow
+        if ($script:testResourceMode -eq 'expires-after-action') { $script:testResourceMilliseconds = 900000 }
+    } -Force
+    $automation = [pscustomobject]@{ Window = $resourceWindow; Scans = 0 }
+    $automation | Add-Member ScriptMethod FindAll {
+        param($scope,$condition)
+        $this.Scans++
+        if ($this.Scans -gt 1) { $script:testParentAlive = $false; return @() }
+        return @($this.Window)
+    }
+    $savedConsole=[Console]::Out;$resourceWriter=New-Object IO.StringWriter
+    $savedCooldown=$CooldownMs;$CooldownMs=250
+    try { [Console]::SetOut($resourceWriter); . ([scriptblock]::Create($resourceLifecycle)) }
+    finally { [Console]::SetOut($savedConsole);$CooldownMs=$savedCooldown }
+    $resourceLines=@($resourceWriter.ToString() -split '\r?\n')
+    $resourceWriter.Dispose()
+    $recycles=@($resourceLines|Where-Object{$_ -ceq '___SCANNER_RECYCLE___'}).Count
+    $approvals=@($resourceLines|Where-Object{$_.StartsWith('___CLICK_INVOKE___:')}).Count
+    $expectedApprovals=if($resourceMode -eq 'expired-pending'){0}else{1}
+    $expectedRecycles=if($resourceMode -eq 'unexpired'){0}else{1}
+    # 2026-10-20：到期交接先取得窗口快照以清理失效菜单；零批准与原冷却断言保持不变。
+    $expectedScans=if($resourceMode -eq 'expired-pending'){1}else{2}
+    if($recycles -ne $expectedRecycles -or $approvals -ne $expectedApprovals -or $resourceWindow.Action.Invocations -ne $expectedApprovals -or $resourceWindow.Action.PhysicalClicks -ne 0 -or $automation.Scans -ne $expectedScans){throw "Scanner lifetime mismatch: $resourceMode recycles=$recycles approvals=$approvals scans=$($automation.Scans)"}
+    if($resourceMode -eq 'expires-after-action' -and ([DateTime]::UtcNow-$script:testResourceActionAt).TotalMilliseconds -lt 200){throw 'Scanner recycled before the completed action cooldown'}
+    $checks++
+    Write-Output "PASS scanner owner lifetime: mode=$resourceMode recycles=$recycles approvals=$approvals scans=$($automation.Scans)"
+}
+
+# 2026-10-20：到期不能遗失已展开的无标签菜单；只有确认菜单消失才允许清理并交接。
+foreach($menuLifetimeMode in @('continued','gone','minimized','offscreen','query-throws','handle-read-throws')) {
+    $script:testParentAlive=$true;$script:deferredBrowserMenus=@{}
+    $script:testForegroundUiAllowed=$true;$script:testForegroundUiCalls=0;$script:testForegroundUiBlockAt=3
+    $menuLifetimeWindow=New-TestBrowserWindow 'expand-only'
+    $primed=Invoke-BrowserPermissionCards $menuLifetimeWindow 123 ([IntPtr]42)
+    if($primed -or $menuLifetimeWindow.Once.Invocations -ne 0 -or $script:deferredBrowserMenus.Count -ne 1 -or -not $menuLifetimeWindow.Opened){throw 'Lifetime test did not create real deferred menu state'}
+    $script:testResourceMilliseconds=900000
+    $script:testScannerWindowIconic=$menuLifetimeMode -eq 'minimized'
+    $script:testForegroundUiAllowed=$menuLifetimeMode -in @('continued','gone')
+    $script:testForegroundUiCalls=0;$script:testForegroundUiBlockAt=0
+    $menuLifetimeWindow.Current|Add-Member NoteProperty IsOffscreen ($menuLifetimeMode -eq 'offscreen')
+    # 2026-10-20：快照句柄首次读取失败不代表原窗口关闭，必须保留已有菜单归属。
+    if($menuLifetimeMode -eq 'handle-read-throws'){
+        $script:testLifetimeHandleReads=0
+        $menuLifetimeWindow.Current|Add-Member ScriptProperty NativeWindowHandle { $script:testLifetimeHandleReads++;if($script:testLifetimeHandleReads -eq 1){throw 'Injected window handle read failure'};return 42 } -Force
+    }
+    if($menuLifetimeMode -eq 'gone'){$menuLifetimeWindow.Opened=$false}
+    if($menuLifetimeMode -eq 'query-throws'){
+        $menuLifetimeWindow|Add-Member ScriptMethod FindAll {
+            param($scope,$condition)
+            if($condition -eq 'menu'){throw 'Injected menu query failure'}
+            if($condition -eq 'button'){return $this.Card.Buttons}
+            return @()
+        } -Force
+    }
+    $automation=[pscustomobject]@{Window=$menuLifetimeWindow;Scans=0}
+    $automation|Add-Member ScriptMethod FindAll {
+        param($scope,$condition)
+        $this.Scans++
+        if($this.Scans -ge 3){$script:testParentAlive=$false}
+        return @($this.Window)
+    }
+    $savedConsole=[Console]::Out;$menuLifetimeWriter=New-Object IO.StringWriter
+    $savedCooldown=$CooldownMs;$CooldownMs=250
+    try{[Console]::SetOut($menuLifetimeWriter);. ([scriptblock]::Create($resourceLifecycle))}
+    finally{[Console]::SetOut($savedConsole);$CooldownMs=$savedCooldown}
+    $menuLifetimeLines=@($menuLifetimeWriter.ToString() -split '\r?\n');$menuLifetimeWriter.Dispose()
+    $menuLifetimeRecycles=@($menuLifetimeLines|Where-Object{$_ -ceq '___SCANNER_RECYCLE___'}).Count
+    $expectedOnce=if($menuLifetimeMode -eq 'continued'){1}else{0}
+    $expectedRecycle=if($menuLifetimeMode -in @('continued','gone')){1}else{0}
+    $expectedDeferred=if($expectedRecycle -eq 1){0}else{1}
+    if($menuLifetimeWindow.Once.Invocations -ne $expectedOnce -or $menuLifetimeWindow.Always.Invocations -ne 0 -or $menuLifetimeWindow.More.Expansions -ne 1 -or $menuLifetimeRecycles -ne $expectedRecycle -or $script:deferredBrowserMenus.Count -ne $expectedDeferred){throw "Deferred lifetime mismatch: mode=$menuLifetimeMode once=$($menuLifetimeWindow.Once.Invocations) recycles=$menuLifetimeRecycles deferred=$($script:deferredBrowserMenus.Count)"}
+    $checks++
+    Write-Output "PASS deferred menu lifetime: mode=$menuLifetimeMode once=$expectedOnce recycles=$menuLifetimeRecycles deferred=$expectedDeferred"
+}
+$script:deferredBrowserMenus=@{};$script:testScannerWindowIconic=$false
+$script:testForegroundUiAllowed=$true;$script:testForegroundUiCalls=0;$script:testForegroundUiBlockAt=0
+
 # 2026-10-07：编译实际内嵌 COM 契约，预检只创建客户端和拒绝无效输入，不枚举或操作真实桌面。
 $nativeSource = [regex]::Match($source, '(?s)Add-Type -TypeDefinition @"\r?\n(.*?)\r?\n"@').Groups[1].Value
 if ([string]::IsNullOrWhiteSpace($nativeSource)) { throw 'Embedded native source missing' }
