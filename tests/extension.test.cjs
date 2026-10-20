@@ -169,16 +169,52 @@ test('READY 和两种 WAITING 握手取消启动超时，不误杀正常等待�
     for (const marker of ['___AUTOCLICK_READY___', '___SCANNER_WAITING___', '___ALREADY_RUNNING___']) {
         const harness = createHarness();
         const child = harness.children[0].child;
-        child.stdout.emit('data', Buffer.from(marker.slice(0, 8)));
+        child.stdout.emit('data', Buffer.from(' \t' + marker.slice(0, 8)));
         harness.advanceTime(55000);
         assert.match(harness.status.text, /STARTING/);
-        child.stdout.emit('data', Buffer.from(marker.slice(8) + '\r\n'));
+        child.stdout.emit('data', Buffer.from(marker.slice(8) + ' \t\r\n'));
         assert.equal(harness.timers.size, 0);
         harness.advanceTime(120000);
         assert.equal(child.killCalls, 0);
         assert.equal(harness.children.length, 1);
         assert.match(harness.status.text, marker.includes('READY___') ? /ON/ : /WAITING/);
     }
+});
+
+/* 2026-10-20：日志中引用的握手不是就绪信号，不能提前显示 ON 或撤销启动恢复。 */
+test('普通输出引用协议标记时保留启动截止时间', () => {
+    for (const marker of ['___AUTOCLICK_READY___', '___SCANNER_WAITING___', '___ALREADY_RUNNING___']) {
+        for (const line of [`___ERROR___:expected ${marker}`, `${marker} is not available`, `___CLICK_INVOKE___:Run ${marker}`]) {
+            const harness = createHarness();
+            const child = harness.children[0].child;
+            child.stdout.emit('data', Buffer.from(line.slice(0, 12)));
+            child.stdout.emit('data', Buffer.from(line.slice(12) + '\r\n'));
+            assert.match(harness.status.text, /STARTING/);
+            harness.advanceTime(60000);
+            assert.equal(child.killCalls, 1);
+            assert.match(harness.status.text, /RETRYING/);
+            harness.advanceTime(300);
+            assert.equal(harness.children.length, 2);
+        }
+    }
+});
+
+/* 2026-10-20：已就绪实例的普通日志也不能伪造锁等待或批准成功，真实事件仍保留完整载荷。 */
+test('协议只在完整行或行首有效，日志引用不会改变状态或冒充批准', () => {
+    const harness = createHarness();
+    const child = harness.children[0].child;
+    child.stdout.emit('data', Buffer.from('___AUTOCLICK_READY___\n'));
+    child.stdout.emit('data', Buffer.from('diagnostic: ___SCANNER_WAITING___\n'));
+    assert.match(harness.status.text, /ON/);
+    child.stdout.emit('data', Buffer.from('diagnostic: ___CLICK_INVOKE___:Allow Once\n'));
+    child.stdout.emit('data', Buffer.from('diagnostic: ___CLICK_PHYSICAL___:Run\n'));
+    assert.equal(harness.logs.some(line => line.includes('Auto-accepted (')), false);
+    child.stdout.emit('data', Buffer.from('___CLICK_INVOKE___:Run ___CLICK_INVOKE___:details\n'));
+    assert.ok(harness.logs.some(line => line.includes('Auto-accepted (Invoke): "Run ___CLICK_INVOKE___:details"')));
+    child.stdout.emit('data', Buffer.from('___CLICK_PHYSICAL___:Run ___CLICK_PHYSICAL___:details  \n'));
+    assert.ok(harness.logs.some(line => line.includes('Auto-accepted (Physical): "Run ___CLICK_PHYSICAL___:details  "')));
+    child.stdout.emit('data', Buffer.from('___ERROR___:COM error: ___ERROR___:details\n'));
+    assert.ok(harness.logs.some(line => line.includes('Scanner: COM error: ___ERROR___:details')));
 });
 
 test('启动挂起期间停止或卸载会取消截止时间，不再创建新进程', () => {

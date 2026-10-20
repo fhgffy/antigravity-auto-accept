@@ -211,25 +211,29 @@ function startAutoClicker() {
                 continue;
             }
             /* 2026-10-20：等待单实例锁是正常存活状态，收到任一完整握手即取消启动截止时间。 */
-            if (['___AUTOCLICK_READY___', '___SCANNER_WAITING___', '___ALREADY_RUNNING___'].some(marker => line.includes(marker))) {
+            /* 2026-10-20：握手必须占完整一行；错误或按钮名称中的标记不能伪造就绪并撤销启动恢复。 */
+            const protocolLine = line.trimStart();
+            const handshake = protocolLine.trimEnd();
+            if (['___AUTOCLICK_READY___', '___SCANNER_WAITING___', '___ALREADY_RUNNING___'].includes(handshake)) {
                 if (startupTimer !== undefined) { clearTimeout(startupTimer); startupTimer = undefined; }
             }
-            if (line.includes('___CLICK_INVOKE___:')) {
-                const btnName = line.split('___CLICK_INVOKE___:')[1];
+            /* 2026-10-20：带载荷的事件只认行首，并保留后续同名标记，避免普通日志冒充批准或截断诊断。 */
+            if (protocolLine.startsWith('___CLICK_INVOKE___:')) {
+                const btnName = protocolLine.slice('___CLICK_INVOKE___:'.length);
                 log('✅', `Auto-accepted (Invoke): "${btnName}"`);
-            } else if (line.includes('___CLICK_PHYSICAL___:')) {
-                const info = line.split('___CLICK_PHYSICAL___:')[1];
+            } else if (protocolLine.startsWith('___CLICK_PHYSICAL___:')) {
+                const info = protocolLine.slice('___CLICK_PHYSICAL___:'.length);
                 log('✅', `Auto-accepted (Physical): "${info}"`);
-            } else if (line.includes('___AUTOCLICK_READY___')) {
+            } else if (handshake === '___AUTOCLICK_READY___') {
                 log('✅', 'UIAutomation scanner ready');
                 scannerState = 'ready';
                 updateStatusBar();
-            } else if (line.includes('___SCANNER_WAITING___') || line.includes('___ALREADY_RUNNING___')) {
+            } else if (handshake === '___SCANNER_WAITING___' || handshake === '___ALREADY_RUNNING___') {
                 scannerState = 'waiting';
                 updateStatusBar();
                 log('ℹ️', 'Another scanner owns the desktop session; waiting to take over when it stops.');
-            } else if (line.includes('___ERROR___:')) {
-                const err = line.split('___ERROR___:')[1];
+            } else if (protocolLine.startsWith('___ERROR___:')) {
+                const err = protocolLine.slice('___ERROR___:'.length);
                 // UIAutomation错误通常是暂时性的，只在debug时显示
                 if (err && !err.includes('Operation is not valid')) {
                     log('⚠️', `Scanner: ${err}`);
