@@ -78,6 +78,16 @@ C 宿主整棵进程树的私有内存为 2326.98–3293.67 MiB，包含模型�
 
 独立审查确认 `C5-single-m1-terminal-result.png` 与 `A5-m7-mid-result.png` 是 276×45 的空白捕获，均保留为观察失败，不用于成功结论。M1 终端的批准归属由成功日志和精确目标指纹证明；模型回复中的输出标记不能替代原始终端 stdout。
 
+## 发布记录分支触发的 CI 测试工具缺陷
+
+文档提交 `86dc867` 的 push CI [39459549275](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39459549275) 在 PS7 SelfTest 子进程等待 15 秒后失败；同提交 PR CI [39459563497](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39459563497) 成功。失败未重跑，原始作业日志保存在 `ci-job-118755108720-first-failure.log`。首次失败没有子进程输出，不能确认该次远端超时的具体原因。
+
+[Issue #24](https://github.com/fhgffy/antigravity-auto-accept/issues/24) 独立复现测试包装器的管道反压：原真实循环先等退出、后读输出，子自测写 131072 字符及有效完成标记后仍在 15.12 秒超时。`selftest-pipe-first-red.log/.json`、`selftest-wrapper-regression-red.log` 保留红例。测试包装器现并发排空 stdout/stderr，原 15 秒上限、退出码、stderr 和完成标记要求保留；超时按现有宿主包装器样式保存两条输出及退出确认。
+
+`selftest-wrapper-regression-green.log` 中两个实际引擎共 10 个新用例通过：大 stdout、stderr、非零退出、缺少完成标记、打印完成标记后仍停滞 15 秒。它证明测试工具行为，不能据此宣称远端原超时根因已修复；完整回归及最终 CI 单独记录。插件源码、JavaScript、manifest 和已发布 VSIX 均不变，本项不发布空补丁版本。
+独立审查还复现新增测试观察函数在回执写入失败后遗留已启动子进程。`review-selftest-ledger-failure-red.*` 保存独立脚本、原始结果与身份核对后的回收；`selftest-observer-ledger-red.log` 为仓库新用例在旧观察函数上的失败。当前观察函数持有原 Process 对象有限回收，保留写入异常；`selftest-wrapper-final-green.log` 为两个引擎共 12 项通过，包含两项回执写入故障。旧 `full-test-selftest-pipes.log` 退出 0 仅属发现清理缺口前的中间候选，最终完整回归另存，不冒充修正后结果。
+最终修正后完整 npm test 退出 0，原始日志为 full-test-selftest-pipes-final.log：编译、类型检查、仓库与发布边界、生命周期、扫描器 184、两引擎宿主各 131、包装器 22、两引擎输入各 188、并发 22 项均通过。selftest-pipes-independent-final-review.json 固定最终两个测试文件 SHA-256，独立运行 12 项通过且无阻塞发现；UTF-8 无 BOM、CRLF、diff 检查及原发布包 8 项校验通过。最终提交的远端 CI 结果单独核对。
+
 ## 发布与收尾
 
 [PR #22](https://github.com/fhgffy/antigravity-auto-accept/pull/22) 已合并归属和资源两个修复，Issues #19/#21 已关闭，原诊断草稿 #20 由它取代。最终提交 `ecbae104bed26e9d29dd2d981f25d139acfea9cb` 的 [push CI](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39456496751) 与 [PR CI](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39456504321) 均成功；非主线发布作业按条件跳过。main 合并提交为 `d1a1532782d968a724044f2158846c09eaec7d1c`。

@@ -74,10 +74,15 @@ $escapedScannerPath = $scannerPath.Replace("'", "''")
 $bootstrapEncoding = '$ProgressPreference = ''SilentlyContinue''; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false);'
 foreach ($engine in $engines) {
     $process = Start-TestProcess $engine "$bootstrapEncoding & ([scriptblock]::Create([IO.File]::ReadAllText('$escapedScannerPath', [Text.Encoding]::UTF8))) -SelfTest"
+    # 2026-10-21：等待退出前同时排空两条重定向管道，避免输出反压让正常自测卡在原十五秒上限。
+    $pendingOut = $process.StandardOutput.ReadToEndAsync()
+    $pendingError = $process.StandardError.ReadToEndAsync()
+    $timedOut = $false
     try {
-        if (-not $process.WaitForExit(15000)) { throw 'SelfTest timeout' }
-        $output = $process.StandardOutput.ReadToEnd()
-        $errorOutput = $process.StandardError.ReadToEnd()
+        $timedOut = -not $process.WaitForExit(15000)
+        if ($timedOut) { throw "SelfTest timeout: engine=$engine pid=$($process.Id)" }
+        $output = $pendingOut.GetAwaiter().GetResult()
+        $errorOutput = $pendingError.GetAwaiter().GetResult()
         if ($process.ExitCode -ne 0 -or $output -notmatch ("___SELFTEST_DONE___:passed=$ExpectedSelfTestCount\b") -or $errorOutput.Length -gt 0) {
             throw "SelfTest failed: engine=$engine exit=$($process.ExitCode) output=$output stderr=$errorOutput"
         }
@@ -85,8 +90,27 @@ foreach ($engine in $engines) {
         $checks++
     }
     finally {
-        if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
-        $process.Dispose()
+        # 2026-10-21：沿用宿主测试的有限超时旁证，清理或读取失败不能覆盖原自测失败。
+        if ($timedOut) {
+            $diagnostic = [ordered]@{ Pid = $process.Id; ExitConfirmed = $false; StdoutComplete = $false; StderrComplete = $false; Stdout = $null; Stderr = $null; StopError = ''; ReadError = ''; DisposeError = '' }
+            try {
+                if (-not $process.HasExited) { $process.Kill() }
+                $diagnostic.ExitConfirmed = $process.WaitForExit(5000)
+            } catch { $diagnostic.StopError = $_.Exception.GetType().FullName }
+            foreach ($stream in @(@{ Name = 'Stdout'; Task = $pendingOut }, @{ Name = 'Stderr'; Task = $pendingError })) {
+                try {
+                    if ($stream.Task.Wait(1000)) {
+                        $diagnostic[$stream.Name] = $stream.Task.GetAwaiter().GetResult()
+                        $diagnostic[$stream.Name + 'Complete'] = $true
+                    }
+                } catch { $diagnostic.ReadError += $stream.Name + ':' + $_.Exception.GetType().FullName + ';' }
+            }
+            try { $process.Dispose() } catch { $diagnostic.DisposeError = $_.Exception.GetType().FullName }
+            try { [Console]::WriteLine('___SCANNER_SELFTEST_TIMEOUT___:' + ($diagnostic | ConvertTo-Json -Compress)) } catch { }
+        } else {
+            if (-not $process.HasExited) { $process.Kill(); [void]$process.WaitForExit(5000) }
+            $process.Dispose()
+        }
     }
 }
 

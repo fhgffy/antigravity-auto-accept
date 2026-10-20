@@ -18,6 +18,8 @@ VSCode/Antigravity 插件，自动点击 Antigravity IDE 的权限弹窗（Run/A
 
 2026-10-21 本机资源候选完成 35.56 分钟、312 个样本、8 次真实批准和两次自然刷新；单窗口 3 秒自动重试、跨刷新待批卡片保留及一次批准均通过。M1–M8 已有结论，文件工具未产生权限卡的子项明确不适用；限制和逐项版本哈希见验收报告。PR #22 已合并至 d1a1532782d968a724044f2158846c09eaec7d1c，main CI 39457516301 全绿。GitHub v5.3.11 原包与 Open VSX 公开下载 SHA-256 均为 2da1df5fcea17e3792aeffa15bb5d9f644bee14e9e690bc3d1b4254b87a9252e；Marketplace 上传仍待本人验证码，三处核对尚未完成。
 
+维护测试另按 Issue #24 修正 SelfTest 子进程的管道反压及超时旁证；15 秒上限和所有失败条件保留。两个引擎共 12 个新增真实进程用例及修正后的完整 npm test 均通过，独立审查无阻塞发现；最后提交 CI 另行记录。该测试工具修复不改变插件运行文件或已发布原包；首轮远端 SelfTest 超时的具体原因仍未确认。
+
 ### 架构变更
 v4.0.0 及之前使用 PowerShell + UIAutomation + user32.dll 物理鼠标点击方案。
 2026年2-3月 Antigravity 连续更新（v1.18.4 → v1.20.x），内部 Chromium webview UI 结构变化，
