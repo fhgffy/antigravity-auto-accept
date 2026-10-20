@@ -80,6 +80,16 @@ C 宿主整棵进程树的私有内存为 2326.98–3293.67 MiB，包含模型�
 
 ## 发布与收尾
 
-[PR #22](https://github.com/fhgffy/antigravity-auto-accept/pull/22) 合并前核对最后提交的完整 CI 及本矩阵；它包含归属和资源两个修复，原诊断草稿 #20 已关闭。合并后再核对 main CI。GitHub Release 原包发布后，两个商店上传同一原包，实际公开下载须通过 CI 现有原生产查询函数，逐项核对发布者、精确版本及 SHA-256。
+[PR #22](https://github.com/fhgffy/antigravity-auto-accept/pull/22) 已合并归属和资源两个修复，Issues #19/#21 已关闭，原诊断草稿 #20 由它取代。最终提交 `ecbae104bed26e9d29dd2d981f25d139acfea9cb` 的 [push CI](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39456496751) 与 [PR CI](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39456504321) 均成功；非主线发布作业按条件跳过。main 合并提交为 `d1a1532782d968a724044f2158846c09eaec7d1c`。
+
+PR #22 已合并，main CI [39457516301](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39457516301) 全绿；[GitHub v5.3.11](https://github.com/fhgffy/antigravity-auto-accept/releases/tag/v5.3.11) 原包及 Open VSX 精确版本公开下载的 SHA-256 均为 `2da1df5fcea17e3792aeffa15bb5d9f644bee14e9e690bc3d1b4254b87a9252e`。Marketplace 上传触发本人图片验证码，尚未完成，不能将三处发布标为通过。
+
+| 渠道 | 5.3.11 状态 | 证据 |
+| --- | --- | --- |
+| GitHub Release | 已公开，原包及校验文件一致 | `github-original-final11-verification.json`；资产 659864061，81822 字节，标签准确指向上述 main 提交。 |
+| Open VSX | 已公开，精确版本及实际下载哈希一致 | `public-final11-openvsx.json`，直接装载 CI 原函数 `Test-OpenVsxPublic`，2026-10-21 00:36:43+08:00 通过。 |
+| Marketplace | 未完成，本人图片验证码待处理 | 已选择同一个 GitHub 原包，`marketplace-final11-captcha.jpg`；公开页面当前仍为 5.3.10，不能将上传尝试计为发布。 |
+
+CI 没有配置两个商店发布令牌，作业明确报告未上传；商店记录来自后续本人登录会话的网页上传与公开包核验。Open VSX 首次 Forbidden 后正常刷新原有 OAuth 会话才接收，首轮失败及审核中截图保留；管理页 Public 不代替精确公开版本下载。没有创建新凭据或扩大权限。
 
 发布回执及最终矩阵保存在测试根目录的 `final-report.md`；本机候选通过、PR 合并、商店上传回执和商店实际公开下载是不同证据，不互相替代。临时配置、浏览器及测试进程仅在记录身份核对退出后按固定目录白名单清理；证据目录保留。原工作区已有 lessons 改动完整保留，仅追加本轮经验。
