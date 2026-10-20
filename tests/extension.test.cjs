@@ -22,6 +22,7 @@ function createHarness(options = {}) {
     const errors = [];
     const info = [];
     let nextTimer = 1;
+    let clock = 0; // 2026-10-20：虚拟时间只推进真实扩展注册的回调，不用等待一分钟复现启动卡住。
     let configListener;
     let trustListener;
     const config = { autoStart: true, ...(options.config || {}) };
@@ -81,7 +82,7 @@ function createHarness(options = {}) {
         Buffer,
         setTimeout: (callback, delay) => {
             const id = nextTimer++;
-            timers.set(id, { callback, delay });
+            timers.set(id, { callback, delay, due: clock + delay }); // 2026-10-20
             return id;
         },
         clearTimeout: id => timers.delete(id),
@@ -97,6 +98,21 @@ function createHarness(options = {}) {
     return {
         children, logs, errors, info, status, timers, exports, fakeProcess,
         command: name => commands.get(`antigravity-auto-accept.${name}`)(),
+        /* 2026-10-20：按到期顺序推进，回调创建的新计时器也遵守各自截止时间。 */
+        advanceTime: milliseconds => {
+            const target = clock + milliseconds;
+            for (let count = 0; ; count++) {
+                const pending = [...timers.entries()].filter(([, timer]) => timer.due <= target)
+                    .sort((a, b) => a[1].due - b[1].due);
+                if (!pending.length) { break; }
+                assert.ok(count < 1000, 'timer loop did not settle');
+                const [id, timer] = pending[0];
+                clock = timer.due;
+                timers.delete(id);
+                timer.callback();
+            }
+            clock = target;
+        },
         flushTimers: () => {
             const pending = Array.from(timers.entries());
             for (const [id, timer] of pending) {
@@ -125,6 +141,89 @@ function getScannerCommand(spawned) {
     }
     return spawned.args.join(' ');
 }
+
+/* 2026-10-20：进程存活和普通日志不能替代握手，启动挂起应自动恢复且不弹授权或成功通知。 */
+test('启动一分钟没有 READY 或 WAITING 时自动重试，不再无限 STARTING', () => {
+    const harness = createHarness({ config: { showNotifications: true } }); // 2026-10-20：用户开启通知时自动恢复也不能弹出成功提示。
+    const first = harness.children[0].child;
+    first.stdout.emit('data', Buffer.from('compiler still running\n'));
+    harness.advanceTime(59999);
+    first.stdout.emit('data', Buffer.from('compiler is still running\n')); // 2026-10-20：截止前普通日志不能延长启动等待。
+    assert.equal(first.killCalls, 0);
+    assert.match(harness.status.text, /STARTING/);
+    harness.advanceTime(1);
+    assert.equal(first.killCalls, 1);
+    assert.match(harness.status.text, /RETRYING/);
+    assert.equal(harness.errors.length, 0);
+    assert.equal(harness.info.length, 0);
+    harness.advanceTime(300);
+    assert.equal(harness.children.length, 2);
+    harness.children[1].child.stdout.emit('data', Buffer.from('___AUTOCLICK_READY___\n'));
+    assert.match(harness.status.text, /ON/);
+    assert.equal(harness.timers.size, 0);
+    assert.ok(harness.logs.some(line => line.includes('startup timed out')));
+});
+
+/* 2026-10-20：正常单实例等待可以持续超过启动截止时间，分段握手只在完整换行后生效。 */
+test('READY 和两种 WAITING 握手取消启动超时，不误杀正常等待者', () => {
+    for (const marker of ['___AUTOCLICK_READY___', '___SCANNER_WAITING___', '___ALREADY_RUNNING___']) {
+        const harness = createHarness();
+        const child = harness.children[0].child;
+        child.stdout.emit('data', Buffer.from(marker.slice(0, 8)));
+        harness.advanceTime(55000);
+        assert.match(harness.status.text, /STARTING/);
+        child.stdout.emit('data', Buffer.from(marker.slice(8) + '\r\n'));
+        assert.equal(harness.timers.size, 0);
+        harness.advanceTime(120000);
+        assert.equal(child.killCalls, 0);
+        assert.equal(harness.children.length, 1);
+        assert.match(harness.status.text, marker.includes('READY___') ? /ON/ : /WAITING/);
+    }
+});
+
+test('启动挂起期间停止或卸载会取消截止时间，不再创建新进程', () => {
+    for (const action of ['stop', 'deactivate']) {
+        const harness = createHarness();
+        harness.advanceTime(59000);
+        if (action === 'stop') { harness.command('stop'); } else { harness.exports.deactivate(); }
+        assert.equal(harness.timers.size, 0);
+        harness.advanceTime(120000);
+        assert.equal(harness.children.length, 1);
+        assert.equal(harness.children[0].child.killCalls, 1);
+    }
+});
+
+test('手动重启后迟到的旧启动超时和旧握手不影响新实例', () => {
+    const harness = createHarness();
+    const oldTimeout = [...harness.timers.values()][0].callback;
+    const first = harness.children[0].child;
+    harness.advanceTime(59000);
+    harness.command('restart');
+    harness.advanceTime(300);
+    const second = harness.children[1].child;
+    const newTimeoutId = [...harness.timers.keys()][0];
+    oldTimeout();
+    first.stdout.emit('data', Buffer.from('___AUTOCLICK_READY___\n'));
+    assert.equal(harness.timers.has(newTimeoutId), true);
+    assert.equal(second.killCalls, 0);
+    assert.match(harness.status.text, /STARTING/);
+    harness.advanceTime(59999);
+    assert.equal(second.killCalls, 0);
+    harness.advanceTime(1);
+    assert.equal(second.killCalls, 1);
+    assert.match(harness.status.text, /RETRYING/);
+});
+
+test('超时后的恢复重试仍能被用户停止取消', () => {
+    const harness = createHarness();
+    harness.advanceTime(60000);
+    assert.match(harness.status.text, /RETRYING/);
+    harness.command('stop');
+    harness.advanceTime(120000);
+    assert.equal(harness.timers.size, 0);
+    assert.equal(harness.children.length, 1);
+    assert.match(harness.status.text, /OFF/);
+});
 
 /* 2026-10-05：宿主名称只用于展示，启动必须服从真实可执行文件、平台与工作区信任边界。 */
 test('支持两代 Antigravity 可执行文件并传递父进程身份', () => {
@@ -337,6 +436,7 @@ test('禁用自动启动仍可手动启动，无关配置不会重启', () => {
     assert.equal(harness.children.length, 0);
     harness.command('start');
     assert.equal(harness.children.length, 1);
+    harness.children[0].child.stdout.emit('data', Buffer.from('___AUTOCLICK_READY___\n')); // 2026-10-20：在正常就绪状态检验无关配置不重启。
     harness.changeConfig({}, false);
     assert.equal(harness.timers.size, 0);
     assert.equal(harness.children[0].child.killCalls, 0);
