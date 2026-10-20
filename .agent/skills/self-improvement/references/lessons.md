@@ -650,3 +650,10 @@
 - **独立红例：** child已启动，读取StartTime/MainModule或写身份回执失败时，调用者的process赋值尚未完成，外层finally不能回收。把回执目标设为目录可复现退出失败与child仍存活；先保留红脚本、结果及按父PID/路径/唯一nonce核对的清理回执。
 - **修正边界：** 观察函数用自己持有的Process对象有限Kill/Wait5000/Dispose，诊断不覆盖原写入ErrorRecord。永久回归借已有独占EXE及自写PID，在红例外层兜底清理；目录替身单独登记，按白名单非递归删除。两引擎12个定向用例通过后再重跑完整套件，旧全套只能记中间候选。
 //***
+
+## 2026-10-21 Asia/Shanghai - CI 的临时路径短名不能直接与 .NET 异常文本比对
+
+- **真实红例：** c1f0a2f 的两路 CI 共四个作业只在新增 ledger-failure 断言失败；8a03381 仅补原两流后确认，Node 的 TEMP 为 C:\Users\RUNNER~1，.NET WriteAllText 异常使用 C:\Users\runneradmin，原错误和 child 退出均保留。不要把布尔路径不匹配误称为原异常丢失，也不能猜成首轮 SelfTest 超时原因。
+- **最小边界：** 创建独占目录后用 fs.realpathSync.native 得到真实路径，随后夹具、回执及清理身份统一使用它；保留原 stderr 路径严格断言、非零退出、退出确认和 PID 不存活要求。不得改为忽略路径、只检查非空 stderr 或跳过 CI 用例。
+- **验证分层：** 同版 Node22 的本地长路径12项通过也未覆盖 CI 短名。F 盘 GetShortPathName 无短名别名时如实记录；C:\PROGRA~1 只读目录错误可证明 .NET 与 Node 的规范化，但不能冒充真实短名 TEMP 端到端绿例，后者必须由最终 CI 给出。
+//***

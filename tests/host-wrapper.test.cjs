@@ -7,7 +7,8 @@ const path = require('node:path');
 const { test, before, after } = require('node:test');
 
 const root = path.resolve(__dirname, '..');
-const owned = fs.mkdtempSync(path.join(os.tmpdir(), 'AntigravityAA-HostWrapper-'));
+// 2026-10-21：将 CI 的 RUNNER~1 短名展开为真实路径，使异常与 Process 路径可严格核对。
+const owned = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'AntigravityAA-HostWrapper-')));
 const fixture = path.join(owned, 'host-wrapper-output.exe');
 const pidFiles = [];
 const selfTestFiles = []; // 2026-10-21：登记自测管道夹具与身份回执，保持白名单非递归清理。

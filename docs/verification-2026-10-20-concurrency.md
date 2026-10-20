@@ -86,7 +86,9 @@ C 宿主整棵进程树的私有内存为 2326.98–3293.67 MiB，包含模型�
 
 `selftest-wrapper-regression-green.log` 中两个实际引擎共 10 个新用例通过：大 stdout、stderr、非零退出、缺少完成标记、打印完成标记后仍停滞 15 秒。它证明测试工具行为，不能据此宣称远端原超时根因已修复；完整回归及最终 CI 单独记录。插件源码、JavaScript、manifest 和已发布 VSIX 均不变，本项不发布空补丁版本。
 独立审查还复现新增测试观察函数在回执写入失败后遗留已启动子进程。`review-selftest-ledger-failure-red.*` 保存独立脚本、原始结果与身份核对后的回收；`selftest-observer-ledger-red.log` 为仓库新用例在旧观察函数上的失败。当前观察函数持有原 Process 对象有限回收，保留写入异常；`selftest-wrapper-final-green.log` 为两个引擎共 12 项通过，包含两项回执写入故障。旧 `full-test-selftest-pipes.log` 退出 0 仅属发现清理缺口前的中间候选，最终完整回归另存，不冒充修正后结果。
-最终修正后完整 npm test 退出 0，原始日志为 full-test-selftest-pipes-final.log：编译、类型检查、仓库与发布边界、生命周期、扫描器 184、两引擎宿主各 131、包装器 22、两引擎输入各 188、并发 22 项均通过。selftest-pipes-independent-final-review.json 固定最终两个测试文件 SHA-256，独立运行 12 项通过且无阻塞发现；UTF-8 无 BOM、CRLF、diff 检查及原发布包 8 项校验通过。最终提交的远端 CI 结果单独核对。
+此前 c1f0a2f 管道及回执修正候选的完整 npm test 退出 0，原始日志为 full-test-selftest-pipes-final.log：编译、类型检查、仓库与发布边界、生命周期、扫描器 184、两引擎宿主各 131、包装器 22、两引擎输入各 188、并发 22 项均通过。selftest-pipes-independent-final-review.json 固定此前候选两个测试文件 SHA-256，独立运行 12 项通过且无阻塞发现；UTF-8 无 BOM、CRLF、diff 检查及原发布包 8 项校验通过。最终提交的远端 CI 结果单独核对。
+提交 c1f0a2f 的 push 39463650377 和 PR 39463658507 四个作业均在新增回执故障用例的路径断言失败，其余每作业 10 项通过；完整首次失败与作业 JSON 保留。8a03381 只补诊断，PR CI 39464541635 原始两流证实：TEMP 为 RUNNER~1 短名，WriteAllText 原异常展开为 runneradmin，原错误与退出回收都保留，严格子串断言因此假红。夹具目录现用 realpathSync.native 规范化，全部原断言不变。Node 22.23.3 定向 12 项通过；F 工作目录没有真实短名别名，只读 C:\PROGRA~1 探针证明同一规范化语义，不写 C 盘，也不冒充本地真实短名 TEMP 红绿。修后实际短名绿例须以最终 CI 为准，首轮 86dc867 的 SelfTest 超时仍不推断同因。
+本轮路径规范化候选在 Node 22.23.3 下完整 npm test 退出 0，原始结果为 full-test-canonical-node22-final.log；两引擎定向 12 项及包装器全套 22 项均通过，其他扫描器/宿主/输入/并发检查均保持通过。独立审查另跑 12 项通过，selftest-canonical-independent-review.json 固定包装器源码 SHA-256 为 b90081189c3a0ea172dc087305a1e00e97ca3eda4ef8ae04fa72a76558da5092；源码编码及完整 diff 复核通过。最终提交的真实短名 CI 结果仍单独核对。
 
 ## 发布与收尾
 
