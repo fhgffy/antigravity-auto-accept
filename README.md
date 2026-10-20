@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.8
+# 🚀 Antigravity Auto Accept v5.3.9
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -150,6 +150,14 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.9 — Startup Recovery (2026-10-20)
+
+- Restart a scanner that has not acknowledged startup within 60 seconds, instead of leaving the status bar at STARTING indefinitely.
+- Keep normal WAITING handoffs alive; stop, unload, errors and replacement sessions cancel the old deadline.
+- Recover without another setting or permission prompt; approval matching and input protection remain unchanged.
+- 扫描器启动挂起一分钟后自动重试，正常等待接管不受影响，停止和卸载会取消恢复。
+- See [verification](docs/verification-2026-10-20-startup.md) for regression and native IDE test evidence.
 
 ### v5.3.8 — Media-key Approval Recovery (2026-10-17)
 

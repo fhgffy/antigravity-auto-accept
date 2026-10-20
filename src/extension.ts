@@ -14,6 +14,8 @@ let extensionContext: vscode.ExtensionContext;
 /* 2026-10-05：扫描会话拥有独立状态与可取消重启，避免旧进程事件污染新实例。 */
 let isActive = false;
 let restartTimer: ReturnType<typeof setTimeout> | undefined;
+/* 2026-10-20：启动必须收到就绪或等待接管的握手，活着但挂起的子进程不能永久显示 STARTING。 */
+let startupTimer: ReturnType<typeof setTimeout> | undefined;
 let scannerState: 'starting' | 'waiting' | 'ready' | 'retrying' | undefined;
 let startAfterTrust = false; // 2026-10-07：用户停止时取消尚未授信的自动启动。
 
@@ -183,6 +185,13 @@ function startAutoClicker() {
     psProcess = scannerProcess;
     scannerState = 'starting';
     updateStatusBar();
+    /* 2026-10-20：截止时间属于本次启动；普通输出不续期，过期回调不能重启新的扫描会话。 */
+    startupTimer = setTimeout(() => {
+        if (psProcess !== scannerProcess || !isActive || !isEnabled) { return; }
+        startupTimer = undefined;
+        log('⚠️', 'Scanner startup timed out after 60s; restarting.');
+        restartAutoClicker('startup timeout');
+    }, 60_000);
     let stdoutBuffer = '';
     let hasExited = false; // 2026-10-07：进程退出后只接收管道尾部诊断，直到 close。
     scannerProcess.stdout?.setEncoding('utf8');
@@ -200,6 +209,10 @@ function startAutoClicker() {
             if (hasExited) {
                 log('📡', `Exited scanner: ${line.trim()}`);
                 continue;
+            }
+            /* 2026-10-20：等待单实例锁是正常存活状态，收到任一完整握手即取消启动截止时间。 */
+            if (['___AUTOCLICK_READY___', '___SCANNER_WAITING___', '___ALREADY_RUNNING___'].some(marker => line.includes(marker))) {
+                if (startupTimer !== undefined) { clearTimeout(startupTimer); startupTimer = undefined; }
             }
             if (line.includes('___CLICK_INVOKE___:')) {
                 const btnName = line.split('___CLICK_INVOKE___:')[1];
@@ -256,6 +269,7 @@ function startAutoClicker() {
     /* 2026-10-05：退出只释放所属实例，异常重启可由停止、配置重启或卸载取消。 */
     scannerProcess.on('exit', (code) => {
         if (psProcess !== scannerProcess || !isActive) { return; }
+        if (startupTimer !== undefined) { clearTimeout(startupTimer); startupTimer = undefined; } // 2026-10-20
         hasExited = true; // 2026-10-07：exit 不代表 stdout/stderr 已全部关闭。
         log('⏹️', `Scanner process exited (code: ${code})`);
         psProcess = undefined;
@@ -273,6 +287,7 @@ function startAutoClicker() {
 
     scannerProcess.on('error', (error) => {
         if (psProcess !== scannerProcess || !isActive) { return; } // 2026-10-05
+        if (startupTimer !== undefined) { clearTimeout(startupTimer); startupTimer = undefined; } // 2026-10-20
         log('❌', `Failed to start PowerShell scanner: ${error.message}`);
         psProcess = undefined;
         scannerState = undefined; // 2026-10-05
@@ -286,6 +301,7 @@ function stopAutoClicker() {
     startAfterTrust = false; // 2026-10-07：停止同时撤销尚未授信的启动意图。
     /* 2026-10-05：先撤销计时器和实例所有权，再结束进程，异步 exit 不再修改后续实例。 */
     if (restartTimer !== undefined) { clearTimeout(restartTimer); restartTimer = undefined; }
+    if (startupTimer !== undefined) { clearTimeout(startupTimer); startupTimer = undefined; } // 2026-10-20
     scannerState = undefined;
     if (psProcess) {
         log('⏹️', 'Stopping scanner...');
