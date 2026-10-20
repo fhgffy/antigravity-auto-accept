@@ -10,7 +10,9 @@ VSCode/Antigravity 插件，自动点击 Antigravity IDE 的权限弹窗（Run/A
 
 ## 当前代码版本：v5.3.12（自测去除桌面依赖，2026-10-21）
 
-`-SelfTest` 跳过桌面根与扫描条件初始化，保留实际 C#、全部 95 项判定和原 15 秒上限。两种 PowerShell 的完整源码探针红绿验证均通过；22 个函数、内嵌 C# 及正常初始化内容未变。测试引导增加即时刷出的阶段旁证。此修复不能证明历史 CI PID9016 超时卡在桌面；具体卡点仍未确认。详见 [自测调查记录](docs/verification-2026-10-21-selftest-desktop.md)。Node22.23.3 完整 npm test、24项包装器检查及本地VSIX字节校验已通过；5.3.12 仍须通过精确提交 CI、主线及三处发布核验，已上架 5.3.11 原包保持不可变。
+`-SelfTest` 跳过桌面根与扫描条件初始化，保留实际 C#、全部 95 项判定和原 15 秒上限。两种 PowerShell 的完整源码探针红绿验证均通过；22 个函数、内嵌 C# 及正常初始化内容未变。测试引导增加即时刷出的阶段旁证。此修复不能证明历史 CI PID9016 超时卡在桌面；具体卡点仍未确认。详见 [自测调查记录](docs/verification-2026-10-21-selftest-desktop.md)。Node22.23.3 完整 npm test、24项包装器及VSIX字节校验通过。最终head c264b5c的push/PR CI39472559033/39472569252全绿，PR #25合并后main39473575714四作业成功；Issue #26关闭。5.3.12 正式原包已由 main 39473575714 四作业成功后生成，标签固定3f5155521e53edeecf013d83d371da69970c3796，资产660118710、82204字节。下载包、GitHub digest、校验文件及8项VSIX/运行字节校验通过，SHA-256为a62d7cc64dc4079b86d597f9182cc6465a601e3b3b26c90ff47c41cadaf06a4d。已上架5.3.11原包保持不可变。
+
+发布快照时间（UTC）：2026-10-20T18:29:37.3454587Z。Open VSX于2026-10-21 02:29:37+08:00通过原CI函数的精确版本及实际公开下载SHA核验，与GitHub原包一致，public-final12-openvsx.json；首次审核中404及会话Forbidden仍保留；Marketplace已选正式原包、需本人完成新图片验证码。该快照不计三处完成，不创建新凭据或绕过验证码。最新公开下载核验与完整收尾状态以 [Release记录](https://github.com/fhgffy/antigravity-auto-accept/releases/tag/v5.3.12) 及本轮 final-report.md 为准。
 
 ### v5.3.11 并发批准归属与扫描器资源寿命（2026-10-20）
 
