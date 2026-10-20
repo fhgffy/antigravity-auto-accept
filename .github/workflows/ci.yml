@@ -290,27 +290,55 @@ jobs:
             Write-Output 'Marketplace credential missing: not published.'
             return
           }
+          # 2026-10-20：精确版本公开后仍须下载原包比对；已见版本的传输失败只重试核验，不再次上传。
+          $releasePackageHash = (Get-FileHash -LiteralPath $env:VSIX_PATH -Algorithm SHA256).Hash
+          $script:marketplaceVersionFound = $false
+          $script:marketplaceCleanupFailed = $false # 2026-10-20：删除失败不能在后续重试中被报成成功。
           function Test-MarketplacePublic {
-            $body = @{ filters = @(@{ pageNumber = 1; pageSize = 1; criteria = @(@{ filterType = 7; value = 'fhgffy.antigravity-auto-accept' }) }); assetTypes = @(); flags = 33 } | ConvertTo-Json -Depth 10 -Compress
+            $body = @{ filters = @(@{ pageNumber = 1; pageSize = 1; criteria = @(@{ filterType = 7; value = 'fhgffy.antigravity-auto-accept' }) }); assetTypes = @('Microsoft.VisualStudio.Services.VSIXPackage'); flags = 35 } | ConvertTo-Json -Depth 10 -Compress
             $response = Invoke-RestMethod -Uri 'https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery' -Method Post -ContentType 'application/json' -Headers @{ Accept = 'application/json;api-version=3.0-preview.1' } -Body $body -TimeoutSec 15
             if ($response.errorCode) { return $false }
             $extension = @($response.results | ForEach-Object { $_.extensions } | Where-Object { $_.publisher.publisherName -ceq 'fhgffy' -and $_.extensionName -ceq 'antigravity-auto-accept' })
-            return $extension.Count -eq 1 -and @($extension[0].versions | Where-Object { $_.version -ceq $env:RELEASE_VERSION }).Count -eq 1
+            if ($extension.Count -ne 1) { return $false }
+            $version = @($extension[0].versions | Where-Object { $_.version -ceq $env:RELEASE_VERSION })
+            if ($version.Count -ne 1) { return $false }
+            $script:marketplaceVersionFound = $true
+            $package = @($version[0].files | Where-Object { $_.assetType -ceq 'Microsoft.VisualStudio.Services.VSIXPackage' })
+            if ($package.Count -ne 1) { return $false }
+            $uri = $null
+            if (-not [Uri]::TryCreate($package[0].source, [UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -cne 'https' -or $uri.Host -notin @('fhgffy.gallerycdn.vsassets.io', 'fhgffy.gallery.vsassets.io')) { return $false }
+            $download = Join-Path $env:RUNNER_TEMP ("marketplace-public-$([Guid]::NewGuid().ToString('N')).vsix")
+            $failure = $null
+            try {
+              Invoke-WebRequest -Uri $uri.AbsoluteUri -OutFile $download -TimeoutSec 30 -UseBasicParsing
+              if ((Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash -ine $releasePackageHash) { throw [IO.InvalidDataException]::new('Marketplace public package checksum mismatch') }
+            }
+            catch { $failure = $_ }
+            finally {
+              # 2026-10-20：保留原校验异常；即使下载成功，清理失败也必须终止本轮发布。
+              try { if (Test-Path -LiteralPath $download) { Remove-Item -LiteralPath $download -Force } }
+              catch { $script:marketplaceCleanupFailed = $true; if ($null -eq $failure) { $failure = $_ } }
+            }
+            if ($null -ne $failure) { throw $failure }
+            return $true
           }
           $available = $false
-          try { $available = Test-MarketplacePublic } catch { Write-Output 'Marketplace public precheck unavailable.' }
+          try { $available = Test-MarketplacePublic } catch [IO.InvalidDataException] { "status=package-mismatch" >> $env:GITHUB_OUTPUT; throw } catch { if ($script:marketplaceCleanupFailed) { "status=cleanup-failed" >> $env:GITHUB_OUTPUT; throw }; Write-Output 'Marketplace public precheck unavailable.' }
           if (-not $available) {
-            "status=upload-failed" >> $env:GITHUB_OUTPUT
-            & npx --yes --package=@vscode/vsce@4.0.0 vsce publish --packagePath $env:VSIX_PATH
-            if ($LASTEXITCODE -ne 0) { throw 'Marketplace upload failed' }
-            "status=uploaded-pending" >> $env:GITHUB_OUTPUT
+            if (-not $script:marketplaceVersionFound) {
+              "status=upload-failed" >> $env:GITHUB_OUTPUT
+              & npx --yes --package=@vscode/vsce@4.0.0 vsce publish --packagePath $env:VSIX_PATH
+              if ($LASTEXITCODE -ne 0) { throw 'Marketplace upload failed' }
+              "status=uploaded-pending" >> $env:GITHUB_OUTPUT
+            }
+            else { "status=verification-pending" >> $env:GITHUB_OUTPUT }
             for ($attempt = 0; $attempt -lt 3; $attempt++) {
-              try { $available = Test-MarketplacePublic } catch { Write-Output 'Marketplace public version not available yet.' }
+              try { $available = Test-MarketplacePublic } catch [IO.InvalidDataException] { "status=package-mismatch" >> $env:GITHUB_OUTPUT; throw } catch { if ($script:marketplaceCleanupFailed) { "status=cleanup-failed" >> $env:GITHUB_OUTPUT; throw }; Write-Output 'Marketplace public package not verified yet.' }
               if ($available) { break }
               if ($attempt -lt 2) { Start-Sleep -Seconds 20 }
             }
           }
-          if (-not $available) { throw 'Marketplace upload accepted, but exact validated version is not publicly visible after bounded checks' }
+          if (-not $available) { throw 'Marketplace exact version and matching public package are not verified after bounded checks' }
           "status=publicly-available" >> $env:GITHUB_OUTPUT
       - name: Publish verified package to Open VSX
         id: openvsx
@@ -327,24 +355,49 @@ jobs:
             Write-Output 'Open VSX credential missing: not published.'
             return
           }
+          # 2026-10-20：只认可与不可变 Release 原包完全一致的公开下载，不接受只匹配版本的其他归档。
+          $releasePackageHash = (Get-FileHash -LiteralPath $env:VSIX_PATH -Algorithm SHA256).Hash
+          $script:openVsxVersionFound = $false
+          $script:openVsxCleanupFailed = $false # 2026-10-20：下载残留不能在后续核验成功时被忽略。
           function Test-OpenVsxPublic {
             $response = Invoke-RestMethod -Uri "https://open-vsx.org/api/fhgffy/antigravity-auto-accept/$env:RELEASE_VERSION" -TimeoutSec 15
-            return -not $response.error -and $response.namespace -ceq 'fhgffy' -and $response.name -ceq 'antigravity-auto-accept' -and $response.version -ceq $env:RELEASE_VERSION -and $response.downloadable -eq $true -and -not [string]::IsNullOrWhiteSpace($response.files.download)
+            if ($response.error -or $response.namespace -cne 'fhgffy' -or $response.name -cne 'antigravity-auto-accept' -or $response.version -cne $env:RELEASE_VERSION) { return $false }
+            $script:openVsxVersionFound = $true
+            if ($response.downloadable -ne $true) { return $false } # 2026-10-20：已存在但尚不可下载的版本只等待核验，不重复上传。
+            $uri = $null
+            if (-not [Uri]::TryCreate($response.files.download, [UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -cne 'https' -or $uri.Host -cne 'open-vsx.org') { return $false }
+            $download = Join-Path $env:RUNNER_TEMP ("openvsx-public-$([Guid]::NewGuid().ToString('N')).vsix")
+            $failure = $null
+            try {
+              Invoke-WebRequest -Uri $uri.AbsoluteUri -OutFile $download -TimeoutSec 30 -UseBasicParsing
+              if ((Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash -ine $releasePackageHash) { throw [IO.InvalidDataException]::new('Open VSX public package checksum mismatch') }
+            }
+            catch { $failure = $_ }
+            finally {
+              # 2026-10-20：清理不能覆盖原校验结果，原始失败优先保留且清理失败保持不可恢复。
+              try { if (Test-Path -LiteralPath $download) { Remove-Item -LiteralPath $download -Force } }
+              catch { $script:openVsxCleanupFailed = $true; if ($null -eq $failure) { $failure = $_ } }
+            }
+            if ($null -ne $failure) { throw $failure }
+            return $true
           }
           $available = $false
-          try { $available = Test-OpenVsxPublic } catch { Write-Output 'Open VSX public precheck unavailable.' }
+          try { $available = Test-OpenVsxPublic } catch [IO.InvalidDataException] { "status=package-mismatch" >> $env:GITHUB_OUTPUT; throw } catch { if ($script:openVsxCleanupFailed) { "status=cleanup-failed" >> $env:GITHUB_OUTPUT; throw }; Write-Output 'Open VSX public precheck unavailable.' }
           if (-not $available) {
-            "status=upload-failed" >> $env:GITHUB_OUTPUT
-            & npx --yes --package=ovsx@1.2.0 ovsx publish $env:VSIX_PATH
-            if ($LASTEXITCODE -ne 0) { throw 'Open VSX upload failed' }
-            "status=uploaded-pending" >> $env:GITHUB_OUTPUT
+            if (-not $script:openVsxVersionFound) {
+              "status=upload-failed" >> $env:GITHUB_OUTPUT
+              & npx --yes --package=ovsx@1.2.0 ovsx publish $env:VSIX_PATH
+              if ($LASTEXITCODE -ne 0) { throw 'Open VSX upload failed' }
+              "status=uploaded-pending" >> $env:GITHUB_OUTPUT
+            }
+            else { "status=verification-pending" >> $env:GITHUB_OUTPUT }
             for ($attempt = 0; $attempt -lt 3; $attempt++) {
-              try { $available = Test-OpenVsxPublic } catch { Write-Output 'Open VSX public version not available yet.' }
+              try { $available = Test-OpenVsxPublic } catch [IO.InvalidDataException] { "status=package-mismatch" >> $env:GITHUB_OUTPUT; throw } catch { if ($script:openVsxCleanupFailed) { "status=cleanup-failed" >> $env:GITHUB_OUTPUT; throw }; Write-Output 'Open VSX public package not verified yet.' }
               if ($available) { break }
               if ($attempt -lt 2) { Start-Sleep -Seconds 20 }
             }
           }
-          if (-not $available) { throw 'Open VSX upload accepted, but exact downloadable version is not publicly visible after bounded checks' }
+          if (-not $available) { throw 'Open VSX exact version and matching public package are not verified after bounded checks' }
           "status=publicly-available" >> $env:GITHUB_OUTPUT
       # 2026-10-07：汇总区分未配置、上传待审核和公开可见；任何实际失败均恢复为作业失败。
       - name: Report release and store outcomes
@@ -369,7 +422,8 @@ jobs:
             $lines += "GitHub Release: $env:RELEASE_URL"
             foreach ($store in @(@{ Name = 'Marketplace'; Status = $env:MARKETPLACE_STATUS; Outcome = $env:MARKETPLACE_OUTCOME }, @{ Name = 'Open VSX'; Status = $env:OPENVSX_STATUS; Outcome = $env:OPENVSX_OUTCOME })) {
               if ($store.Status -eq 'not-configured') { $lines += "$($store.Name): **not published — credential not configured**."; Write-Output "::warning::$($store.Name) not published: credential not configured." }
-              elseif ($store.Status -eq 'publicly-available' -and $store.Outcome -eq 'success') { $lines += "$($store.Name): exact version publicly available." }
+              elseif ($store.Status -eq 'publicly-available' -and $store.Outcome -eq 'success') { $lines += "$($store.Name): exact version publicly available; package SHA-256 matches the release." }
+              elseif ($store.Status -eq 'verification-pending') { $lines += "$($store.Name): public version seen, **package download verification unconfirmed**; no duplicate upload attempted." } # 2026-10-20
               elseif ($store.Status -eq 'uploaded-pending') { $lines += "$($store.Name): uploaded, **public availability unconfirmed**; review or propagation may still be pending." }
               else { $lines += "$($store.Name): **publication failed or not attempted**." }
             }

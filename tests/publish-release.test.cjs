@@ -28,6 +28,8 @@ const prelude = [
   "$global:LASTEXITCODE = 0",
   "$script:Calls = [Collections.Generic.List[object]]::new()",
   "$script:Queries = 0; $script:Sleeps = 0; $script:Uploads = 0",
+  // 2026-10-20：公开安装包边界只回放文件，不联网；保留下载路径以检查所有失败分支都清理了临时文件。
+  "$script:Downloads = 0; $script:DownloadPaths = [Collections.Generic.List[string]]::new(); $script:MarketplaceFlags = $null",
   "$script:TagSha = if ($env:TEST_MODE -in @('new', 'release-without-tag')) { $null } elseif ($env:TEST_MODE -eq 'old-tag') { 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' } else { $env:GITHUB_SHA }",
   "$script:HasRelease = $env:TEST_MODE -ne 'new'",
   "$script:HasPackage = $env:TEST_MODE -notin @('new', 'missing-both', 'checksum-only')",
@@ -108,16 +110,36 @@ const prelude = [
   "function Invoke-RestMethod {",
   "  param([string]$Uri, [string]$Method, [string]$ContentType, [hashtable]$Headers, [string]$Body, [int]$TimeoutSec)",
   "  $script:Queries++; if ($TimeoutSec -ne 15 -or ($Headers -and $Headers.ContainsKey('Authorization'))) { throw 'Unsafe public probe' }",
-  "  $visible = $env:TEST_MODE -eq 'already-public' -or ($env:TEST_MODE -eq 'eventually-public' -and $script:Queries -ge 3)",
+  "  $visible = $env:TEST_MODE -in @('already-public','wrong-public-package','public-download-failed','public-download-transient','missing-package-url','insecure-package-url','wrong-package-origin','wrong-identity','not-downloadable','downloadable-transient','cleanup-failed','mismatch-cleanup-failed','transport-cleanup-failed') -or ($env:TEST_MODE -in @('eventually-public','eventually-wrong-package','eventually-cleanup-failed','eventually-mismatch-cleanup-failed','eventually-transport-cleanup-failed') -and $script:Queries -ge 3)",
   "  if ($Uri -like 'https://marketplace.visualstudio.com/*') {",
-  "    $request = $Body | ConvertFrom-Json; if ($request.flags -ne 33 -or $request.filters[0].criteria[0].filterType -ne 7) { throw 'Marketplace must exclude nonvalidated versions' }",
+  "    $request = $Body | ConvertFrom-Json; $script:MarketplaceFlags = $request.flags; if ($request.flags -notin @(33,35) -or $request.filters[0].criteria[0].filterType -ne 7) { throw 'Marketplace must exclude nonvalidated versions' }",
   "    $version = if ($visible) { '1.2.3' } else { '9.9.9' }",
   "    $publisher = if ($env:TEST_MODE -eq 'wrong-identity') { 'other' } else { 'fhgffy' }",
-  "    return @{ results = @(@{ extensions = @(@{ publisher = @{ publisherName = $publisher }; extensionName = 'antigravity-auto-accept'; versions = @(@{ version = $version }, @{ version = '8.0.0' }) }) }) }",
+  "    $source = if ($env:TEST_MODE -eq 'insecure-package-url') { 'http://fhgffy.gallerycdn.vsassets.io/fixture.vsix' } elseif ($env:TEST_MODE -eq 'wrong-package-origin') { 'https://example.invalid/fixture.vsix' } else { 'https://fhgffy.gallerycdn.vsassets.io/fixture.vsix' }",
+  "    $files = if ($env:TEST_MODE -eq 'missing-package-url') { @() } else { @(@{ assetType = 'Microsoft.VisualStudio.Services.VSIXPackage'; source = $source }) }",
+  "    return @{ results = @(@{ extensions = @(@{ publisher = @{ publisherName = $publisher }; extensionName = 'antigravity-auto-accept'; versions = @(@{ version = $version; files = $files }, @{ version = '8.0.0' }) }) }) }",
   "  }",
   "  if ($Uri -cne 'https://open-vsx.org/api/fhgffy/antigravity-auto-accept/1.2.3') { throw 'Open VSX must query exact version' }",
   "  if (-not $visible) { return @{ error = 'not found'; namespace = 'fhgffy'; name = 'antigravity-auto-accept'; version = '1.2.3' } }",
-  "  return @{ namespace = 'fhgffy'; name = 'antigravity-auto-accept'; version = '1.2.3'; downloadable = $true; files = @{ download = 'https://open-vsx.org/fixture.vsix' } }",
+  "  $download = if ($env:TEST_MODE -eq 'missing-package-url') { '' } elseif ($env:TEST_MODE -eq 'insecure-package-url') { 'http://open-vsx.org/fixture.vsix' } elseif ($env:TEST_MODE -eq 'wrong-package-origin') { 'https://example.invalid/fixture.vsix' } else { 'https://open-vsx.org/fixture.vsix' }",
+  "  $namespace = if ($env:TEST_MODE -eq 'wrong-identity') { 'other' } else { 'fhgffy' }",
+  "  return @{ namespace = $namespace; name = 'antigravity-auto-accept'; version = '1.2.3'; downloadable = ($env:TEST_MODE -ne 'not-downloadable' -and ($env:TEST_MODE -ne 'downloadable-transient' -or $script:Queries -gt 1)); files = @{ download = $download } }",
+  "}",
+  // 2026-10-20：同版本且运行字节相同、仅ZIP时间不同的包也必须拒绝，不能只验证版本或解压后的源码。
+  "function Invoke-WebRequest {",
+  "  param([string]$Uri, [string]$OutFile, [int]$TimeoutSec, [switch]$UseBasicParsing, [hashtable]$Headers)",
+  "  $script:Downloads++; $script:DownloadPaths.Add($OutFile)",
+  "  if ($TimeoutSec -ne 30 -or ($Headers -and $Headers.ContainsKey('Authorization'))) { throw 'Unsafe public package download' }",
+  "  if ($Uri -notin @('https://fhgffy.gallerycdn.vsassets.io/fixture.vsix','https://open-vsx.org/fixture.vsix')) { throw 'Unexpected package URL' }",
+  "  if ($env:TEST_MODE -eq 'public-download-failed' -or ($env:TEST_MODE -in @('public-download-transient','transport-cleanup-failed','eventually-transport-cleanup-failed') -and $script:Downloads -eq 1)) { [IO.File]::WriteAllText($OutFile,'partial'); throw 'Package transport failed' }",
+  "  $source = if ($env:TEST_MODE -in @('wrong-public-package','eventually-wrong-package') -or ($env:TEST_MODE -in @('mismatch-cleanup-failed','eventually-mismatch-cleanup-failed') -and $script:Downloads -eq 1)) { $script:InputPath } else { $script:OriginalPath }",
+  "  Copy-Item -LiteralPath $source -Destination $OutFile",
+  "}",
+  // 2026-10-20：仅首次删除失败，旧实现会用下次成功下载掩盖校验失败和残留文件。
+  "function Remove-Item {",
+  "  param([string]$LiteralPath, [switch]$Force)",
+  "  if ($env:TEST_MODE -in @('cleanup-failed','mismatch-cleanup-failed','transport-cleanup-failed','eventually-cleanup-failed','eventually-mismatch-cleanup-failed','eventually-transport-cleanup-failed') -and $script:Downloads -eq 1) { throw [IO.IOException]::new('Simulated download cleanup failure') }",
+  "  Microsoft.PowerShell.Management\\Remove-Item @PSBoundParameters",
   "}",
 ].join('\n');
 
@@ -137,7 +159,7 @@ function execute(id, mode, overrides = {}) {
   fs.writeFileSync(output, '');
   fs.writeFileSync(summary, '');
   const body = prelude + '\n$failure = $null\ntry { & ([scriptblock]::Create(@\'\n' + stepScript(id) + '\n\'@)) } catch { $failure = $_.Exception.Message }\n' +
-    '[ordered]@{ failure = $failure; calls = @($script:Calls); queries = $script:Queries; sleeps = $script:Sleeps; uploads = $script:Uploads; output = [IO.File]::ReadAllText($env:GITHUB_OUTPUT); summary = [IO.File]::ReadAllText($env:GITHUB_STEP_SUMMARY); inputHash = (Get-FileHash $script:InputPath).Hash; originalHash = (Get-FileHash $script:OriginalPath).Hash; selectedHash = $(if (Test-Path (Join-Path $env:RUNNER_TEMP ("publish-release/" + $script:FileName))) { (Get-FileHash (Join-Path $env:RUNNER_TEMP ("publish-release/" + $script:FileName))).Hash } else { $null }) } | ConvertTo-Json -Depth 10 -Compress';
+    '[ordered]@{ failure = $failure; calls = @($script:Calls); queries = $script:Queries; sleeps = $script:Sleeps; uploads = $script:Uploads; downloads = $script:Downloads; downloadLeftovers = @($script:DownloadPaths | Where-Object { Test-Path -LiteralPath $_ }).Count; marketplaceFlags = $script:MarketplaceFlags; output = [IO.File]::ReadAllText($env:GITHUB_OUTPUT); summary = [IO.File]::ReadAllText($env:GITHUB_STEP_SUMMARY); inputHash = (Get-FileHash $script:InputPath).Hash; originalHash = (Get-FileHash $script:OriginalPath).Hash; selectedHash = $(if (Test-Path (Join-Path $env:RUNNER_TEMP ("publish-release/" + $script:FileName))) { (Get-FileHash (Join-Path $env:RUNNER_TEMP ("publish-release/" + $script:FileName))).Hash } else { $null }) } | ConvertTo-Json -Depth 10 -Compress';
   // 2026-10-07：长 CI 脚本落临时文件，避免 Windows 进程命令行长度上限。
   const scriptPath = path.join(directory, 'fixture.ps1');
   fs.writeFileSync(scriptPath, body.replace(/\r?\n/g, '\r\n'), 'utf8');
@@ -207,11 +229,70 @@ for (const mode of ['bad-input-checksum', 'bad-original-checksum', 'bad-original
   });
 }
 for (const store of ['marketplace', 'openvsx']) {
+  /* 2026-10-20：预检和上传后复查都不得忽略清理失败，校验与传输原异常也不能被覆盖。 */
+  for (const mode of ['cleanup-failed', 'mismatch-cleanup-failed', 'transport-cleanup-failed', 'eventually-cleanup-failed', 'eventually-mismatch-cleanup-failed', 'eventually-transport-cleanup-failed']) {
+    test(store + ' cleanup failure cannot hide package failure: ' + mode, () => {
+      const credential = store === 'marketplace' ? { VSCE_PAT: 'inert-test-value' } : { OVSX_PAT: 'inert-test-value' };
+      const result = execute(store, mode, credential);
+      assert.ok(result.failure);
+      assert.equal(result.uploads, mode.startsWith('eventually-') ? 1 : 0);
+      assert.equal(result.downloads, 1);
+      assert.equal(result.queries, mode.startsWith('eventually-') ? 3 : 1);
+      assert.equal(result.downloadLeftovers, 1);
+      assert.match(result.output, mode.includes('mismatch-') ? /status=package-mismatch/ : /status=cleanup-failed/);
+      if (mode.includes('mismatch-')) assert.match(result.failure, /public package checksum mismatch/);
+      if (mode.includes('transport-')) assert.match(result.failure, /Package transport failed/);
+      assert.doesNotMatch(result.output, /status=publicly-available/);
+    });
+  }
+  /* 2026-10-20：版本可见不等于同一个安装包，已有错误包必须失败且不尝试覆盖上传。 */
+  test(store + ' rejects wrong public package bytes without another upload', () => {
+    const credential = store === 'marketplace' ? { VSCE_PAT: 'inert-test-value' } : { OVSX_PAT: 'inert-test-value' };
+    const result = execute(store, 'wrong-public-package', credential);
+    assert.match(result.failure, /public package checksum mismatch/);
+    assert.equal(result.uploads, 0);
+    assert.equal(result.downloads, 1);
+    assert.equal(result.downloadLeftovers, 0);
+    assert.match(result.output, /status=package-mismatch/);
+    assert.doesNotMatch(result.output, /status=publicly-available/);
+    assert.notEqual(result.originalHash, result.inputHash);
+  });
+  /* 2026-10-20：上传后才传播出来的错误包同样失败；网络抖动与缺少下载链接不能触发重复上传。 */
+  test(store + ' rejects mismatched bytes discovered after upload', () => {
+    const credential = store === 'marketplace' ? { VSCE_PAT: 'inert-test-value' } : { OVSX_PAT: 'inert-test-value' };
+    const result = execute(store, 'eventually-wrong-package', credential);
+    assert.match(result.failure, /public package checksum mismatch/);
+    assert.equal(result.uploads, 1);
+    assert.equal(result.downloads, 1);
+    assert.equal(result.downloadLeftovers, 0);
+    assert.match(result.output, /status=package-mismatch/);
+    assert.doesNotMatch(result.output, /status=publicly-available/);
+  });
+  for (const mode of ['public-download-failed', 'public-download-transient', 'missing-package-url', 'insecure-package-url', 'wrong-package-origin']) {
+    test(store + ' verifies public bytes without duplicate uploads: ' + mode, () => {
+      const credential = store === 'marketplace' ? { VSCE_PAT: 'inert-test-value' } : { OVSX_PAT: 'inert-test-value' };
+      const result = execute(store, mode, credential);
+      assert.equal(result.uploads, 0);
+      assert.equal(result.downloadLeftovers, 0);
+      assert.equal(result.queries, mode === 'public-download-transient' ? 2 : 4);
+      assert.match(result.output, /status=verification-pending/);
+      if (mode === 'public-download-transient') {
+        assert.equal(result.failure, null);
+        assert.equal(result.downloads, 2);
+        assert.match(result.output, /status=publicly-available/);
+      } else {
+        assert.ok(result.failure);
+        assert.equal(result.downloads, mode === 'public-download-failed' ? 4 : 0);
+        assert.doesNotMatch(result.output, /status=publicly-available/);
+      }
+    });
+  }
   test(store + ' missing credential explicitly skips publication', () => {
     const result = execute(store, 'no-secret');
     assert.equal(result.failure, null);
     assert.match(result.output, /status=not-configured/);
     assert.equal(result.uploads + result.queries, 0);
+    assert.equal(result.downloads, 0); // 2026-10-20：缺凭据步骤继续明确跳过，不会额外读取公开包。
   });
   for (const mode of ['already-public', 'eventually-public', 'pending', 'upload-error']) {
     test(store + ' public availability and bounded retries: ' + mode, () => {
@@ -220,6 +301,8 @@ for (const store of ['marketplace', 'openvsx']) {
       if (mode === 'already-public' || mode === 'eventually-public') {
         assert.equal(result.failure, null);
         assert.match(result.output, /status=publicly-available/);
+        assert.equal(result.downloads, 1); // 2026-10-20：公开状态还必须读取并核对一个实际归档。
+        if (store === 'marketplace') assert.equal(result.marketplaceFlags, 35);
       } else {
         assert.ok(result.failure);
         assert.doesNotMatch(result.output, /status=publicly-available/);
@@ -227,11 +310,36 @@ for (const store of ['marketplace', 'openvsx']) {
       assert.equal(result.uploads, mode === 'already-public' ? 0 : 1);
       assert.equal(result.queries, mode === 'already-public' || mode === 'upload-error' ? 1 : mode === 'eventually-public' ? 3 : 4);
       assert.equal(result.sleeps, mode === 'pending' ? 2 : mode === 'eventually-public' ? 1 : 0);
+      assert.equal(result.downloadLeftovers, 0); // 2026-10-20：成功、校验失败及部分传输都不能留下临时安装包。
       if (mode === 'pending') assert.match(result.output, /status=uploaded-pending/);
       if (mode === 'upload-error') assert.match(result.output, /status=upload-failed/);
     });
   }
 }
+/* 2026-10-20：版本存在但暂未开放下载属于核验等待，不能把它当缺失版本重新上传。 */
+test('openvsx does not upload a visible version that is not downloadable', () => {
+  const result = execute('openvsx', 'not-downloadable', { OVSX_PAT: 'inert-test-value' });
+  assert.equal(result.uploads, 0);
+  assert.equal(result.downloads, 0);
+  assert.equal(result.queries, 4);
+  assert.equal(result.sleeps, 2);
+  assert.ok(result.failure);
+  assert.match(result.output, /status=verification-pending/);
+  assert.doesNotMatch(result.output, /status=publicly-available|status=uploaded-pending/);
+});
+
+/* 2026-10-20：同版本随后恢复可下载时只完成核验，不额外上传。 */
+test('openvsx waits for an existing version to become downloadable', () => {
+  const result = execute('openvsx', 'downloadable-transient', { OVSX_PAT: 'inert-test-value' });
+  assert.equal(result.failure, null);
+  assert.equal(result.uploads, 0);
+  assert.equal(result.downloads, 1);
+  assert.equal(result.queries, 2);
+  assert.equal(result.downloadLeftovers, 0);
+  assert.match(result.output, /status=verification-pending/);
+  assert.match(result.output, /status=publicly-available/);
+});
+
 test('summary does not describe missing credentials as store availability', () => {
   const result = execute('publication_summary', 'summary', { RELEASE_OUTCOME: 'success', RELEASE_PROCEED: 'true', RELEASE_URL: 'https://github.com/fixture/release',
     MARKETPLACE_STATUS: 'not-configured', MARKETPLACE_OUTCOME: 'success', OPENVSX_STATUS: 'not-configured', OPENVSX_OUTCOME: 'success' });
@@ -245,4 +353,13 @@ test('summary restores store failure after independent attempts', () => {
   assert.ok(result.failure);
   assert.match(result.summary, /public availability unconfirmed/);
   assert.match(result.summary, /Open VSX: exact version publicly available/);
+});
+
+/* 2026-10-20：版本可见但下载未核验与字节不符都保持失败，不能在汇总里升级为上架成功。 */
+test('summary distinguishes pending package verification from mismatched package failure', () => {
+  const result = execute('publication_summary', 'summary', { RELEASE_OUTCOME: 'success', RELEASE_PROCEED: 'true',
+    MARKETPLACE_STATUS: 'verification-pending', MARKETPLACE_OUTCOME: 'failure', OPENVSX_STATUS: 'package-mismatch', OPENVSX_OUTCOME: 'failure' });
+  assert.ok(result.failure);
+  assert.match(result.summary, /package download verification unconfirmed/);
+  assert.doesNotMatch(result.summary, /exact version publicly available/);
 });
