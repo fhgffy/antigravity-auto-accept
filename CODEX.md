@@ -16,6 +16,8 @@ VSCode/Antigravity 插件，自动点击 Antigravity IDE 的权限弹窗（Run/A
 
 当前扫描器定向回归包含 184 项检查，完整回归与两种 PowerShell 引擎 CI 状态分别记录。实机多窗口、同窗多任务、生命周期和长时资源证据见 [本轮验收报告](docs/verification-2026-10-20-concurrency.md)。代码版本、已安装版本和商店公开版本须分别核验；发布完成以三处原包校验回执为准。
 
+2026-10-21 本机资源候选完成 35.56 分钟、312 个样本、8 次真实批准和两次自然刷新；单窗口 3 秒自动重试、跨刷新待批卡片保留及一次批准均通过。M1–M8 已有结论，文件工具未产生权限卡的子项明确不适用；限制和逐项版本哈希见验收报告。PR #22 最终文档提交、合并后 CI 与 5.3.11 三处发布核对仍待完成，不把此前 5.3.10 的商店状态当作新版本发布。
+
 ### 架构变更
 v4.0.0 及之前使用 PowerShell + UIAutomation + user32.dll 物理鼠标点击方案。
 2026年2-3月 Antigravity 连续更新（v1.18.4 → v1.20.x），内部 Chromium webview UI 结构变化，
@@ -40,8 +42,8 @@ Windows 10/11，本地可运行 `powershell.exe` 和 UIAutomation。无需 CDP �
 - [x] 已安装并重载 5.3.1，在同一个真实浏览器任务验证宽布局和原窄布局连续本次批准；窄布局未人工滚动或批准。记录见 `docs/verification-2026-10-06.md`。
 - [x] 安装重载 5.3.2，真实终端连续自动本次批准；会话外及长表单红绿回归通过，相同布局进一步实机验证待完成。记录见 `docs/verification-2026-10-06-terminal.md`。
 - [ ] 按审批类型逐项实机验证；不能把字符串自测写成所有权限弹窗已验证
-- [ ] 发布到 VS Code Marketplace
-- [ ] 发布到 Open VSX
+- [x] 5.3.10 已在 GitHub Release、VS Code Marketplace、Open VSX 发布，三处原包哈希一致；作为本轮起点事实沿用。
+- [ ] 5.3.11 GitHub Release、VS Code Marketplace、Open VSX 三处原包核对。
 
 ### 竞品参考
 - knarfy/antigravity-autoaccept — 已 clone 到 C:/Temp/knarfy-aa，架构参考来源

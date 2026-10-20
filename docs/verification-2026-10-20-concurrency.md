@@ -1,12 +1,12 @@
 # 并发审批验收：5.3.11
 
-证据等级：已读源码、已跑验证。长时采样尚在进行时不作完成结论；发布状态与本机运行结果分别核验。
+证据等级：已读源码、已跑验证。原生验收跨 2026-10-20/21；发布状态与本机运行结果分别核验。
 
 ## 版本与范围
 
 - 基线：5.3.10，提交 `18af5e960b8a7e385620e6e33cdddc0a83241386`。
 - 第一轮归属日志候选扫描器 SHA-256：`1ddf83e151db893a9300b454b6d93971ca9d26f5d3769940aaabf10f66208a8c`；下文已完成的并发原生证据对应此字节版本。
-- 资源寿命修正扫描器 SHA-256：`528b83b22e77cc6e7d3e3408e407aa41ea14d834d26723aec68f209ee702f3db`，其原生长时复测尚未完成。
+- 资源寿命修正扫描器 SHA-256：`528b83b22e77cc6e7d3e3408e407aa41ea14d834d26723aec68f209ee702f3db`，已完成下述 35.56 分钟原生复测。
 - 扩展入口 SHA-256：`20677d86cced88f3f05d095d0d1d7a7a5364b77cb222c40ddd6752bd45d8d8d5`，入口未改动。
 - Windows 本机 Antigravity IDE 2.5.5；真实任务使用 Gemini 3.8 Flash Medium。
 - 独占测试根目录：`F:\CodexTests\AntigravityAA\concurrency-20261020-7d2c`。下文证据文件均相对于其 `evidence\`。
@@ -33,13 +33,13 @@
 
 | 项目 | 结论 | 实际证据与边界 |
 | --- | --- | --- |
-| M1 单窗单线程 | 通过，沿用已验证基线并回归候选动作路径 | `C-m1-result.png`、`C-m1-approved.uia.json` 为本轮重启前 5.3.10 真实单窗终端；候选终端及浏览器结果见 M2/M3。最终单窗候选收尾待补。 |
+| M1 单窗单线程 | 通过 | 最终资源候选中，关闭 A/B 后仅 C5 运行；`C5-single-browser-complete.uia.json/.png` 对应实际访问 `/m7-c5-expiry-2348` 及准确页面标记，23:51:39 一次浏览器批准；`C5-single-m1-terminal-result.uia.json/.png` 对应准确终端输出，23:54:16 一次终端批准。`approval-events-final11.json` 按指纹及卡片核对。 |
 | M2 同窗多任务 | 通过；文件审批子项不适用 | C2 中独立终端、浏览器和文件任务；终端与浏览器曾同时等待。`C2-m2-term-concurrent.png`、`C2-m2-browser-pending.png`、`C2-m2-three-history.uia.json`。终端/浏览器各一个成功事件且目标匹配；文件编辑工具直接写入指定文件，没有权限卡，不计批准。 |
 | M3 双窗并发及接管 | 通过 | `A2-m4-pending.uia.json`、`B2-m4-pending.uia.json` 同时保留不同精确目标与卡片；C 扫描器随后各批准一次。Stop/关闭后的 C→A→B→C 接管由状态、进程退出回执和日志核对。 |
 | M4 三窗含最小化 | 通过 | `A2-mixed-running.status.json`、`B2-mixed-running.status.json` 为 WAITING，`C2-mixed-running.status.json` 为 ON；C 最小化期间批准 A、B 的实际卡片。三个扫描器进程包含一个 owner 和两个等待者，不将等待者当重复 owner。 |
 | M5 待批生命周期 | 通过 | `C2-m5-pending-background.png` 在 Restart/Stop 前保留待批；`M5-restart-after.json` 记录旧等待进程退出及新 PID，`M5-stop-owner.json` 记录旧 owner 退出。第二轮 `C2-m5-close-pending.png`、`M5-close-pending-A3.json`、`C2-m5-pending-after-second-reopen.png` 证明卡片跨关闭重开保留，A4 为 WAITING，恢复后一次允许。 |
 | M6 输入与撤销重做 | 通过，沿用已验证原生输入基线 | 原生 65.202 秒、655 字精确、原生撤销/重做正确、1303 个前台样本无外来窗口；期间真实审批一次。`M6-native-block-equivalence.json` 确认 5.3.8、5.3.10 与候选内嵌 C# 输入实现完全相同（仅统一换行后比对）。 |
-| M7 至少 30 分钟资源 | 第一轮失败；资源修正版待验证 | `resources-final11.jsonl` 与同一 owner 的 `resources-tail11.jsonl` 证明私有内存随轮询持续增长，未按稳定通过处理。新源码使用安全交接后需要重新连续实测。 |
+| M7 至少 30 分钟资源 | 通过；首轮失败后修复 | 最终 `resources-lifetime-final11.jsonl` 连续 2133.39 秒、312 个样本、8 次真实批准；两次 15 分钟自然刷新，含单窗口自动重试。`native-acceptance-final11.json`、`resource-statistics-final11.json`、`M7-refresh-card-attribution.json` 分别保存生命周期、完整资源统计和两张卡片跨刷新后的唯一批准。旧候选增长失败样本完整保留。 |
 | M8 故障与恢复 | 通过，明确分层 | 沿用已验证的真实 60 秒无 READY 自动恢复；本轮实际生产扫描尾段对宿主查询失败和 UIA 失效各注入一次，恢复后一次动作，完成控件随后不再动作。查询/动作边界为内存替身，不称为真实原生提供者故障。 |
 
 C2 并发任务身份来自原生历史列表：终端 `b8dd192b-76cc-47e4-a884-1849d951bd15`、浏览器 `5df3ffb0-50f5-445c-918e-442c4117d7f2`、文件 `3ec3d42e-b5aa-40ad-b430-6c7e5acb36a1`。切换历史会重新创建可见 UIA 元素，因此用任务身份、精确目标、实际输出及该次成功事件联合核对，不假设不同显示时刻的 runtime ID 永不变化。
@@ -58,6 +58,18 @@ C2 并发任务身份来自原生历史列表：终端 `b8dd192b-76cc-47e4-a884-
 
 `component-equivalence-final.json` 确认最终修正版与第一轮归属候选的 22 个 PowerShell 函数、内嵌 C# 输入实现及扩展 JavaScript 一致。此前 M2–M6 的审批与输入组件证据据此沿用；新增所有者寿命路径另由 `resources-lifetime-final11.jsonl` 重新连续实测，不能由组件等价推定 M7 通过。
 
+最终候选第一轮自然刷新：C5 在 23:49:19 输出回收标记并以 0 正常退出，A5 的等待者取得所有权；C5 旧进程 30932 退出，新进程 64664 在 23:49:23 进入等待。`C5-natural-refresh-pending.uia.json/.png` 与 `C5-after-natural-refresh.uia.json/.png` 保存同一真实浏览器待批卡；`first-natural-refresh-window-audit.json` 的 651 个样本覆盖 23:48:54–23:50:06，C 全程最小化且没有 C 前台样本。正常关闭 A/B 后四个登记 PID 均退出，C 于 23:50:48 接管；其后恢复前台才批准该卡一次。
+
+最小化窗口的首次 UIA 状态栏读取仍可返回旧文字，不能用其单次缓存值判定 owner。恢复后新 UIA 树和 `C5-after-natural-refresh.png` 均显示 WAITING，与该窗口日志一致；真实所有权结合 mutex 回归、进程与各窗口 READY/退出事件核对。第一张 C5 浏览器卡早在 23:43:39 批准，其旧待批截图未用于跨刷新结论；后续重建的卡片才具备上述前后证据。
+
+单窗口第二轮自然刷新于 2026-10-21 00:05:48 正常退出，原进程 64664 消失；既有 3 秒重试启动进程 70724，00:05:52 收到 READY。`C5-second-refresh-pending.uia.json/.png` 与 `C5-second-refresh-retained.uia.json/.png` 的权限文本 runtime ID 同为 `42.263938.4.4.1.9842`，父卡片同为 `42.263938.4.4.1.9149`。00:07:25 只有一次对应批准；`C5-m7-final-result.uia.json/.png` 和回环请求记录证明新页面实际返回准确标记。`second-natural-refresh-window-audit.json` 的 941 个样本覆盖 00:05:26–00:07:10，C 一直最小化且隔离 Chrome 一直在前台。Win32 前台请求失败后改用刚观察到的隔离 Chrome 地址栏 UIA 焦点，没有输入文字或修改网址。
+
+最终采样为 2026-10-20 23:34:28.509 至 2026-10-21 00:10:01.903，样本最大间隔 11.733 秒，中位间隔 5.732 秒。三个 C 扫描器进程的私有内存分别为 91.168→140.375、81.973→120.879、120.426→102.457 MiB；第三个进程的初始高值随后回落。所有扫描器的观测峰值为 A 接管初始化时的 158.637 MiB，未将该波峰隐藏；等待者约 83–85.5 MiB。扫描器句柄范围 559–700，没有跨刷新累积。原缺陷候选同一进程 36.58 分钟由 81.75→193.38 MiB 的失败见 `M7-first-candidate-failed.json`。
+
+C 宿主整棵进程树的私有内存为 2326.98–3293.67 MiB，包含模型任务与渲染波动；末三个分钟时间桶（最后一个不足一分钟）的中位数为 3220.69、3231.04、3214.85 MiB，未呈持续单调增长。子进程数 296 个样本为 35，15 个样本为 34，自动重试间隙一个样本为 33；扫描器计数分别有 109 个三进程样本、202 个单进程样本、一个正常重试间隙零进程样本。计划关闭阶段明确保留 B 缺失 3 次、A 缺失 2 次；C 根进程未缺失。完整统计不以最小值或单个末值替代走势。
+
+最终 8 条批准中，五个精确终端目标各一次、三个不同浏览器卡片各一次，同一窗口/卡片/目标组合无重复；两个跨刷新事件均与前后待批树的真实父卡片和目标哈希相符。原生日志没有 PowerShell、扫描器启动/输出或报告的 UIA 错误；正常退出和暂缓诊断单列。该通过结论限于已观察的桌面与任务条件，持续原生阻塞或未解决菜单可延期刷新，不宣称硬内存上限。
+
 本轮开始阶段的系统重启见 `reboot-audit.json`。重启前进程已退出，重新登记 A2/B2/C2 后安装候选，不将该次系统重启归因插件崩溃，也不拼接两次系统启动的采样时长。
 
 旧 `resources.jsonl` 使用日期字符串比较而错误报告根进程不存在，全部排除；`resources-valid.jsonl` 和 `resources-owner.jsonl` 只作为重启前的历史基线。最终候选采样通过 UTC ticks、PID、路径和当前登记关系识别进程，计划关闭重开的缺失根逐阶段报告。
@@ -66,6 +78,6 @@ C2 并发任务身份来自原生历史列表：终端 `b8dd192b-76cc-47e4-a884-
 
 ## 发布与收尾
 
-[PR #20](https://github.com/fhgffy/antigravity-auto-accept/pull/20) 合并前核对最后提交的完整 CI 及本矩阵；合并后再核对 main CI。GitHub Release 原包发布后，两个商店上传同一原包，实际公开下载须通过 CI 现有原生产查询函数，逐项核对发布者、精确版本及 SHA-256。
+[PR #22](https://github.com/fhgffy/antigravity-auto-accept/pull/22) 合并前核对最后提交的完整 CI 及本矩阵；它包含归属和资源两个修复，原诊断草稿 #20 已关闭。合并后再核对 main CI。GitHub Release 原包发布后，两个商店上传同一原包，实际公开下载须通过 CI 现有原生产查询函数，逐项核对发布者、精确版本及 SHA-256。
 
 发布回执及最终矩阵保存在测试根目录的 `final-report.md`；本机候选通过、PR 合并、商店上传回执和商店实际公开下载是不同证据，不互相替代。临时配置、浏览器及测试进程仅在记录身份核对退出后按固定目录白名单清理；证据目录保留。原工作区已有 lessons 改动完整保留，仅追加本轮经验。
