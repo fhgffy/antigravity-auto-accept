@@ -568,36 +568,39 @@ namespace AntigravityUia
 
 Add-Type -AssemblyName UIAutomationClient
 
-$automation = [System.Windows.Automation.AutomationElement]::RootElement
-$winCondition = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ClassNameProperty, "Chrome_WidgetWin_1"
-)
-$btnCondition = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-    [System.Windows.Automation.ControlType]::Button
-)
-# 2026-10-05：新版权限卡片位于会话区域，审批单选项与权限目标需成组识别。
-$conversationCondition = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'conversation'
-)
-$radioCondition = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-    [System.Windows.Automation.ControlType]::RadioButton
-)
-$editCondition = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
-    [System.Windows.Automation.ControlType]::Edit
-)
-# 2026-10-06：浏览器权限在宽栏是按钮、窄栏是弹出菜单项，分别读取实际控件类型。
-$textCondition = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text
-)
-$menuCondition = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Menu
-)
-$menuItemCondition = New-Object System.Windows.Automation.PropertyCondition(
-    [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::MenuItem
-)
+# 2026-10-21：自测只运行纯判定，不查询桌面根或创建扫描条件；正常扫描保留原初始化。
+if (-not $SelfTest) {
+    $automation = [System.Windows.Automation.AutomationElement]::RootElement
+    $winCondition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ClassNameProperty, "Chrome_WidgetWin_1"
+    )
+    $btnCondition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::Button
+    )
+    # 2026-10-05：新版权限卡片位于会话区域，审批单选项与权限目标需成组识别。
+    $conversationCondition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'conversation'
+    )
+    $radioCondition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::RadioButton
+    )
+    $editCondition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+        [System.Windows.Automation.ControlType]::Edit
+    )
+    # 2026-10-06：浏览器权限在宽栏是按钮、窄栏是弹出菜单项，分别读取实际控件类型。
+    $textCondition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Text
+    )
+    $menuCondition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Menu
+    )
+    $menuItemCondition = New-Object System.Windows.Automation.PropertyCondition(
+        [System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::MenuItem
+    )
+}
 
 # 2026-10-05：只匹配审批动作及其中文标签，普通保存、确认、重试按钮不参与自动同意。
 $targetPrefixes = @('Run', 'Accept', 'Allow', 'Execute', 'Approve', '运行', '接受', '允许', '同意', '批准', '执行')

@@ -134,7 +134,7 @@ function stopOwnedSelfTest(pidFile, parentPid) {
 }
 
 for (const [index, engine] of engines.entries()) {
-    for (const mode of ['stdout', 'stderr', 'exit', 'missing-done', 'timeout', 'ledger-failure']) {
+    for (const mode of ['stdout', 'stderr', 'exit', 'missing-done', 'timeout', 'ledger-failure', 'selftest-no-desktop']) {
         test(`${engine}: scanner SelfTest wrapper ${mode}`, () => {
             const pidFile = path.join(owned, `selftest-${index}-${mode}.json`);
             const scriptFile = path.join(owned, `selftest-${index}-${mode}.ps1`);
@@ -153,7 +153,15 @@ for (const [index, engine] of engines.entries()) {
                 timeout: "[Console]::Out.WriteLine('SCANNER_WRAPPER_STDOUT:before-stall'); [Console]::Out.WriteLine('___SELFTEST_DONE___:passed=95'); [Console]::Error.WriteLine('SCANNER_WRAPPER_STDERR:before-stall'); Start-Sleep -Seconds 60",
                 'ledger-failure': "Start-Sleep -Seconds 60"
             };
-            fs.writeFileSync(scriptFile, '# 2026-10-21：只控制子自测输出，不调用扫描器或桌面输入。\r\nparam([switch]$SelfTest)\r\n' + bodies[mode] + '\r\n', 'utf8');
+            if (mode === 'selftest-no-desktop') {
+                // 2026-10-21：仅替换真实源码的唯一桌面 getter 为失败探针，保留其余完整 SelfTest 路径及95项断言。
+                const scanner = fs.readFileSync(path.join(root, 'src/autoClicker.ps1'), 'utf8');
+                const desktopGetter = '[System.Windows.Automation.AutomationElement]::RootElement';
+                assert.equal(scanner.split(desktopGetter).length, 2, 'exact desktop root getter');
+                fs.writeFileSync(scriptFile, scanner.replace(desktopGetter, "$(throw 'SELFTEST_DESKTOP_ACCESS_PROBE')"), 'utf8');
+            } else {
+                fs.writeFileSync(scriptFile, '# 2026-10-21：只控制子自测输出，不调用扫描器或桌面输入。\r\nparam([switch]$SelfTest)\r\n' + bodies[mode] + '\r\n', 'utf8');
+            }
             const quote = value => "'" + value.replace(/'/g, "''") + "'";
             // 2026-10-21：抽取真实包装循环；启动函数仅增加身份旁证，等待、读取及判定均使用仓库原实现。
             const command = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); "
@@ -215,7 +223,7 @@ for (const [index, engine] of engines.entries()) {
                 catch (cleanupError) { keepArtifacts = true; console.error('Owned SelfTest cleanup failed: ' + cleanupError.message); }
                 throw error;
             }
-            if (mode === 'stdout') {
+            if (mode === 'stdout' || mode === 'selftest-no-desktop') {
                 assert.equal(result.status, 0, result.stderr);
                 assert.match(result.stdout, /PASS SelfTest 95 cases:/);
                 return;
@@ -232,6 +240,10 @@ for (const [index, engine] of engines.entries()) {
                 assert.equal(detail.ExitConfirmed, true);
                 assert.equal(detail.StdoutComplete, true);
                 assert.equal(detail.StderrComplete, true);
+                // 2026-10-21：真实超时必须保留子进程启动、源码读取与解析阶段，不能只剩空输出。
+                for (const phase of ['bootstrap', 'source-read', 'scriptblock-created']) {
+                    assert.ok(detail.Stdout.includes('___SCANNER_SELFTEST_PHASE___:' + phase), `missing SelfTest phase: ${phase}`);
+                }
                 assert.match(detail.Stdout, /SCANNER_WRAPPER_STDOUT:before-stall/);
                 assert.match(detail.Stdout, /___SELFTEST_DONE___:passed=95/);
                 assert.match(detail.Stderr, /SCANNER_WRAPPER_STDERR:before-stall/);

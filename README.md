@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.11
+# 🚀 Antigravity Auto Accept v5.3.12
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -150,6 +150,12 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ---
 
 ## 📋 Changelog | 更新日志
+
+### v5.3.12 — Desktop-independent SelfTest (2026-10-21)
+
+- Skip desktop root and scan-condition initialization during `-SelfTest`; normal scanning keeps its existing initialization and approval paths.
+- Add both-engine regression coverage that makes desktop access fail while requiring all 95 SelfTest cases, exit code 0 and empty stderr. Keep the original 15-second deadline and retain bootstrap-stage diagnostics on timeout.
+- 自测不再访问不需要的桌面节点；正常扫描初始化与审批路径保持原逻辑。CI 原始偶发超时的具体卡点尚未确认，保留首次失败证据。
 
 ### v5.3.11 — Approval Attribution and Scanner Resource Lifetime (2026-10-20)
 

@@ -73,7 +73,16 @@ if ($engines.Count -eq 0) { throw 'No PowerShell engine found' }
 $escapedScannerPath = $scannerPath.Replace("'", "''")
 $bootstrapEncoding = '$ProgressPreference = ''SilentlyContinue''; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false);'
 foreach ($engine in $engines) {
-    $process = Start-TestProcess $engine "$bootstrapEncoding & ([scriptblock]::Create([IO.File]::ReadAllText('$escapedScannerPath', [Text.Encoding]::UTF8))) -SelfTest"
+    # 2026-10-21：子引导逐阶段立即刷出旁证，空输出超时不能再被猜成桌面、编译或读取故障。
+    $selfTestCommand = $bootstrapEncoding + (@'
+[Console]::WriteLine('___SCANNER_SELFTEST_PHASE___:bootstrap'); [Console]::Out.Flush()
+$selfTestSource = [IO.File]::ReadAllText('{0}', [Text.Encoding]::UTF8)
+[Console]::WriteLine('___SCANNER_SELFTEST_PHASE___:source-read'); [Console]::Out.Flush()
+$selfTestBlock = [scriptblock]::Create($selfTestSource)
+[Console]::WriteLine('___SCANNER_SELFTEST_PHASE___:scriptblock-created'); [Console]::Out.Flush()
+& $selfTestBlock -SelfTest
+'@ -f $escapedScannerPath)
+    $process = Start-TestProcess $engine $selfTestCommand
     # 2026-10-21：等待退出前同时排空两条重定向管道，避免输出反压让正常自测卡在原十五秒上限。
     $pendingOut = $process.StandardOutput.ReadToEndAsync()
     $pendingError = $process.StandardError.ReadToEndAsync()
