@@ -33,7 +33,7 @@
 
 | 项目 | 结论 | 实际证据与边界 |
 | --- | --- | --- |
-| M1 单窗单线程 | 通过 | 最终资源候选中，关闭 A/B 后仅 C5 运行；`C5-single-browser-complete.uia.json/.png` 对应实际访问 `/m7-c5-expiry-2348` 及准确页面标记，23:51:39 一次浏览器批准；`C5-single-m1-terminal-result.uia.json/.png` 对应准确终端输出，23:54:16 一次终端批准。`approval-events-final11.json` 按指纹及卡片核对。 |
+| M1 单窗单线程 | 通过 | 最终资源候选中，关闭 A/B 后仅 C5 运行；`C5-single-browser-complete.uia.json/.png` 对应实际访问 `/m7-c5-expiry-2348` 及准确页面标记，23:51:39 一次浏览器批准；`C5-single-m1-terminal-result.uia.json` 中的准确标记属于模型回复，并非原始 stdout；精确命令目标在 23:54:16 只有一次终端批准，原始 stdout 未独立捕获。`approval-events-final11.json` 按指纹及卡片核对。 |
 | M2 同窗多任务 | 通过；文件审批子项不适用 | C2 中独立终端、浏览器和文件任务；终端与浏览器曾同时等待。`C2-m2-term-concurrent.png`、`C2-m2-browser-pending.png`、`C2-m2-three-history.uia.json`。终端/浏览器各一个成功事件且目标匹配；文件编辑工具直接写入指定文件，没有权限卡，不计批准。 |
 | M3 双窗并发及接管 | 通过 | `A2-m4-pending.uia.json`、`B2-m4-pending.uia.json` 同时保留不同精确目标与卡片；C 扫描器随后各批准一次。Stop/关闭后的 C→A→B→C 接管由状态、进程退出回执和日志核对。 |
 | M4 三窗含最小化 | 通过 | `A2-mixed-running.status.json`、`B2-mixed-running.status.json` 为 WAITING，`C2-mixed-running.status.json` 为 ON；C 最小化期间批准 A、B 的实际卡片。三个扫描器进程包含一个 owner 和两个等待者，不将等待者当重复 owner。 |
@@ -75,6 +75,8 @@ C 宿主整棵进程树的私有内存为 2326.98–3293.67 MiB，包含模型�
 旧 `resources.jsonl` 使用日期字符串比较而错误报告根进程不存在，全部排除；`resources-valid.jsonl` 和 `resources-owner.jsonl` 只作为重启前的历史基线。最终候选采样通过 UTC ticks、PID、路径和当前登记关系识别进程，计划关闭重开的缺失根逐阶段报告。
 
 观察工具曾遇到系统盘临时编译失败，现观察子进程 TEMP/TMP 固定在本轮 F 盘目录。Chromium 输入的 ValuePattern 可能保留已删除文本，截图及 TextPattern 用于交叉检查当前内容；仅清理与本轮已发送文案逐字相同的草稿。查询超时只结束自有观察进程，不重启被测产品。
+
+独立审查确认 `C5-single-m1-terminal-result.png` 与 `A5-m7-mid-result.png` 是 276×45 的空白捕获，均保留为观察失败，不用于成功结论。M1 终端的批准归属由成功日志和精确目标指纹证明；模型回复中的输出标记不能替代原始终端 stdout。
 
 ## 发布与收尾
 
