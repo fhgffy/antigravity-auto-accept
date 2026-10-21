@@ -258,3 +258,36 @@ for (const [index, engine] of engines.entries()) {
         });
     }
 }
+
+// 2026-10-22：真实活子进程的只读转储必须可读且不能结束目标，失败仍由本次持有的 Process 清理。
+for (const engine of engines) {
+    test(`${engine}: live child minidump retains target and diagnostic failure`, () => {
+        const quote = value => "'" + value.replace(/'/g, "''") + "'";
+        const diagnostic = path.join(owned, `diagnostic-${engines.indexOf(engine)}.dmp`);
+        const pidFile = path.join(owned, `diagnostic-${engines.indexOf(engine)}.pid`);
+        pidFiles.push(pidFile); selfTestFiles.push(diagnostic);
+        const command = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; "
+            + "Add-Type -TypeDefinition ([IO.File]::ReadAllText(" + quote(path.join(__dirname, 'fixtures/host-child-diagnostics.cs')) + ",[Text.Encoding]::UTF8)); "
+            + "$start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=" + quote(fixture) + ";$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true;"
+            + "$child=[Diagnostics.Process]::new();$child.StartInfo=$start;try{[void]$child.Start();$out=$child.StandardOutput.ReadLineAsync();$err=$child.StandardError.ReadToEndAsync();if(-not $out.Wait(5000)){throw 'Owned diagnostic child start timeout'};"
+            + "[HostChildDiagnostics]::Write($child," + quote(diagnostic) + ");if($child.HasExited){throw 'Diagnostic ended live child'};"
+            + "try{[HostChildDiagnostics]::Write($child," + quote(diagnostic) + ");throw 'Expected duplicate diagnostic failure'}catch{if($_.Exception.Message -eq 'Expected duplicate diagnostic failure'){throw}};"
+            + "if($child.HasExited){throw 'Diagnostic failure ended live child'};[Console]::WriteLine('DUMP_TARGET_ALIVE')}finally{if(-not $child.HasExited){$child.Kill()};if(-not $child.WaitForExit(5000)){throw 'Owned diagnostic child exit unconfirmed'};$child.Dispose()}";
+        const result = spawnSync(engine, ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
+            cwd: root, encoding: 'utf8', windowsHide: true, timeout: 20000,
+            env: { ...process.env, AAA_HOST_WRAPPER_CASE: 'timeout', AAA_HOST_WRAPPER_PIDFILE: pidFile }
+        });
+        try {
+            assert.ifError(result.error);
+            assert.equal(result.status, 0, result.stderr);
+            assert.match(result.stdout, /DUMP_TARGET_ALIVE/);
+            const dump = fs.readFileSync(diagnostic);
+            assert.equal(dump.toString('ascii', 0, 4), 'MDMP');
+            assert.ok(dump.readUInt32LE(8) > 0, 'real minidump stream directory');
+            assert.throws(() => process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 0), { code: 'ESRCH' });
+        } catch (error) {
+            try { stopOwnedFixture(pidFile); } catch (cleanupError) { keepArtifacts = true; console.error(cleanupError.message); }
+            throw error;
+        }
+    });
+}

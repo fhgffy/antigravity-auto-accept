@@ -422,6 +422,7 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
     $hasExitedAfterStop = $null
     $processQueryError = ''
     $stopError = ''
+    $ownedDiagnosticPath = $null # 2026-10-22：超时现场只写本例编译目录，保留二进制与转储用于定位。
     try {
         if ([IO.Directory]::Exists($ownedStageDirectory)) { throw 'Owned stage directory collision' }
         [void][IO.Directory]::CreateDirectory($ownedStageDirectory)
@@ -468,6 +469,18 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
             try { $exitedBeforeStop = $child.get_HasExited() } catch { $processQueryError = $_.Exception.GetType().FullName }
             $readyState = $pendingReady.Status.ToString()
             $errorState = $pendingError.Status.ToString()
+            # 2026-10-22：原十秒 READY 已失败，先从外部只读采集本次持有的活子进程；诊断异常不能覆盖原超时。
+            $dump = [ordered]@{ Pid = $ownedChildId; Path = ''; Written = $false; Error = '' }
+            if ($exitedBeforeStop -eq $false) {
+                $ownedDiagnosticPath = [IO.Path]::Combine($ownedBinaryDirectory, 'ready-timeout.dmp')
+                $dump.Path = $ownedDiagnosticPath
+                try {
+                    Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'fixtures\host-child-diagnostics.cs'), [Text.Encoding]::UTF8))
+                    [HostChildDiagnostics]::Write($child, $ownedDiagnosticPath)
+                    $dump.Written = $true
+                } catch { $dump.Error = $_.Exception.GetType().FullName }
+            }
+            try { [Console]::WriteLine('___HOST_CHILD_DUMP___:' + ($dump | ConvertTo-Json -Compress)) } catch { }
             try { if ($exitedBeforeStop -ne $true) { $child.Kill() } } catch { $stopError = $_.Exception.GetType().FullName }
             try { if ($exitedBeforeStop -ne $true) { $exitWaitCompleted = $child.WaitForExit(5000) } } catch { $stopError = $_.Exception.GetType().FullName }
             try { $hasExitedAfterStop = $child.get_HasExited() } catch { $processQueryError = $_.Exception.GetType().FullName }
@@ -569,7 +582,8 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
         <# 2026-10-09：子进程和编译器均确认退出后，只删登记的绝对 EXE，非递归删除独占空目录。 #>
         $binaryCleanup = [ordered]@{ CompilerPid = $compilerPid; CompilerStarted = $compilerStarted; CompilerExitConfirmed = $compilerExitConfirmed; CompilerError = $compilerCleanupError; Directory = $ownedBinaryDirectory; State = 'not-created'; Error = '' }
         if ($ownedBinaryDirectoryCreated) {
-            if ((-not $childStarted -or $hasExitedAfterStop -eq $true) -and (-not $compilerStarted -or $compilerExitConfirmed)) {
+            if ($null -ne $ownedDiagnosticPath) { $binaryCleanup.State = 'kept-timeout-diagnostic' } # 2026-10-22：失败现场不进入成功清理分支。
+            elseif ((-not $childStarted -or $hasExitedAfterStop -eq $true) -and (-not $compilerStarted -or $compilerExitConfirmed)) {
                 try {
                     $binaryDirectory = [IO.Path]::GetFullPath($ownedBinaryDirectory)
                     $binaryPath = [IO.Path]::GetFullPath($fixture.Engine)
