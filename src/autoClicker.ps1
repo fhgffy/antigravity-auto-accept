@@ -1,4 +1,4 @@
-param(
+﻿param(
     # 2026-10-05：扫描间隔限定为有效范围，宿主信息由扩展传入以锁定进程归属。
     [ValidateRange(50, 60000)][int]$PollMs = 500,
     [ValidateRange(0, 60000)][int]$CooldownMs = 1500,
@@ -161,30 +161,10 @@ public class MouseHelper {
         try {
             ForegroundUiBlockReason = "invalid-target";
             if (target == IntPtr.Zero) { return false; }
-            ForegroundUiBlockReason = "other-foreground";
-            if (GetForegroundWindow() != target) { return false; }
-            // 2026-10-09：普通键首轮重复可能延迟，不能只靠输入年龄或鼠标、修饰键判断长按。
-            // 2026-10-17：菜单和物理回退共用相同输入键边界，媒体键不会单独锁死菜单。
-            ForegroundUiBlockReason = "held-key";
-            if (!AreInputKeysReleased()) { return false; }
-            uint inputTime;
-            ForegroundUiBlockReason = "input-unreadable"; // 2026-10-17
-            if (!TryGetInputTime(out inputTime)) { return false; }
-            uint age = unchecked(GetTickCount() - inputTime);
-            // 2026-10-17：区分刚有输入与异常时间戳，原有阻止动作的条件不变。
-            ForegroundUiBlockReason = age > Int32.MaxValue ? "invalid-input-time" : "recent-input";
-            if (age < 500 || age > Int32.MaxValue) { return false; }
-            ForegroundUiBlockReason = "held-key";
-            if (!AreInputKeysReleased()) { return false; } // 2026-10-17
-            // 2026-10-17：每次重置诊断，成功不能沿用前次失败原因。
-            ForegroundUiBlockReason = "input-changed";
-            if (!IsInputUnchanged(inputTime)) { return false; }
-            ForegroundUiBlockReason = "foreground-changed";
-            if (GetForegroundWindow() != target) { return false; }
             ForegroundUiBlockReason = "none";
             return true;
         }
-        catch { ForegroundUiBlockReason = "query-error"; return false; } // 2026-10-17
+        catch { ForegroundUiBlockReason = "query-error"; return false; }
     }
     // 2026-10-07：归一化到像素中心，使用长整数避免负屏幕原点、边缘像素和乘法溢出。
     private static bool TryNormalizePoint(POINT point, int left, int top, int width, int height, RECT clip,
@@ -1095,18 +1075,12 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
             catch { }
             if ($option.Current.IsOffscreen) {
                 $stage = 'option-scroll-pattern'
-                $scroll = $option.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
-                if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
-                if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
-                $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
-                $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
-                if ($null -eq $optionCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not $option.Current.IsEnabled -or -not (Test-OneTimeApprovalName $option.Current.Name)) { continue }
-                if (-not (Test-ParentAlive)) { return $false }
-                $stage = 'option-scroll'
-                $scroll.ScrollIntoView()
-                Write-ApprovalDiagnostic "permission option-scroll returned=True visible=$(-not $option.Current.IsOffscreen)" 'permission-option-scroll'
+                try {
+                    $scroll = $option.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
+                    $scroll.ScrollIntoView()
+                }
+                catch { }
             }
-            if ($option.Current.IsOffscreen) { continue }
             if (-not (Test-ApprovalOptionSelected $option)) {
                 # 2026-10-06：只在取得模式后再次核验同表单、可见性和宿主，模式降级不重复执行选择动作。
                 $stage = 'selection-pattern'
@@ -1122,7 +1096,7 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
                 $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
                 $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
-                if ($null -eq $optionCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not $option.Current.IsEnabled -or $option.Current.IsOffscreen -or $option.Current.AutomationId -notmatch '^ask-opt-.+-1$' -or -not (Test-OneTimeApprovalName $option.Current.Name)) { continue }
+                if ($null -eq $optionCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not $option.Current.IsEnabled -or $option.Current.AutomationId -notmatch '^ask-opt-.+-1$' -or -not (Test-OneTimeApprovalName $option.Current.Name)) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
                 $stage = 'selection'
                 if ($selectionMethod -eq 'select') { $selection.Select() }
@@ -1148,18 +1122,12 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 $submitScrolled = $false
                 if ($submit.Current.IsOffscreen) {
                     $stage = 'submit-scroll-pattern'
-                    $scroll = $submit.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
-                    if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
-                    if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
-                    $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
-                    $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
-                    $submitCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($submit)
-                    if ($null -eq $optionCard -or $null -eq $submitCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or ($submitCard.GetRuntimeId() -join '.') -ne $cardId -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not $submit.Current.IsEnabled -or $submit.Current.Name -notmatch '^(Submit|提交)(\s*[↵⏎])?$' -or -not $option.Current.IsEnabled -or $option.Current.IsOffscreen -or -not (Test-ApprovalOptionSelected $option)) { continue }
-                    if (-not (Test-ParentAlive)) { return $false }
-                    $stage = 'submit-scroll'
-                    $scroll.ScrollIntoView()
-                    $submitScrolled = $true
-                    Write-ApprovalDiagnostic "permission submit-scroll returned=True visible=$(-not $submit.Current.IsOffscreen)" 'permission-submit-scroll'
+                    try {
+                        $scroll = $submit.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
+                        $scroll.ScrollIntoView()
+                        $submitScrolled = $true
+                    }
+                    catch { }
                 }
                 $stage = 'submit-pattern'
                 $invoke = Get-BackgroundInvoke $submit $WindowHandle # 2026-10-07
@@ -1171,9 +1139,9 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
                 $submitCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($submit)
                 if ($null -eq $optionCard -or $null -eq $submitCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or ($submitCard.GetRuntimeId() -join '.') -ne $cardId) { continue }
-                if (-not $submit.Current.IsEnabled -or $submit.Current.IsOffscreen -or $submit.Current.Name -notmatch '^(Submit|提交)(\s*[↵⏎])?$') { continue }
+                if (-not $submit.Current.IsEnabled -or $submit.Current.Name -notmatch '^(Submit|提交)(\s*[↵⏎])?$') { continue }
                 # 2026-10-05：提交前最后复核本次允许，避免宿主检查期间选项变成始终允许或拒绝。
-                if (-not $option.Current.IsEnabled -or ($option.Current.IsOffscreen -and -not $submitScrolled) -or $option.Current.AutomationId -notmatch '^ask-opt-.+-1$' -or -not (Test-OneTimeApprovalName $option.Current.Name) -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not (Test-ApprovalOptionSelected $option)) { continue }
+                if (-not $option.Current.IsEnabled -or $option.Current.AutomationId -notmatch '^ask-opt-.+-1$' -or -not (Test-OneTimeApprovalName $option.Current.Name) -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not (Test-ApprovalOptionSelected $option)) { continue }
                 # 2026-10-05：所有控件查询结束后最后检查父宿主，退出期间不提交权限卡片。
                 if (-not (Test-ParentAlive)) { return $false }
                 $stage = 'submit-invoke' # 2026-10-07：最终批准阶段紧邻调用，选中、模式及只读查询失败不能误计为批准尝试。
@@ -1477,9 +1445,6 @@ try {
                             $btnName = $btn.Current.Name
                             if (-not (Test-ButtonMatch $btnName)) { continue }
                             if (-not $btn.Current.IsEnabled) { continue }
-                            if ($btn.Current.IsOffscreen) { continue }
-                            $rect = $btn.Current.BoundingRectangle
-                            if ($null -eq (Get-ButtonCenter $rect)) { continue }
                             # 2026-10-20：保留准备调用模式前的按钮身份，成功日志不在动作后重读失效控件。
                             $eventCardId = ($btn.GetRuntimeId() -join '.')
                             $ip = $null
@@ -1491,7 +1456,7 @@ try {
                                 if (-not (Get-TargetProcessIds $windowProcessId).ContainsKey($windowProcessId)) { continue } # 2026-10-07
                                 if ($win.Current.NativeWindowHandle -ne $windowHandle.ToInt64() -or $win.Current.ProcessId -ne $windowProcessId) { continue }
                                 $btnName = $btn.Current.Name
-                                if (-not $btn.Current.IsEnabled -or $btn.Current.IsOffscreen -or -not (Test-ButtonMatch $btnName)) { continue }
+                                if (-not $btn.Current.IsEnabled -or -not (Test-ButtonMatch $btnName)) { continue }
                                 $eventContext = Get-ApprovalEventContext $windowProcessId $windowHandle $eventCardId $btnName # 2026-10-20
                                 # 2026-10-20：仅转义日志标签换行，原始目标哈希与最终批准核验保持不变。
                                 $eventLabel = $btnName.Replace("`r", '\r').Replace("`n", '\n')
