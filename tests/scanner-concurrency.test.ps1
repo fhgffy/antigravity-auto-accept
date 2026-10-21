@@ -105,6 +105,7 @@ $automation | Add-Member ScriptMethod FindAll { param($scope, $condition) return
             $processes.Add($scanner)
             $slots.Add([pscustomobject]@{ Parent = $parent; Scanner = $scanner; Pending = $null; Active = $false })
             if ($index -eq 0) {
+                Read-ConcurrencyLine $scanner '___SCANNER_INITIALIZING___' # 2026-10-22：初始化握手先于 READY，仍要求原就绪信号。
                 Read-ConcurrencyLine $scanner '___AUTOCLICK_READY___'
                 $slots[$index].Active = $true
             }
@@ -142,7 +143,8 @@ $automation | Add-Member ScriptMethod FindAll { param($scope, $condition) return
             $readyIndex = [Threading.Tasks.Task]::WaitAny($tasks, 10000)
             if ($readyIndex -lt 0) { throw 'No waiting scanner acquired released mutex' }
             $owner = $waiters[$readyIndex]
-            if ($owner.Pending.Result -cne '___AUTOCLICK_READY___') { throw 'Unexpected takeover protocol' }
+            if ($owner.Pending.Result -cne '___SCANNER_INITIALIZING___') { throw 'Unexpected takeover initialization protocol' } # 2026-10-22
+            Read-ConcurrencyLine $owner.Scanner '___AUTOCLICK_READY___'
             $remaining = @($waiters | Where-Object { $_ -ne $owner })
             if (@($remaining | Where-Object { $_.Pending.IsCompleted }).Count -ne 0) { throw 'Multiple waiting scanners acquired the mutex' }
             Write-Output "PASS concurrent handoff: round=$round abandoned=$abandon remaining=$($remaining.Count)"

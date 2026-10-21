@@ -1464,6 +1464,7 @@ try {
         $common = "$bootstrapEncoding `$PollMs = 50; `$CooldownMs = 0; $stub"
         $owner = Start-TestProcess $engine "$common `$ParentProcessId = $($ownerParent.Id); $lifecycleSource"
         $processes.Add($owner)
+        Read-ProtocolLine $owner '___SCANNER_INITIALIZING___' # 2026-10-22：接管后先恢复初始化截止时间，再要求 READY。
         Read-ProtocolLine $owner '___AUTOCLICK_READY___'
         $checks++
         $waiter = Start-TestProcess $engine "$common `$ParentProcessId = $($waiterParent.Id); $lifecycleSource"
@@ -1483,6 +1484,7 @@ try {
         $ownerErrorOutput = $ownerErrors.GetAwaiter().GetResult()
         if ($ownerErrorOutput.Length -gt 0 -or $ownerOutput -match '___CLICK_|___ERROR___') { throw "Unexpected owner diagnostic: stdout=$ownerOutput stderr=$ownerErrorOutput" }
         $checks++
+        Read-ProtocolLine $waiter '___SCANNER_INITIALIZING___' # 2026-10-22：接管后先恢复初始化截止时间，再要求 READY。
         Read-ProtocolLine $waiter '___AUTOCLICK_READY___'
         $checks++
         # 2026-10-07：接管者已消费 READY 后才读取同一输出流，不能与协议 ReadLine 并发。

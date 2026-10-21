@@ -39,6 +39,7 @@ foreach ($engine in @($PowerShellEngines | ForEach-Object { (Get-Command $_ -Err
         if ($process.HasExited) { throw 'Waiting scanner exited before release' }
         $checks++
         $mutex.ReleaseMutex(); $owned = $false
+        Read-ProtocolLine $process '___SCANNER_INITIALIZING___' # 2026-10-22：拿锁后、任何重型初始化前通知宿主恢复截止时间。
         Read-ProtocolLine $process '___HEAVY_INITIALIZATION___'
         $stdout = $process.StandardOutput.ReadToEndAsync(); $stderr = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit(8000)) { throw 'Initialization failure did not exit' }

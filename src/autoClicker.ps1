@@ -1597,6 +1597,7 @@ try {
         }
     }
     if (-not $mutexOwned -or -not (Test-ParentAlive)) { exit 0 }
+    [Console]::WriteLine('___SCANNER_INITIALIZING___') # 2026-10-22：先通知宿主重新启用接管初始化超时，再加载重型组件。
     . $initializeAutomation # 2026-10-21：初始化完成后才报告 READY，初始化失败同样释放已持有的互斥。
     [Console]::WriteLine('___AUTOCLICK_READY___')
     $lastClickTime = [DateTime]::MinValue
