@@ -41,6 +41,8 @@ Windows PowerShell 5.1 读取含中文的无 BOM 脚本时，使用项目现有 
 
 ## 已遇到的坑
 
+- 比较鼠标前先统一坐标空间；DPI 感知的动作回执可能是物理坐标，WinForms 哨兵则是逻辑坐标。用 PhysicalToLogicalPointForPerMonitorDPI 按同一窗口核对，保留原始两套数值，不能忽略不一致的观测。
+- PowerShell 构造嵌套 INPUT 值类型时逐层赋回，并检查虚拟键、结构大小及真实 GetAsyncKeyState；给嵌套属性赋值可能只改副本。长按测试必须限时并在 finally 释放。
 - PrintWindow 可能返回空白图片；文件存在、模型回复标记及 Agent response 都不能冒充工具原始 stdout。
 - Chromium ValuePattern 可保留已删草稿，必须结合 TextPattern/截图；仅能清除与本轮发送文本完全相同的草稿。
 - 两个真实窗口的 WAITING/ON 要以新树、互斥与生命周期日志交叉核对，不能由旧状态栏文字断定双 owner。

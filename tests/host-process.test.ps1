@@ -380,7 +380,7 @@ Assert-Host ($null -eq [MouseHelper]::GetProcessImagePath([uint32]4294967295)) '
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'Cross-bitness test requires Windows x64' }
 # 2026-10-22：外部64位收集器只读取持有目标；固定五秒上限和独立回收，不能占满原45秒宿主截止时间。
 function Save-HostTimeoutDump {
-    param([Diagnostics.Process]$Target,[string]$ExpectedImage,[string]$DumpPath,[string]$CollectorEngine='')
+    param([Diagnostics.Process]$Target,[string]$ExpectedImage,[string]$DumpPath,[string]$CollectorEngine='',[switch]$ExecutableCollector)
     $record=[ordered]@{Pid=$Target.Id;Path=$DumpPath;Written=$false;TimedOut=$false;Error='';CollectorPid=$null;CollectorExited=$false}
     $collector=$null;$started=$false
     try {
@@ -389,6 +389,11 @@ function Save-HostTimeoutDump {
         $command='$ErrorActionPreference=''Stop''; if([IntPtr]::Size -ne 8){throw ''Dump collector requires x64''}; $p=[Diagnostics.Process]::GetProcessById('+ $Target.Id +'); try { if($p.StartTime.ToUniversalTime().Ticks -ne '+$Target.StartTime.ToUniversalTime().Ticks+' -or -not [String]::Equals($p.MainModule.FileName,'''+$ExpectedImage.Replace("'","''")+''',[StringComparison]::OrdinalIgnoreCase)){throw ''Owned dump target identity changed''}; Add-Type -TypeDefinition ([IO.File]::ReadAllText('''+$source.Replace("'","''")+''',[Text.Encoding]::UTF8)); [HostChildDiagnostics]::Write($p,'''+$DumpPath.Replace("'","''")+'''); [Console]::WriteLine(''___HOST_DUMP_WRITTEN___'') } finally {$p.Dispose()}'
         $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=$CollectorEngine
         $start.Arguments='-NoProfile -NonInteractive -OutputFormat Text -EncodedCommand '+[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        # 2026-10-22：独立预编译测试工具通过普通参数接收同一目标身份，五秒期限内无需启动PowerShell及现场编译。
+        if($ExecutableCollector){
+            if($ExpectedImage.Contains('"') -or $DumpPath.Contains('"')){throw 'Invalid owned collector path'}
+            $start.Arguments=$Target.Id.ToString([Globalization.CultureInfo]::InvariantCulture)+' '+$Target.StartTime.ToUniversalTime().Ticks.ToString([Globalization.CultureInfo]::InvariantCulture)+' "'+$ExpectedImage+'" "'+$DumpPath+'"'
+        }
         $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
         $collector=[Diagnostics.Process]::new();$collector.StartInfo=$start
         if(-not $collector.Start()){throw 'Dump collector did not start'}

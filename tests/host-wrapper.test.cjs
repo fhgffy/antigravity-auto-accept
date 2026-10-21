@@ -10,6 +10,7 @@ const root = path.resolve(__dirname, '..');
 // 2026-10-21：将 CI 的 RUNNER~1 短名展开为真实路径，使异常与 Process 路径可严格核对。
 const owned = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'AntigravityAA-HostWrapper-')));
 const fixture = path.join(owned, 'host-wrapper-output.exe');
+const diagnosticCollector = path.join(owned, 'host-dump-collector.exe'); // 2026-10-22：取证工具事先按普通EXE编译，不在五秒窗口内加载或编译脚本程序集。
 const pidFiles = [];
 const selfTestFiles = []; // 2026-10-21：登记自测管道夹具与身份回执，保持白名单非递归清理。
 const selfTestDirectories = []; // 2026-10-21：失败回执的目录替身单独登记，不能用文件删除误清目录。
@@ -20,14 +21,23 @@ before(() => {
     const compiler = path.join(process.env.WINDIR, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe');
     const result = spawnSync(compiler, ['/nologo', '/target:exe', '/codepage:65001', '/platform:anycpu', '/out:' + fixture,
         path.join(__dirname, 'fixtures/host-wrapper-output.cs')], { encoding: 'utf8', windowsHide: true, timeout: 15000 });
+    let diagnosticBuild; // 2026-10-22：分别保留两次编译的原两流与返回字段。
     try {
         assert.ifError(result.error);
         assert.equal(result.status, 0, result.stdout + result.stderr);
+        diagnosticBuild = spawnSync(compiler, ['/nologo', '/target:exe', '/codepage:65001', '/platform:x64', '/out:' + diagnosticCollector,
+            path.join(__dirname, 'fixtures/host-child-diagnostics.cs'), path.join(__dirname, 'fixtures/host-dump-collector.cs')],
+            { encoding: 'utf8', windowsHide: true, timeout: 15000 });
+        assert.ifError(diagnosticBuild.error);
+        assert.equal(diagnosticBuild.status, 0, diagnosticBuild.stdout + diagnosticBuild.stderr);
     } catch (error) {
         // 2026-10-22：首次编译失败保留原两流与退出字段，不能被后续清理抹掉现场。
         keepArtifacts = true;
         fs.writeFileSync(path.join(owned, 'compiler-failure.json'), JSON.stringify({ status: result.status, signal: result.signal,
-            error: result.error ? { code: result.error.code, message: result.error.message } : null, stdout: result.stdout, stderr: result.stderr }));
+            error: result.error ? { code: result.error.code, message: result.error.message } : null, stdout: result.stdout, stderr: result.stderr,
+            diagnosticBuild: diagnosticBuild ? { status: diagnosticBuild.status, signal: diagnosticBuild.signal,
+                error: diagnosticBuild.error ? { code: diagnosticBuild.error.code, message: diagnosticBuild.error.message } : null,
+                stdout: diagnosticBuild.stdout, stderr: diagnosticBuild.stderr } : null }));
         throw error;
     }
 });
@@ -35,7 +45,7 @@ before(() => {
 after(() => {
     // 2026-10-16：目录由本文件独占创建，只删除登记文件，外来文件使非递归清理显式失败。
     if (keepArtifacts) { console.error('Owned fixture cleanup unconfirmed; retained: ' + owned); return; }
-    for (const file of [...pidFiles, ...selfTestFiles, fixture]) { if (fs.existsSync(file)) fs.unlinkSync(file); }
+    for (const file of [...pidFiles, ...selfTestFiles, fixture, diagnosticCollector]) { if (fs.existsSync(file)) fs.unlinkSync(file); }
     for (const directory of selfTestDirectories) fs.rmdirSync(directory); // 2026-10-21：只移除本文件创建的空目录。
     fs.rmdirSync(owned);
 });
@@ -267,10 +277,10 @@ for (const [index, engine] of engines.entries()) {
     }
 }
 
-// 2026-10-22：三种诊断各用独立目标和原25秒上限，避免三次5秒收集器叠加耗尽同一个外层截止时间。
+// 2026-10-22：各项诊断使用独立目标和原25秒上限，避免三次5秒收集器叠加耗尽同一个外层截止时间。
 const diagnosticEngines = [...new Set([...engines, path.join(process.env.WINDIR, 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe')])];
 for (const [index, engine] of diagnosticEngines.entries()) {
-    for (const scenario of ['success', 'file-error', 'collector-stall']) {
+    for (const scenario of ['success', 'file-error', 'collector-stall', 'identity-error']) {
         test(engine + ': bounded x64 minidump ' + scenario + ' retains target', () => {
             const quote = value => "'" + value.replace(/'/g, "''") + "'";
             const stem = 'diagnostic-' + index + '-' + scenario;
@@ -291,8 +301,8 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                 + "$child=[Diagnostics.Process]::new();$child.StartInfo=$start;try{[void]$child.Start();$out=$child.StandardOutput.ReadLineAsync();$err=$child.StandardError.ReadToEndAsync();if(-not $out.Wait(5000)){throw 'Owned diagnostic child start timeout'};"
                 + "[Console]::WriteLine('DUMP_DIAGNOSTIC_CHILD_READY');$clock=[Diagnostics.Stopwatch]::StartNew();"
                 + (scenario === 'collector-stall' ? "$env:AAA_HOST_WRAPPER_PIDFILE=" + quote(collectorPidFile) + ";" : "")
-                + "Save-HostTimeoutDump $child " + quote(fixture) + " " + quote(diagnostic)
-                + (scenario === 'collector-stall' ? " -CollectorEngine " + quote(fixture) : "") + ";"
+                + "Save-HostTimeoutDump $child " + quote(scenario === 'identity-error' ? path.join(owned, 'unowned.exe') : fixture) + " " + quote(diagnostic)
+                + " -ExecutableCollector -CollectorEngine " + quote(scenario === 'collector-stall' ? fixture : diagnosticCollector) + ";"
                 + "$clock.Stop();[Console]::WriteLine('DUMP_ELAPSED:'+$clock.ElapsedMilliseconds);"
                 + "if($child.HasExited){throw 'Diagnostic ended live target'};[Console]::WriteLine('DUMP_TARGET_ALIVE')"
                 + "}finally{if(-not $child.HasExited){$child.Kill()};if(-not $child.WaitForExit(5000)){throw 'Owned diagnostic child exit unconfirmed'};$child.Dispose()}";
@@ -317,6 +327,8 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                     assert.equal(records[0].Written, false);
                     assert.ok(records[0].Error.length > 0);
                     if (scenario === 'file-error') assert.deepEqual(fs.readFileSync(diagnostic), preserved);
+                    // 2026-10-22：错误绝对路径必须拒绝取证，且不能生成目标转储；原持有者仍负责目标退出。
+                    if (scenario === 'identity-error') { assert.match(records[0].Error, /Owned dump target identity changed/); assert.equal(fs.existsSync(diagnostic), false); }
                     if (scenario === 'collector-stall') {
                         assert.equal(records[0].TimedOut, true);
                         const elapsed = Number(result.stdout.match(/DUMP_ELAPSED:(\d+)/)?.[1]);
