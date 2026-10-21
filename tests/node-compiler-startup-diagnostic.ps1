@@ -36,7 +36,14 @@ foreach($iteration in 1..$Repetitions){
                 $identity=[IO.File]::ReadAllText($identityFile,[Text.Encoding]::UTF8)|ConvertFrom-Json
                 $worker=Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$identity.workerPid)
                 if($null -eq $worker){[Threading.Thread]::Sleep(100);continue}
-                if($worker.ParentProcessId -ne $node.Id -or $identity.parentPid -ne $node.Id -or $worker.ExecutablePath -ine $nodePath){throw 'Owned test worker identity changed'}
+                if($worker.ParentProcessId -ne $node.Id -or $identity.parentPid -ne $node.Id -or $worker.ExecutablePath -ine $nodePath){
+                    # 2026-10-22：短命worker写完结果后PID可被复用；保留竞争现场且绝不操作新进程，最终仍严格检查原Node的退出码和结果。
+                    $finished=[IO.File]::Exists($resultFile)
+                    [IO.File]::WriteAllText((Join-Path $directory 'worker-identity-race.json'),([ordered]@{ExpectedRoot=$node.Id;ExpectedWorker=$identity.workerPid;ExpectedParent=$identity.parentPid;ExpectedImage=$nodePath;ActualPid=$worker.ProcessId;ActualParent=$worker.ParentProcessId;ActualImage=$worker.ExecutablePath;ResultPresent=$finished}|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+                    if(-not $finished){throw 'Owned test worker identity changed before result'}
+                    $observed=$true
+                    continue
+                }
                 $outputExe=[string]$identity.fixture
                 $children=@(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+[int]$identity.workerPid))
                 $matches=@($children|Where-Object{$_.ExecutablePath -ieq $CompilerPath -and ([string]$_.CommandLine).IndexOf($outputExe,[StringComparison]::OrdinalIgnoreCase) -ge 0})

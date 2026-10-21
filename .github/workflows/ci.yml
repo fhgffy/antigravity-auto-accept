@@ -71,14 +71,26 @@ jobs:
           $a = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$t, [ref]$e)
           if ($e.Count) { throw 'Host repeat diagnostic parse errors' }
           & $a.GetScriptBlock() -ExpectedMajor ${{ matrix.major }} -Engine '${{ matrix.executable }}' -Repetitions ${{ github.event.inputs.host_repetitions }}
+      # 2026-10-22：C盘失败二进制和D盘runner旁证先汇入同一独占根，避免上传器跨磁盘无法计算公共根。
+      - name: Stage owned startup evidence
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'AntigravityAA-startup-upload'
+          [void](New-Item -ItemType Directory -Path $stage -ErrorAction Stop)
+          $nodeEvidence = Join-Path $env:RUNNER_TEMP 'AntigravityAA-node-compiler-${{ matrix.major }}'
+          if (Test-Path -LiteralPath $nodeEvidence) { Copy-Item -LiteralPath $nodeEvidence -Destination $stage -Recurse -ErrorAction Stop }
+          $binaryRoot = Join-Path $env:LOCALAPPDATA 'Temp'
+          foreach ($binary in @(Get-ChildItem -LiteralPath $binaryRoot -Directory -Filter 'AntigravityAA-HostBinary-*')) {
+            if ($binary.Name -notmatch '^AntigravityAA-HostBinary-[a-f0-9]{32}$') { throw 'Unexpected owned diagnostic directory' }
+            Copy-Item -LiteralPath $binary.FullName -Destination $stage -Recurse -ErrorAction Stop
+          }
       - name: Preserve owned startup evidence
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
           name: host-startup-evidence-${{ github.run_id }}-${{ matrix.image }}-${{ matrix.major }}
-          path: |
-            ~\AppData\Local\Temp\AntigravityAA-HostBinary-*\*
-            ${{ runner.temp }}/AntigravityAA-node-compiler-${{ matrix.major }}/**
+          path: ${{ runner.temp }}/AntigravityAA-startup-upload/
           if-no-files-found: warn
           retention-days: 14
 
