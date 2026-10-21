@@ -1,0 +1,562 @@
+{
+  "provenance": "derived-regression",
+  "basis": "Derived from narrow browser: replace More actions with Allow Once; wide native snapshot not yet captured.",
+  "card": "15",
+  "nodes": [
+    {
+      "key": "1",
+      "parent": null,
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "2",
+      "parent": "1",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "3",
+      "parent": "2",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "4",
+      "parent": "3",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "5",
+      "parent": "4",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "6",
+      "parent": "5",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "7",
+      "parent": "6",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "8",
+      "parent": "7",
+      "name": "",
+      "automationId": "",
+      "type": "Document",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "9",
+      "parent": "8",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "10",
+      "parent": "9",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "11",
+      "parent": "10",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "12",
+      "parent": "11",
+      "name": "Agent Conversation",
+      "automationId": "conversation",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "13",
+      "parent": "12",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "14",
+      "parent": "13",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "15",
+      "parent": "14",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "16",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "17",
+      "parent": "16",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "18",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "19",
+      "parent": "18",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "20",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "21",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "22",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "23",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "24",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "25",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "26",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "27",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "28",
+      "parent": "27",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "29",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "30",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "31",
+      "parent": "30",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "32",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "33",
+      "parent": "32",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "34",
+      "parent": "32",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "35",
+      "parent": "32",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "36",
+      "parent": "32",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "37",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "38",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "39",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "40",
+      "parent": "39",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "41",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "42",
+      "parent": "41",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "43",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "44",
+      "parent": "43",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "45",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "46",
+      "parent": "45",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "47",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "48",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "49",
+      "parent": "15",
+      "name": "Agent needs permission to act on fixture.example",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "50",
+      "parent": "15",
+      "name": "Configure",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "51",
+      "parent": "15",
+      "name": "Deny",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "52",
+      "parent": "15",
+      "name": "Always Allow",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "53",
+      "parent": "15",
+      "name": "Allow Once",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "54",
+      "parent": "53",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": true,
+      "value": null
+    },
+    {
+      "key": "55",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    }
+  ],
+  "expected": {
+    "terminal": false,
+    "browser": true,
+    "generic": []
+  }
+}

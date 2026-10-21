@@ -10,6 +10,8 @@ $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens
 if ($parseErrors.Count -gt 0) { throw 'Scanner parse errors' }
 $parentFunction = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-ParentAlive' }, $true))
 if ($parentFunction.Count -ne 1) { throw 'Parent lifecycle function not found' }
+$windowFunction = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ScannerWindows' }, $true)) # 2026-10-21：保留真实窗口入口，仅由原空树隔离桌面。
+if ($windowFunction.Count -ne 1) { throw 'Window lifecycle function not found' }
 $tailIndex = $source.IndexOf('$script:parentProcess = $null', [StringComparison]::Ordinal)
 if ($tailIndex -lt 0) { throw 'Scanner lifecycle entry not found' }
 $engines = @($PowerShellEngines | ForEach-Object { (Get-Command $_ -ErrorAction Stop).Source } | Select-Object -Unique)
@@ -85,7 +87,9 @@ for ($round = 1; $round -le $Rounds; $round++) {
     $common = '$ProgressPreference = ''SilentlyContinue''; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $PollMs = 25; $CooldownMs = 0; '
     # 2026-10-07：窗口 PID 查询前已有窗口枚举；只加载枚举类型并提供空树，不能靠空进程图跳过桌面入口。
     $common += $parentFunction[0].Extent.Text + [Environment]::NewLine
+    $common += $windowFunction[0].Extent.Text + [Environment]::NewLine # 2026-10-21：并发子进程执行同一入口。
     $common += @'
+$initializeAutomation = {} # 2026-10-21：并发回放保留真实尾段和互斥，初始化由完整入口回归覆盖。
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 function Get-TargetProcessIds([int]$ProcessId) { return @{} }
 $automation = [pscustomobject]@{}

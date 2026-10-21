@@ -28,6 +28,19 @@ publish 作业只接受本仓库 main 的 push，依赖 package 成功。PR、fo
 
 仓库或受控环境可配置 VSCE_PAT 与 OVSX_PAT。工作流不创建PAT、不复制网页登录状态、不自动注册OIDC。凭据只传给对应商店步骤，不放入命令行或公开查询的认证头。
 
+### 维护者一次性配置（2026-10-21）
+
+本仓库当前读取仓库级 Secrets，已有发布者和 namespace 都是 `fhgffy`，无需重新注册账号、namespace 或接受发布协议。网页登录只供手工上传，不能替代 CI 凭据。
+
+1. 由发布者本人准备对应商店的有效发布凭据。Marketplace 当前的 PAT 路径要求 Azure DevOps 中选择 `All accessible organizations` 和 `Marketplace (Manage)`，账号必须能管理已有发布者；仅有其他 Azure 组织权限的令牌不足以发布。Open VSX 使用本人账号的 Access Tokens，先确认账号有 `fhgffy` namespace 发布权。不要把值发到聊天、issue、命令参数或仓库文件。
+2. 打开[本仓库 Actions Secrets](https://github.com/fhgffy/antigravity-auto-accept/settings/secrets/actions)，依次选择 **New repository secret**，分别保存为 `VSCE_PAT` 和 `OVSX_PAT`。值只在 GitHub 的 Secret 输入框中填写；已存在时使用 Update。当前工作流没有关联 GitHub Environment，因此仅配置环境级 Secrets 不会使该作业获得值。[GitHub 官方步骤](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)
+3. 保持现有 CI 权限和分支规则。后续一个正常运行补丁合并到 main 且测试、打包通过后，publish 作业会使用 GitHub Release 的原包依次核对和发布两个商店。手动 workflow_dispatch 用于测试，不会触发发布。没有用户可感知的运行变更时，不为验证凭据创建空版本。
+4. 在该 main 运行的 summary 中检查两个商店的公开核验结果；`credential not configured`、`uploaded-pending` 和审核中均不是公开成功。若发布阶段失败，保留原运行和原资产，修正本人凭据后重跑同一提交的失败作业；先查精确公开版本，不能重新打包覆盖。
+
+以上 PAT 方式只是当前工作流的过渡接入。微软已公告全局 Azure DevOps PAT 将于 **2026-12-01** 退役，长期发布需由维护者配置 Microsoft Entra ID 身份并另行验证工作流；不要把 Secrets 配置当作长期身份迁移完成。[Marketplace 官方身份与范围说明](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
+
+Open VSX 令牌的官方入口为头像 → Settings → Access Tokens，令牌值关闭后不再显示；由本人保存到相应 Secret 即可。本轮不代建或读取任何凭据，也不修改 namespace 的 Trusted Publishing 配置。[Open VSX 官方说明](https://github.com/eclipse-openvsx/openvsx/wiki/Publishing-Extensions)
+
 Marketplace 使用固定版本 @vscode/vsce 4.0.0 的 publish --packagePath；Open VSX 使用 ovsx 1.2.0 的 publish 文件位置参数。两者直接发布已验证的现成 VSIX，不增加版本或重新打包。
 
 缺少凭据时，summary 明确记录 not published / credential not configured；GitHub Release 可以完成，但双商店仍未发布。有凭据时两个商店独立尝试，任一实际失败最终使发布作业失败。

@@ -8,6 +8,8 @@ param(
     [switch]$SelfTest
 )
 
+# 2026-10-21：等待者仅解析初始化块，拿到原全局互斥后才编译和加载 UIA；异常仍由原 finally 释放锁。
+$initializeAutomation = {
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -546,6 +548,161 @@ namespace AntigravityUia
             ReleaseOwned(owned);
         }
     }
+    // 2026-10-21：缓存仅用于发现候选，不保留 live 元素或动作模式，实际批准继续走原 WPF 实时核验。
+    [ComImport, Guid("b32a92b5-bc25-4078-9c08-d7ee95c48e03"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IUIAutomationCacheRequest
+    {
+        [PreserveSig] int AddProperty(int propertyId);
+        [PreserveSig] int AddPattern(int patternId);
+        [PreserveSig] int Clone(out IntPtr request);
+        [PreserveSig] int get_TreeScope(out TreeScope scope);
+        [PreserveSig] int put_TreeScope(TreeScope scope);
+        [PreserveSig] int get_TreeFilter(out IUIAutomationCondition filter);
+        [PreserveSig] int put_TreeFilter(IUIAutomationCondition filter);
+        [PreserveSig] int get_AutomationElementMode(out int mode);
+        [PreserveSig] int put_AutomationElementMode(int mode);
+    }
+    public sealed class DiscoverySnapshot
+    {
+        public string[] ButtonNames;
+        public bool HasRadio;
+    }
+    // 2026-10-21：顶层只保留句柄和进程元数据；卡片属性和动作对象继续使用原实时 UIA 路径。
+    public sealed class WindowSnapshot
+    {
+        public long Handle;
+        public int ProcessId;
+    }
+    public sealed class DiscoveryClient : IDisposable
+    {
+        private delegate bool WindowCallback(IntPtr hwnd, IntPtr parameter);
+        [DllImport("user32.dll", SetLastError = true)] private static extern bool EnumWindows(WindowCallback callback, IntPtr parameter);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hwnd);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder name, int capacity);
+        [DllImport("user32.dll", SetLastError = true)] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+        private IUIAutomation2 client;
+        private IUIAutomationCondition control, condition;
+        private IUIAutomationCacheRequest cache;
+        private IntPtr cachePointer;
+        public DiscoveryClient(string[] candidateTexts)
+        {
+            if (candidateTexts == null || candidateTexts.Length == 0) { throw new ArgumentException("Missing discovery text hints", "candidateTexts"); }
+            try
+            {
+                client = (IUIAutomation2)new CUIAutomation8();
+                Marshal.ThrowExceptionForHR(client.put_AutoSetFocus(false));
+                IUIAutomationCondition button = null, radio = null, combined = null, names = null, namedButtons = null;
+                var nameParts = new System.Collections.Generic.List<object>();
+                try
+                {
+                    Marshal.ThrowExceptionForHR(client.CreatePropertyCondition(30003, 50000, out button));
+                    Marshal.ThrowExceptionForHR(client.CreatePropertyCondition(30003, 50013, out radio));
+                    // 2026-10-21：仅按原前缀作宽松包含筛选，不在此批准或判断父链；精确判定仍由原函数执行。
+                    foreach (string text in candidateTexts)
+                    {
+                        if (String.IsNullOrWhiteSpace(text)) { throw new ArgumentException("Empty discovery text hint", "candidateTexts"); }
+                        IUIAutomationCondition part;
+                        Marshal.ThrowExceptionForHR(client.CreatePropertyConditionEx(30005, text, PropertyConditionFlags.IgnoreCase | PropertyConditionFlags.MatchSubstring, out part));
+                        nameParts.Add(part);
+                    }
+                    Marshal.ThrowExceptionForHR(client.CreateOrConditionFromArray(nameParts.ToArray(), out names));
+                    Marshal.ThrowExceptionForHR(client.CreateAndCondition(button, names, out namedButtons));
+                    Marshal.ThrowExceptionForHR(client.CreateOrCondition(namedButtons, radio, out combined));
+                    Marshal.ThrowExceptionForHR(client.get_ControlViewCondition(out control));
+                    Marshal.ThrowExceptionForHR(client.CreateAndCondition(combined, control, out condition));
+                }
+                finally
+                {
+                    BackgroundClient.ReleaseOwned(combined);
+                    BackgroundClient.ReleaseOwned(namedButtons);
+                    BackgroundClient.ReleaseOwned(names);
+                    foreach (object part in nameParts) { BackgroundClient.ReleaseOwned(part); }
+                    BackgroundClient.ReleaseOwned(radio);
+                    BackgroundClient.ReleaseOwned(button);
+                }
+                Marshal.ThrowExceptionForHR(client.CreateCacheRequest(out cachePointer));
+                cache = (IUIAutomationCacheRequest)Marshal.GetObjectForIUnknown(cachePointer);
+                Marshal.ThrowExceptionForHR(cache.AddProperty(30003));
+                Marshal.ThrowExceptionForHR(cache.AddProperty(30005));
+                Marshal.ThrowExceptionForHR(cache.put_TreeScope(TreeScope.Element));
+                // 2026-10-21：RawView 实测多出 Restore；对齐原 ControlView，并只保留缓存属性。
+                Marshal.ThrowExceptionForHR(cache.put_TreeFilter(control));
+                Marshal.ThrowExceptionForHR(cache.put_AutomationElementMode(0));
+            }
+            catch { Dispose(); throw; }
+        }
+        // 2026-10-21：只读顶层元数据，最小化仍是可见窗口；枚举中任一身份读取失败都拒绝将快照当成完整关闭证据。
+        public WindowSnapshot[] Windows()
+        {
+            if (client == null) { throw new ObjectDisposedException("DiscoveryClient"); }
+            var windows = new System.Collections.Generic.List<WindowSnapshot>();
+            var name = new System.Text.StringBuilder(256);
+            bool failed = false;
+            WindowCallback callback = delegate(IntPtr hwnd, IntPtr parameter)
+            {
+                if (!IsWindowVisible(hwnd)) { return true; }
+                name.Clear();
+                if (GetClassName(hwnd, name, name.Capacity) == 0) { failed = true; return false; }
+                if (name.ToString() != "Chrome_WidgetWin_1") { return true; }
+                uint processId;
+                if (GetWindowThreadProcessId(hwnd, out processId) == 0 || processId == 0) { failed = true; return false; }
+                windows.Add(new WindowSnapshot { Handle = hwnd.ToInt64(), ProcessId = checked((int)processId) });
+                return true;
+            };
+            bool complete = EnumWindows(callback, IntPtr.Zero);
+            GC.KeepAlive(callback);
+            if (!complete || failed) { throw new InvalidOperationException("Top-level window snapshot incomplete"); }
+            return windows.ToArray();
+        }
+        public DiscoverySnapshot Read(IntPtr hwnd)
+        {
+            if (client == null) { throw new ObjectDisposedException("DiscoveryClient"); }
+            if (hwnd == IntPtr.Zero) { throw new ArgumentException("Missing window handle", "hwnd"); }
+            IUIAutomationElement root = null;
+            IUIAutomationElementArray found = null;
+            try
+            {
+                Marshal.ThrowExceptionForHR(client.ElementFromHandle(hwnd, out root));
+                Marshal.ThrowExceptionForHR(root.FindAllBuildCache(TreeScope.Descendants, condition, cachePointer, out found));
+                int count;
+                Marshal.ThrowExceptionForHR(found.get_Length(out count));
+                var names = new System.Collections.Generic.List<string>(count);
+                bool hasRadio = false;
+                for (int index = 0; index < count; index++)
+                {
+                    IUIAutomationElement element = null;
+                    try
+                    {
+                        Marshal.ThrowExceptionForHR(found.GetElement(index, out element));
+                        int type;
+                        Marshal.ThrowExceptionForHR(element.get_CachedControlType(out type));
+                        if (type == 50013) { hasRadio = true; }
+                        else if (type == 50000)
+                        {
+                            string name;
+                            Marshal.ThrowExceptionForHR(element.get_CachedName(out name));
+                            names.Add(name);
+                        }
+                    }
+                    finally { BackgroundClient.ReleaseOwned(element); }
+                }
+                return new DiscoverySnapshot { ButtonNames = names.ToArray(), HasRadio = hasRadio };
+            }
+            finally
+            {
+                BackgroundClient.ReleaseOwned(found);
+                BackgroundClient.ReleaseOwned(root);
+            }
+        }
+        public void Dispose()
+        {
+            BackgroundClient.ReleaseOwned(cache); cache = null;
+            if (cachePointer != IntPtr.Zero) { Marshal.Release(cachePointer); cachePointer = IntPtr.Zero; }
+            BackgroundClient.ReleaseOwned(condition); condition = null;
+            BackgroundClient.ReleaseOwned(control); control = null;
+            BackgroundClient.ReleaseOwned(client); client = null;
+        }
+    }
     public sealed class BackgroundInvoke : IDisposable
     {
         private IUIAutomationLegacyIAccessiblePattern pattern;
@@ -650,6 +807,56 @@ function Test-ButtonMatch([string]$Name) {
     return $false
 }
 
+# 2026-10-21：缓存只裁剪无候选的查询；不按可见性或父链提前过滤，保留滚动审批和会话外终端卡。
+function Get-DiscoveryFlags($Snapshot) {
+    if ($null -eq $Snapshot -or $null -eq $Snapshot.ButtonNames -or $null -eq $Snapshot.HasRadio) { throw 'Incomplete discovery snapshot' }
+    $browser = $false
+    $generic = $false
+    foreach ($name in $Snapshot.ButtonNames) {
+        if ($name -in @('Allow Once', 'More actions')) { $browser = $true }
+        if (Test-ButtonMatch $name) { $generic = $true }
+    }
+    return [pscustomobject]@{ Browser = $browser; Terminal = [bool]$Snapshot.HasRadio; Generic = $generic }
+}
+
+# 2026-10-21：只缓存窗口根对象，每轮重读句柄和 PID；关闭、替换及失效时重新绑定，不缓存卡片或动作属性。
+function Get-ScannerWindows {
+    if ($null -eq $script:discoveryClient) { return $automation.FindAll([System.Windows.Automation.TreeScope]::Children, $winCondition) }
+    try {
+        $snapshots = @($script:discoveryClient.Windows())
+        $nextRoots = @{}
+        $liveWindows = [Collections.Generic.List[object]]::new()
+        foreach ($snapshot in $snapshots) {
+            if ($null -eq $snapshot.Handle -or [long]$snapshot.Handle -eq 0 -or $null -eq $snapshot.ProcessId -or [int]$snapshot.ProcessId -le 0) { throw 'Window snapshot identity unavailable' }
+            $handle = [long]$snapshot.Handle
+            $key = $handle.ToString([Globalization.CultureInfo]::InvariantCulture)
+            if ($nextRoots.ContainsKey($key)) { throw 'Duplicate window snapshot identity' }
+            $element = $null
+            if ($null -ne $script:windowRoots -and $script:windowRoots.ContainsKey($key)) {
+                try {
+                    $cached = $script:windowRoots[$key]
+                    $current = $cached.Current
+                    if ($null -ne $current -and $null -ne $current.NativeWindowHandle -and $null -ne $current.ProcessId -and [long]$current.NativeWindowHandle -eq $handle -and [int]$current.ProcessId -eq [int]$snapshot.ProcessId) { $element = $cached }
+                }
+                catch { }
+            }
+            if ($null -eq $element) {
+                $element = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$handle)
+                $current = $element.Current
+                if ($null -eq $current -or $null -eq $current.NativeWindowHandle -or $null -eq $current.ProcessId -or [long]$current.NativeWindowHandle -ne $handle -or [int]$current.ProcessId -ne [int]$snapshot.ProcessId) { throw 'Live window binding changed' }
+            }
+            $nextRoots[$key] = $element
+            $liveWindows.Add($element)
+        }
+        $script:windowRoots = $nextRoots
+        return $liveWindows.ToArray()
+    }
+    catch {
+        Write-ApprovalDiagnostic "window discovery failed type=$($_.Exception.GetType().Name)" 'window-discovery-error'
+        return $automation.FindAll([System.Windows.Automation.TreeScope]::Children, $winCondition)
+    }
+}
+
 # 2026-10-05：按完整可执行文件路径锁定窗口，独立运行兼容新旧 Antigravity 进程名。
 function Test-HostProcessPath([string]$ExecutablePath, [string]$ExpectedPath) {
     if ([string]::IsNullOrWhiteSpace($ExecutablePath)) { return $false }
@@ -684,17 +891,6 @@ function Get-ButtonCenter($Rectangle) {
     if ([double]::IsNaN($x) -or [double]::IsInfinity($x) -or [double]::IsNaN($y) -or [double]::IsInfinity($y)) { return $null }
     if ($x -lt [int]::MinValue -or $x -gt [int]::MaxValue -or $y -lt [int]::MinValue -or $y -gt [int]::MaxValue) { return $null }
     return @{ X = [int]$x; Y = [int]$y }
-}
-
-# 2026-10-05：保留启动时的父进程对象，宿主退出后等待者及扫描者均退出。
-function Test-ParentAlive {
-    if ($ParentProcessId -eq 0) { return $true }
-    if ($null -eq $script:parentProcess) { return $false }
-    try {
-        $script:parentProcess.Refresh()
-        return -not $script:parentProcess.HasExited
-    }
-    catch { return $false }
 }
 
 # 2026-10-05：仅允许明确的本次审批，始终允许和拒绝选项不参与自动选择。
@@ -1348,7 +1544,27 @@ function Invoke-SelfTest {
     exit 0
 }
 
+# 2026-10-21：原生缓存不可用时保留原 live 扫描，不能因性能优化取消已有审批能力。
+if (-not $SelfTest) {
+    try { $script:discoveryClient = [AntigravityUia.DiscoveryClient]::new([string[]](@($targetPrefixes) + @('More actions'))) }
+    catch { Write-ApprovalDiagnostic "discovery initialization failed type=$($_.Exception.GetType().Name)" 'discovery-error' }
+}
+
+}
+
+# 2026-10-05：保留启动时的父进程对象，宿主退出后等待者及扫描者均退出。
+function Test-ParentAlive {
+    if ($ParentProcessId -eq 0) { return $true }
+    if ($null -eq $script:parentProcess) { return $false }
+    try {
+        $script:parentProcess.Refresh()
+        return -not $script:parentProcess.HasExited
+    }
+    catch { return $false }
+}
+
 if ($SelfTest) {
+    . $initializeAutomation # 2026-10-21：自测仍初始化所需类型，保留纯判定和原完成协议。
     Invoke-SelfTest
 }
 
@@ -1358,12 +1574,14 @@ $restoreCursorEnabled = $RestoreCursor -notmatch '^(false|0|no)$'
 # 2026-07-28 多个 Antigravity 窗口只允许一个全局扫描器，避免重复点击同一权限按钮
 # 2026-10-05：等待现有扫描器释放后接管，父宿主退出时释放互斥并结束子进程。
 $script:backgroundClient = $null # 2026-10-07：客户端仅在实际准备审批时创建。
+$script:discoveryClient = $null # 2026-10-21：等待者不创建缓存客户端，接管后由初始化块创建。
+$script:windowRoots = @{} # 2026-10-21：仅在完整成功的窗口快照后替换根缓存。
 $script:parentProcess = $null
 if ($ParentProcessId -gt 0) {
-    try { $script:parentProcess = Get-Process -Id $ParentProcessId -ErrorAction Stop }
+    try { $script:parentProcess = [Diagnostics.Process]::GetProcessById($ParentProcessId) } # 2026-10-21：冷等待不为单个父进程加载整个管理模块。
     catch { exit 0 }
 }
-$scannerMutex = New-Object System.Threading.Mutex($false, 'Local\AntigravityAutoAcceptScanner')
+$scannerMutex = [Threading.Mutex]::new($false, 'Local\AntigravityAutoAcceptScanner') # 2026-10-21：构造等待锁不自动导入工具模块。
 $mutexOwned = $false
 $waitingReported = $false
 try {
@@ -1375,10 +1593,11 @@ try {
                 [Console]::WriteLine('___SCANNER_WAITING___')
                 $waitingReported = $true
             }
-            Start-Sleep -Milliseconds $PollMs
+            [Threading.Thread]::Sleep($PollMs) # 2026-10-21：保持原轮询间隔，等待接管前不加载休眠命令所属模块。
         }
     }
     if (-not $mutexOwned -or -not (Test-ParentAlive)) { exit 0 }
+    . $initializeAutomation # 2026-10-21：初始化完成后才报告 READY，初始化失败同样释放已持有的互斥。
     [Console]::WriteLine('___AUTOCLICK_READY___')
     $lastClickTime = [DateTime]::MinValue
     $lastServedWindowHandle = [IntPtr]::Zero # 2026-10-07：最终批准尝试后从下一窗口开始，持续审批的首窗不能饿死其余窗口。
@@ -1393,7 +1612,7 @@ try {
         $recycleDue = $scannerLifetime.Elapsed.TotalMinutes -ge 15 # 2026-10-20：到期后先核对待续办菜单，不能丢失原归属。
 
         try {
-            $windows = @($automation.FindAll([System.Windows.Automation.TreeScope]::Children, $winCondition))
+            $windows = @(Get-ScannerWindows) # 2026-10-21：顶层元数据与实时根复核替代每轮托管 FindAll；失败仍走原路径。
             # 2026-10-20：完整窗口身份快照确认窗口关闭后才丢弃菜单记录，读取失败保留续办归属。
             if ($null -ne $script:deferredBrowserMenus) {
                 $liveMenuWindowKeys = @{}
@@ -1452,21 +1671,29 @@ try {
                     $windowHandle = [IntPtr]$win.Current.NativeWindowHandle
                     if ($windowHandle -eq [IntPtr]::Zero) { continue }
 
+                    # 2026-10-21：每窗一次只读批量快照；失败保留原三条发现路径，命中后继续原实时身份和输入复核。
+                    $discovery = [pscustomobject]@{ Browser = $true; Terminal = $true; Generic = $true }
+                    if ($null -ne $script:discoveryClient) {
+                        try { $discovery = Get-DiscoveryFlags ($script:discoveryClient.Read($windowHandle)) }
+                        catch { Write-ApprovalDiagnostic "discovery read failed type=$($_.Exception.GetType().Name)" 'discovery-error' }
+                    }
+
                     # 2026-10-05：新版本次审批卡片优先处理，完成后统一进入原点击冷却。
                     # 2026-10-06：浏览器域名卡片使用同卡片本次允许，窄栏菜单不能交给普通按钮匹配。
-                    if (Invoke-BrowserPermissionCards $win $windowProcessId $windowHandle) {
+                    if ($discovery.Browser -and (Invoke-BrowserPermissionCards $win $windowProcessId $windowHandle)) {
                         $didClick = $true
                         $lastClickTime = [DateTime]::Now
                         $lastServedWindowHandle = $windowHandle # 2026-10-07：两类卡片均参与窗口轮转。
                         break
                     }
-                    if (Invoke-ApprovalCards $win $windowProcessId $windowHandle) {
+                    if ($discovery.Terminal -and (Invoke-ApprovalCards $win $windowProcessId $windowHandle)) {
                         $didClick = $true
                         $lastClickTime = [DateTime]::Now
                         $lastServedWindowHandle = $windowHandle # 2026-10-07：终端提交尝试后优先服务其它窗口。
                         break
                     }
 
+                    if (-not $discovery.Generic) { continue } # 2026-10-21：没有通用候选时不再重复全树查询按钮。
                     $buttons = $win.FindAll([System.Windows.Automation.TreeScope]::Descendants, $btnCondition)
                     foreach ($btn in $buttons) {
                         if ($didClick) { break }
@@ -1567,6 +1794,8 @@ try {
 # 2026-10-05：正常退出和异常退出均释放已持有的单实例锁，等待者可继续接管。
 finally {
     if ($null -ne $script:backgroundClient) { $script:backgroundClient.Dispose(); $script:backgroundClient = $null } # 2026-10-07
+    if ($null -ne $script:discoveryClient) { $script:discoveryClient.Dispose(); $script:discoveryClient = $null } # 2026-10-21：释放缓存客户端后交接原锁。
+    $script:windowRoots = @{} # 2026-10-21：交接时不保留已关闭或旧提供者的根引用。
     if ($mutexOwned) { $scannerMutex.ReleaseMutex() }
     $scannerMutex.Dispose()
     if ($null -ne $script:parentProcess) { $script:parentProcess.Dispose() }

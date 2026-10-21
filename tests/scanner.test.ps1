@@ -145,7 +145,7 @@ $checks++
 
 # 2026-10-05：执行实际卡片函数，只将外部 UIA 父节点查找替换成可控树，所有点击为计数桩。
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes # 2026-10-07：空树回放不会触发实际 UIA 对象的依赖加载。
-$testFunctions = @('Test-OneTimeApprovalName', 'Test-ApprovalCardShape', 'Test-ApprovalOptionSelected', 'Test-LiveApprovalCard', 'Write-ApprovalDiagnostic', 'Get-ApprovalEventContext', 'Invoke-ApprovalCards', 'Get-ButtonCenter', 'Test-ButtonMatch', 'Test-PrefixBoundary') # 2026-10-20
+$testFunctions = @('Test-OneTimeApprovalName', 'Test-ApprovalCardShape', 'Test-ApprovalOptionSelected', 'Test-LiveApprovalCard', 'Write-ApprovalDiagnostic', 'Get-ApprovalEventContext', 'Invoke-ApprovalCards', 'Get-ButtonCenter', 'Test-ButtonMatch', 'Test-PrefixBoundary', 'Get-ScannerWindows') # 2026-10-21：尾段仍执行真实窗口入口，空树只替换原生边界。
 foreach ($name in $testFunctions) {
     $definition = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     # 2026-10-20：只读旧源码回放允许缺少新增格式函数，仍须由真实旧成功事件触发归属断言红灯。
@@ -441,6 +441,7 @@ $tailIndex = $source.IndexOf('$script:parentProcess = $null', [StringComparison]
 if ($tailIndex -lt 0) { throw 'Mutex lifecycle entry not found' }
 $mutexName = 'Local\AntigravityAutoAcceptScanner.Test.' + [Guid]::NewGuid().ToString('N')
 $lifecycleSource = $source.Substring($tailIndex).Replace('Local\AntigravityAutoAcceptScanner', $mutexName)
+$initializeAutomation = {} # 2026-10-21：尾段回放提供现有空树；完整入口另有冷等待和编译失败回归。
 
 # 2026-10-05：执行实际扫描尾段，控件查找期间模拟父宿主退出，旧版 Run 的调用桩必须保持零次。
 $script:testParentAlive = $true
@@ -1443,7 +1444,9 @@ foreach ($mode in @('disconnected', 'com', 'argument')) {
 
 # 2026-10-07：生命周期子进程显式提供空窗口枚举，不能依赖旧的空进程图让扫描入口跳轮。
 $stub = $parentFunction[0].Extent.Text + [Environment]::NewLine
+$stub += (Get-Item Function:\Get-ScannerWindows).ScriptBlock.Ast.Parent.Extent.Text + [Environment]::NewLine # 2026-10-21：子进程加载同一真实窗口入口。
 $stub += @'
+$initializeAutomation = {} # 2026-10-21：并发子进程使用既有空树，不加载桌面根。
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 function Get-TargetProcessIds([int]$ProcessId) { return @{} }
 $automation = [pscustomobject]@{}
@@ -1512,4 +1515,24 @@ foreach ($path in @($scannerPath, $PSCommandPath)) {
     }
     $checks++
 }
+# 2026-10-21：两引擎 CI 和本地完整回归都执行完整冷启动入口，尾段空树桩不能掩盖提前编译或初始化锁泄漏。
+$startupTestPath = Join-Path $PSScriptRoot 'scanner-startup.test.ps1'
+$startupTestAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($startupTestPath,[Text.Encoding]::UTF8),$startupTestPath,[ref]$tokens,[ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Startup regression parse failed' }
+& $startupTestAst.GetScriptBlock() -PowerShellEngines $PowerShellEngines -ScannerSourcePath $scannerPath
+# 2026-10-21：同一 CI 引擎回放真实尾段的缓存裁剪和提供者失败回退，保留旧实时审批断言。
+$discoveryTestPath = Join-Path $PSScriptRoot 'scanner-discovery.test.ps1'
+$discoveryTestAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($discoveryTestPath,[Text.Encoding]::UTF8),$discoveryTestPath,[ref]$tokens,[ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Discovery regression parse failed' }
+& $discoveryTestAst.GetScriptBlock() -ScannerSourcePath $scannerPath
+# 2026-10-21：缓存窗口只复用实时根，独立覆盖替换、缺失、重复、不完整快照及原查询回退。
+$windowsTestPath = Join-Path $PSScriptRoot 'scanner-windows.test.ps1'
+$windowsTestAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($windowsTestPath,[Text.Encoding]::UTF8),$windowsTestPath,[ref]$tokens,[ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Window regression parse failed' }
+& $windowsTestAst.GetScriptBlock() -ScannerSourcePath $scannerPath
+# 2026-10-21：脱敏原生图与派生布局逐项核对原实时判定，缓存发现不能漏掉已有候选。
+$replayTestPath = Join-Path $PSScriptRoot 'scanner-replay.test.ps1'
+$replayTestAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($replayTestPath,[Text.Encoding]::UTF8),$replayTestPath,[ref]$tokens,[ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Replay regression parse failed' }
+& $replayTestAst.GetScriptBlock() -ScannerSourcePath $scannerPath
 Write-Output "___SCANNER_TEST_DONE___:passed=$checks"

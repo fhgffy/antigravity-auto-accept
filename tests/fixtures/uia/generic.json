@@ -1,0 +1,85 @@
+{
+  "provenance": "derived-regression",
+  "basis": "Literal approval and exclusion boundary labels; no claim of native capture.",
+  "card": null,
+  "nodes": [
+    {
+      "key": "1",
+      "parent": null,
+      "name": "Accept changes",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "2",
+      "parent": null,
+      "name": "Run",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "3",
+      "parent": null,
+      "name": "Run and Debug",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "4",
+      "parent": null,
+      "name": "Run Task",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "5",
+      "parent": null,
+      "name": "Allow Once",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "6",
+      "parent": null,
+      "name": "Cancel",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "7",
+      "parent": null,
+      "name": "Application",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    }
+  ],
+  "expected": {
+    "terminal": false,
+    "browser": false,
+    "generic": [
+      "1",
+      "2"
+    ]
+  }
+}
