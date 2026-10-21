@@ -16,7 +16,10 @@ public static class HostChildDiagnostics
         using (FileStream file = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read))
         {
             if (!MiniDumpWriteDump(process.Handle, (uint)process.Id, file.SafeFileHandle.DangerousGetHandle(), 0x1124, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero))
-                throw new Win32Exception(Marshal.GetLastWin32Error());
+            {
+                int error = Marshal.GetLastWin32Error();
+                throw new Win32Exception(error, "MiniDumpWriteDump failed error-code=" + error);
+            }
         }
     }
 }

@@ -378,6 +378,37 @@ finally { $current.Dispose() }
 Assert-Host ($null -eq [MouseHelper]::GetProcessImagePath(0)) 'real zero pid rejected'
 Assert-Host ($null -eq [MouseHelper]::GetProcessImagePath([uint32]4294967295)) 'real nonexistent pid rejected'
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'Cross-bitness test requires Windows x64' }
+# 2026-10-22：外部64位收集器只读取持有目标；固定五秒上限和独立回收，不能占满原45秒宿主截止时间。
+function Save-HostTimeoutDump {
+    param([Diagnostics.Process]$Target,[string]$ExpectedImage,[string]$DumpPath,[string]$CollectorEngine='')
+    $record=[ordered]@{Pid=$Target.Id;Path=$DumpPath;Written=$false;TimedOut=$false;Error='';CollectorPid=$null;CollectorExited=$false}
+    $collector=$null;$started=$false
+    try {
+        if([string]::IsNullOrWhiteSpace($CollectorEngine)){$CollectorEngine=Join-Path $env:ProgramW6432 'PowerShell\7\pwsh.exe'}
+        $source=Join-Path $PSScriptRoot 'fixtures\host-child-diagnostics.cs'
+        $command='$ErrorActionPreference=''Stop''; if([IntPtr]::Size -ne 8){throw ''Dump collector requires x64''}; $p=[Diagnostics.Process]::GetProcessById('+ $Target.Id +'); try { if($p.StartTime.ToUniversalTime().Ticks -ne '+$Target.StartTime.ToUniversalTime().Ticks+' -or -not [String]::Equals($p.MainModule.FileName,'''+$ExpectedImage.Replace("'","''")+''',[StringComparison]::OrdinalIgnoreCase)){throw ''Owned dump target identity changed''}; Add-Type -TypeDefinition ([IO.File]::ReadAllText('''+$source.Replace("'","''")+''',[Text.Encoding]::UTF8)); [HostChildDiagnostics]::Write($p,'''+$DumpPath.Replace("'","''")+'''); [Console]::WriteLine(''___HOST_DUMP_WRITTEN___'') } finally {$p.Dispose()}'
+        $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=$CollectorEngine
+        $start.Arguments='-NoProfile -NonInteractive -OutputFormat Text -EncodedCommand '+[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+        $collector=[Diagnostics.Process]::new();$collector.StartInfo=$start
+        if(-not $collector.Start()){throw 'Dump collector did not start'}
+        $started=$true;$record.CollectorPid=$collector.Id
+        $output=$collector.StandardOutput.ReadToEndAsync();$errors=$collector.StandardError.ReadToEndAsync()
+        if(-not $collector.WaitForExit(5000)){$record.TimedOut=$true;throw 'Dump collector deadline expired'}
+        if(-not $output.Wait(1000) -or -not $errors.Wait(1000)){throw 'Dump collector streams incomplete'}
+        $outText=$output.GetAwaiter().GetResult();$errText=$errors.GetAwaiter().GetResult()
+        if($collector.ExitCode -ne 0 -or $errText.Length -ne 0 -or $outText.Trim() -cne '___HOST_DUMP_WRITTEN___'){throw ('Dump collector failed: '+$errText.Trim())}
+        $record.Written=$true
+    } catch {$cause=$_.Exception.GetBaseException();$record.Error=$cause.GetType().FullName+':'+$cause.Message}
+    finally {
+        if($null -ne $collector){
+            if($started){try{if(-not $collector.get_HasExited()){$collector.Kill()};$record.CollectorExited=$collector.WaitForExit(1000)}catch{$record.Error+=';cleanup:'+ $_.Exception.GetType().FullName}}
+            try{$collector.Dispose()}catch{$record.Error+=';dispose:'+ $_.Exception.GetType().FullName}
+        }
+        try{[Console]::WriteLine('___HOST_CHILD_DUMP___:'+($record|ConvertTo-Json -Compress))}catch{}
+    }
+}
+
 <# 2026-10-09：进程身份断言使用最小明确架构 EXE；PowerShell 启动语义留在独立冻结诊断。 #>
 $compilerPath = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $fixtureSourcePath = Join-Path $PSScriptRoot 'fixtures\host-process-child.cs'
@@ -445,7 +476,12 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
             $compilerStarted = $true; $compilerPid = $compiler.Id
             $compileOut = $compiler.StandardOutput.ReadToEndAsync()
             $compileError = $compiler.StandardError.ReadToEndAsync()
-            if (-not $compiler.WaitForExit(10000)) { throw 'Owned child compile timeout' }
+            if (-not $compiler.WaitForExit(10000)) {
+                # 2026-10-22：编译器同样保留活实例转储，仍抛原十秒编译超时，不延长成功截止时间。
+                $ownedDiagnosticPath = [IO.Path]::Combine($ownedBinaryDirectory, 'compiler-timeout.dmp')
+                Save-HostTimeoutDump $compiler $compilerPath $ownedDiagnosticPath
+                throw 'Owned child compile timeout'
+            }
             if ($compiler.ExitCode -ne 0 -or $compileOut.GetAwaiter().GetResult().Length -ne 0 -or $compileError.GetAwaiter().GetResult().Length -ne 0) { throw 'Owned child compile failed' }
         } finally {
             # 2026-10-09：清理旁证不覆盖原编译异常；无法确认退出时保留自有目录。
@@ -469,18 +505,11 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
             try { $exitedBeforeStop = $child.get_HasExited() } catch { $processQueryError = $_.Exception.GetType().FullName }
             $readyState = $pendingReady.Status.ToString()
             $errorState = $pendingError.Status.ToString()
-            # 2026-10-22：原十秒 READY 已失败，先从外部只读采集本次持有的活子进程；诊断异常不能覆盖原超时。
-            $dump = [ordered]@{ Pid = $ownedChildId; Path = ''; Written = $false; Error = '' }
+            # 2026-10-22：原十秒 READY 已失败，独立有界收集器退出后仍按原路径停止目标并抛超时。
             if ($exitedBeforeStop -eq $false) {
                 $ownedDiagnosticPath = [IO.Path]::Combine($ownedBinaryDirectory, 'ready-timeout.dmp')
-                $dump.Path = $ownedDiagnosticPath
-                try {
-                    Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $PSScriptRoot 'fixtures\host-child-diagnostics.cs'), [Text.Encoding]::UTF8))
-                    [HostChildDiagnostics]::Write($child, $ownedDiagnosticPath)
-                    $dump.Written = $true
-                } catch { $dump.Error = $_.Exception.GetType().FullName }
+                Save-HostTimeoutDump $child $fixture.Expected $ownedDiagnosticPath
             }
-            try { [Console]::WriteLine('___HOST_CHILD_DUMP___:' + ($dump | ConvertTo-Json -Compress)) } catch { }
             try { if ($exitedBeforeStop -ne $true) { $child.Kill() } } catch { $stopError = $_.Exception.GetType().FullName }
             try { if ($exitedBeforeStop -ne $true) { $exitWaitCompleted = $child.WaitForExit(5000) } } catch { $stopError = $_.Exception.GetType().FullName }
             try { $hasExitedAfterStop = $child.get_HasExited() } catch { $processQueryError = $_.Exception.GetType().FullName }

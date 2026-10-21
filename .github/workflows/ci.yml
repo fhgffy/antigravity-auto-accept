@@ -20,6 +20,45 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }} # 2026-10-07：主分支发布串行完成，避免下一次提交中断已开始的上传。
 
 jobs:
+  host-startup-diagnostic:
+    # 2026-10-22：启动停滞诊断独立于常规回归，不能计为两引擎完整连绿。
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.host_repetitions != '1'
+    name: Host startup diagnostic (${{ matrix.major }})
+    runs-on: windows-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - major: 5
+            shell: powershell
+            executable: powershell.exe
+          - major: 7
+            shell: pwsh
+            executable: pwsh.exe
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Strict owned compiler and child startup sequence
+        run: |
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/repeat-host-diagnostic.ps1'))
+          $t = $null; $e = $null
+          $a = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$t, [ref]$e)
+          if ($e.Count) { throw 'Host repeat diagnostic parse errors' }
+          & $a.GetScriptBlock() -ExpectedMajor ${{ matrix.major }} -Engine '${{ matrix.executable }}' -Repetitions ${{ github.event.inputs.host_repetitions }}
+      - name: Preserve owned startup stall
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: host-startup-stall-${{ github.run_id }}-${{ matrix.major }}
+          path: ~\AppData\Local\Temp\AntigravityAA-HostBinary-*\*
+          if-no-files-found: warn
+          retention-days: 14
+
   test:
     name: Test (${{ matrix.label }})
     runs-on: windows-latest
@@ -91,19 +130,7 @@ jobs:
           if ($PSVersionTable.PSVersion.Major -eq 5) {
             $hostEngines += Join-Path $env:WINDIR 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
           }
-          # 2026-10-22：手动诊断逐次执行完整原测试，第一次失败即停止；不续期、跳过或重试失败。
-          $hostRepetitions = if ('${{ github.event.inputs.host_repetitions }}' -eq '') { 1 } else { [int]'${{ github.event.inputs.host_repetitions }}' }
-          if ($hostRepetitions -notin @(1, 10, 20)) { throw 'Unexpected host repetition count' }
-          if ($hostRepetitions -eq 1) { & ($testAst.GetScriptBlock()) -PowerShellEngines $hostEngines }
-          # 2026-10-22：原包装器 exit 0 会结束调用引擎，诊断循环用独立外层引擎保留每次退出码。
-          $hostEngineExpression = '@(' + (($hostEngines | ForEach-Object { "'" + $_.Replace("'", "''") + "'" }) -join ',') + ')'
-          $hostCommand = '$ErrorActionPreference=''Stop''; $p=''' + $path.Replace("'", "''") + '''; $t=$null; $e=$null; $a=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($p,[Text.Encoding]::UTF8),$p,[ref]$t,[ref]$e); if($e.Count){throw ''Host diagnostic parse errors''}; & $a.GetScriptBlock() -PowerShellEngines ' + $hostEngineExpression
-          $hostEncodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($hostCommand))
-          foreach ($hostIteration in 1..$hostRepetitions) {
-            Write-Output "HOST_IDENTITY_REPETITION:$hostIteration/$hostRepetitions"
-            & '${{ matrix.executable }}' -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand $hostEncodedCommand
-            if ($LASTEXITCODE -ne 0) { throw "Host identity repetition $hostIteration failed: exit=$LASTEXITCODE" }
-          }
+          & ($testAst.GetScriptBlock()) -PowerShellEngines $hostEngines
       # 2026-10-07：直接回放生产物理方法，系统输入边界用内存替身，CI 不点击桌面。
       - name: Mouse input interference without desktop clicks
         run: |
