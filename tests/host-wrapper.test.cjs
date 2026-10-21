@@ -20,8 +20,16 @@ before(() => {
     const compiler = path.join(process.env.WINDIR, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe');
     const result = spawnSync(compiler, ['/nologo', '/target:exe', '/codepage:65001', '/platform:anycpu', '/out:' + fixture,
         path.join(__dirname, 'fixtures/host-wrapper-output.cs')], { encoding: 'utf8', windowsHide: true, timeout: 15000 });
-    assert.ifError(result.error);
-    assert.equal(result.status, 0, result.stdout + result.stderr);
+    try {
+        assert.ifError(result.error);
+        assert.equal(result.status, 0, result.stdout + result.stderr);
+    } catch (error) {
+        // 2026-10-22：首次编译失败保留原两流与退出字段，不能被后续清理抹掉现场。
+        keepArtifacts = true;
+        fs.writeFileSync(path.join(owned, 'compiler-failure.json'), JSON.stringify({ status: result.status, signal: result.signal,
+            error: result.error ? { code: result.error.code, message: result.error.message } : null, stdout: result.stdout, stderr: result.stderr }));
+        throw error;
+    }
 });
 
 after(() => {
@@ -259,54 +267,76 @@ for (const [index, engine] of engines.entries()) {
     }
 }
 
-// 2026-10-22：从真实宿主测试抽取有界收集器；覆盖32位调用者、重复文件失败及收集器停滞，目标始终由原持有者收尾。
+// 2026-10-22：三种诊断各用独立目标和原25秒上限，避免三次5秒收集器叠加耗尽同一个外层截止时间。
 const diagnosticEngines = [...new Set([...engines, path.join(process.env.WINDIR, 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe')])];
 for (const [index, engine] of diagnosticEngines.entries()) {
-    test(engine + ': bounded x64 minidump retains target on failure and stalled collector', () => {
-        const quote = value => "'" + value.replace(/'/g, "''") + "'";
-        const diagnostic = path.join(owned, 'diagnostic-' + index + '.dmp');
-        const pidFile = path.join(owned, 'diagnostic-' + index + '.pid');
-        const collectorPidFile = path.join(owned, 'collector-' + index + '.pid');
-        pidFiles.push(pidFile, collectorPidFile); selfTestFiles.push(diagnostic);
-        const hostPath = path.join(__dirname, 'host-process.test.ps1');
-        const command = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); "
-            + "$hostPath=" + quote(hostPath) + ";$t=$null;$e=$null;$a=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($hostPath,[Text.Encoding]::UTF8),$hostPath,[ref]$t,[ref]$e);"
-            + "$f=@($a.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Save-HostTimeoutDump'},$true));if($f.Count -ne 1){throw 'Dump function missing'};"
-            + "$a=[Management.Automation.Language.Parser]::ParseInput($f[0].Extent.Text,$hostPath,[ref]$t,[ref]$e);if($e.Count){throw 'Dump function parse failed'};. ($a.GetScriptBlock());"
-            + "$start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=" + quote(fixture) + ";$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true;"
-            + "$child=[Diagnostics.Process]::new();$child.StartInfo=$start;try{[void]$child.Start();$out=$child.StandardOutput.ReadLineAsync();$err=$child.StandardError.ReadToEndAsync();if(-not $out.Wait(5000)){throw 'Owned diagnostic child start timeout'};"
-            + "Save-HostTimeoutDump $child " + quote(fixture) + " " + quote(diagnostic) + ";if($child.HasExited){throw 'Diagnostic ended live child'};"
-            + "Save-HostTimeoutDump $child " + quote(fixture) + " " + quote(diagnostic) + ";if($child.HasExited){throw 'Diagnostic failure ended live child'};"
-            + "$env:AAA_HOST_WRAPPER_PIDFILE=" + quote(collectorPidFile) + ";$clock=[Diagnostics.Stopwatch]::StartNew();Save-HostTimeoutDump $child " + quote(fixture) + " " + quote(diagnostic + '-stall') + " -CollectorEngine " + quote(fixture) + ";$clock.Stop();[Console]::WriteLine('DUMP_STALL_ELAPSED:'+$clock.ElapsedMilliseconds);"
-            + "if($child.HasExited){throw 'Stalled collector ended live target'};[Console]::WriteLine('DUMP_TARGET_ALIVE')"
-            + "}finally{if(-not $child.HasExited){$child.Kill()};if(-not $child.WaitForExit(5000)){throw 'Owned diagnostic child exit unconfirmed'};$child.Dispose()}";
-        const result = spawnSync(engine, ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
-            cwd: root, encoding: 'utf8', windowsHide: true, timeout: 25000,
-            env: { ...process.env, AAA_HOST_WRAPPER_CASE: 'timeout', AAA_HOST_WRAPPER_PIDFILE: pidFile }
-        });
-        try {
-            assert.ifError(result.error);
-            assert.equal(result.status, 0, result.stderr);
-            assert.match(result.stdout, /DUMP_TARGET_ALIVE/);
-            const records = result.stdout.split(/\r?\n/).filter(line => line.startsWith('___HOST_CHILD_DUMP___:')).map(line => JSON.parse(line.slice('___HOST_CHILD_DUMP___:'.length)));
-            assert.equal(records.length, 3);
-            assert.equal(records[0].Written, true, records[0].Error);
-            assert.equal(records[1].Written, false);
-            assert.ok(records[1].Error.length > 0);
-            assert.equal(records[2].Written, false);
-            assert.equal(records[2].TimedOut, true);
-            assert.ok(records.every(record => record.CollectorExited));
-            const elapsed = Number(result.stdout.match(/DUMP_STALL_ELAPSED:(\d+)/)?.[1]);
-            assert.ok(elapsed >= 4900 && elapsed < 8000, 'fixed collector deadline and bounded stop: ' + elapsed);
-            const dump = fs.readFileSync(diagnostic);
-            assert.equal(dump.toString('ascii', 0, 4), 'MDMP');
-            assert.ok(dump.readUInt32LE(8) > 0);
-            for (const file of [pidFile, collectorPidFile]) assert.throws(() => process.kill(Number(fs.readFileSync(file, 'utf8')), 0), { code: 'ESRCH' });
-        } catch (error) {
-            for (const file of [pidFile, collectorPidFile]) {
-                try { stopOwnedFixture(file); } catch (cleanupError) { keepArtifacts = true; console.error(cleanupError.message); }
+    for (const scenario of ['success', 'file-error', 'collector-stall']) {
+        test(engine + ': bounded x64 minidump ' + scenario + ' retains target', () => {
+            const quote = value => "'" + value.replace(/'/g, "''") + "'";
+            const stem = 'diagnostic-' + index + '-' + scenario;
+            const diagnostic = path.join(owned, stem + '.dmp');
+            const pidFile = path.join(owned, stem + '.pid');
+            const collectorPidFile = path.join(owned, stem + '-collector.pid');
+            pidFiles.push(pidFile);
+            if (scenario === 'collector-stall') pidFiles.push(collectorPidFile);
+            selfTestFiles.push(diagnostic);
+            const preserved = Buffer.from('existing-owned-dump-must-not-change');
+            if (scenario === 'file-error') fs.writeFileSync(diagnostic, preserved, { flag: 'wx' });
+            const hostPath = path.join(__dirname, 'host-process.test.ps1');
+            const command = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Console]::WriteLine('DUMP_DIAGNOSTIC_ENTERED'); "
+                + "$hostPath=" + quote(hostPath) + ";$t=$null;$e=$null;$a=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($hostPath,[Text.Encoding]::UTF8),$hostPath,[ref]$t,[ref]$e);"
+                + "$f=@($a.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Save-HostTimeoutDump'},$true));if($f.Count -ne 1){throw 'Dump function missing'};"
+                + "$a=[Management.Automation.Language.Parser]::ParseInput($f[0].Extent.Text,$hostPath,[ref]$t,[ref]$e);if($e.Count){throw 'Dump function parse failed'};. ($a.GetScriptBlock());"
+                + "$start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=" + quote(fixture) + ";$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true;"
+                + "$child=[Diagnostics.Process]::new();$child.StartInfo=$start;try{[void]$child.Start();$out=$child.StandardOutput.ReadLineAsync();$err=$child.StandardError.ReadToEndAsync();if(-not $out.Wait(5000)){throw 'Owned diagnostic child start timeout'};"
+                + "[Console]::WriteLine('DUMP_DIAGNOSTIC_CHILD_READY');$clock=[Diagnostics.Stopwatch]::StartNew();"
+                + (scenario === 'collector-stall' ? "$env:AAA_HOST_WRAPPER_PIDFILE=" + quote(collectorPidFile) + ";" : "")
+                + "Save-HostTimeoutDump $child " + quote(fixture) + " " + quote(diagnostic)
+                + (scenario === 'collector-stall' ? " -CollectorEngine " + quote(fixture) : "") + ";"
+                + "$clock.Stop();[Console]::WriteLine('DUMP_ELAPSED:'+$clock.ElapsedMilliseconds);"
+                + "if($child.HasExited){throw 'Diagnostic ended live target'};[Console]::WriteLine('DUMP_TARGET_ALIVE')"
+                + "}finally{if(-not $child.HasExited){$child.Kill()};if(-not $child.WaitForExit(5000)){throw 'Owned diagnostic child exit unconfirmed'};$child.Dispose()}";
+            const started = Date.now();
+            const result = spawnSync(engine, ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
+                cwd: root, encoding: 'utf8', windowsHide: true, timeout: 25000,
+                env: { ...process.env, AAA_HOST_WRAPPER_CASE: 'timeout', AAA_HOST_WRAPPER_PIDFILE: pidFile }
+            });
+            try {
+                assert.ifError(result.error);
+                assert.equal(result.status, 0, result.stderr);
+                assert.match(result.stdout, /DUMP_TARGET_ALIVE/);
+                const records = result.stdout.split(/\r?\n/).filter(line => line.startsWith('___HOST_CHILD_DUMP___:')).map(line => JSON.parse(line.slice('___HOST_CHILD_DUMP___:'.length)));
+                assert.equal(records.length, 1);
+                assert.equal(records[0].CollectorExited, true);
+                if (scenario === 'success') {
+                    assert.equal(records[0].Written, true, records[0].Error);
+                    const dump = fs.readFileSync(diagnostic);
+                    assert.equal(dump.toString('ascii', 0, 4), 'MDMP');
+                    assert.ok(dump.readUInt32LE(8) > 0);
+                } else {
+                    assert.equal(records[0].Written, false);
+                    assert.ok(records[0].Error.length > 0);
+                    if (scenario === 'file-error') assert.deepEqual(fs.readFileSync(diagnostic), preserved);
+                    if (scenario === 'collector-stall') {
+                        assert.equal(records[0].TimedOut, true);
+                        const elapsed = Number(result.stdout.match(/DUMP_ELAPSED:(\d+)/)?.[1]);
+                        assert.ok(elapsed >= 4900 && elapsed < 8000, 'fixed collector deadline and bounded stop: ' + elapsed);
+                    }
+                }
+                for (const file of scenario === 'collector-stall' ? [pidFile, collectorPidFile] : [pidFile]) {
+                    assert.throws(() => process.kill(Number(fs.readFileSync(file, 'utf8')), 0), { code: 'ESRCH' });
+                }
+            } catch (error) {
+                // 2026-10-22：保留本例原两流、失败及耗时，仍抛原断言；精确回收本例目标与模拟收集器。
+                keepArtifacts = true;
+                fs.writeFileSync(path.join(owned, stem + '-failure.json'), JSON.stringify({ elapsedMs: Date.now() - started,
+                    status: result.status, signal: result.signal, error: result.error ? { code: result.error.code, message: result.error.message } : null,
+                    stdout: result.stdout, stderr: result.stderr }));
+                for (const file of [pidFile, collectorPidFile]) {
+                    try { stopOwnedFixture(file); } catch (cleanupError) { console.error(cleanupError.message); }
+                }
+                throw error;
             }
-            throw error;
-        }
-    });
+        });
+    }
 }
