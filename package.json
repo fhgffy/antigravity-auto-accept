@@ -92,6 +92,11 @@
           "type": "boolean",
           "default": false,
           "description": "Show VS Code notifications when the scanner is started, stopped, toggled, or restarted."
+        },
+        "antigravityAutoAccept.allowBackground": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow auto-accepting approvals even when Antigravity IDE is in the background or multitasking."
         }
       }
     }

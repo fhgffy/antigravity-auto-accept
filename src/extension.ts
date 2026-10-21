@@ -26,6 +26,7 @@ interface AutoAcceptConfig {
     cooldownMs: number;
     restoreCursor: boolean;
     showNotifications: boolean;
+    allowBackground: boolean;
 }
 
 function log(emoji: string, message: string) {
@@ -96,7 +97,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (!event.affectsConfiguration('antigravityAutoAccept')) { return; }
         updateStatusBar();
         /* 2026-10-07：展示和下次激活选项不影响当前扫描，只有运行参数变化才重启。 */
-        if (isEnabled && ['pollMs', 'cooldownMs', 'restoreCursor'].some(key =>
+        if (isEnabled && ['pollMs', 'cooldownMs', 'restoreCursor', 'allowBackground'].some(key =>
             event.affectsConfiguration(`antigravityAutoAccept.${key}`))) {
             restartAutoClicker('settings changed');
         }
@@ -154,12 +155,13 @@ function startAutoClicker() {
     }
 
     log('🔄', `Starting UIAutomation scanner: ${scriptPath}`);
-    log('⚙️', `Settings: poll=${config.pollMs}ms, cooldown=${config.cooldownMs}ms, restoreCursor=${config.restoreCursor}`);
+    log('⚙️', `Settings: poll=${config.pollMs}ms, cooldown=${config.cooldownMs}ms, restoreCursor=${config.restoreCursor}, allowBackground=${config.allowBackground}`);
 
     /* 2026-10-05：Windows PowerShell 5 显式按 UTF-8 加载中文规则，并把安装路径作为字面量传递。 */
     const scannerCommand = `$ProgressPreference = 'SilentlyContinue'; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); `
         + `& ([scriptblock]::Create([IO.File]::ReadAllText('${scriptPath.replace(/'/g, "''")}', [Text.Encoding]::UTF8))) `
         + `-PollMs ${config.pollMs} -CooldownMs ${config.cooldownMs} -RestoreCursor '${config.restoreCursor}' `
+        + `-AllowBackground '${config.allowBackground}' `
         + `-ParentProcessId ${process.pid} -HostExecutablePath '${process.execPath.replace(/'/g, "''")}'`;
     let scannerProcess: child_process.ChildProcess;
     try {
@@ -354,6 +356,7 @@ function getConfig(): AutoAcceptConfig {
         cooldownMs: clamp(config.get<number>('cooldownMs', 1500), 300, 10000),
         restoreCursor: config.get<boolean>('restoreCursor', true),
         showNotifications: config.get<boolean>('showNotifications', false),
+        allowBackground: config.get<boolean>('allowBackground', true),
     };
 }
 
