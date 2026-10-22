@@ -203,6 +203,20 @@ PSModulePath 另作单变量 Node 桥接对照：继承 PS7 环境的 WinPS 选�
 
 完整本地npm session42180 exit0，19份被测源在全程无变化；56publication/38lifecycle/57host-wrapper，mouse每引擎198，concurrency22，固定项目工具VSIX8项通过。首次窄审无确认P0–P3，没有修复复审循环。证据selftest-compiler-boundary-final-local-validation.json、selftest-no-compiler-red/green.log、selftest-native-ownership-mutations-v2/summary.json及work/selftest-compiler-boundary-first-review.md。带仪器矩阵不计C连绿；新普通CI及修复后二十次无仪器完整两引擎/包验收仍待执行。此项只改变自测依赖，不单独发版，继续并入本轮5.3.13。
 
+### 2026-10-22：x86真实启动与编译器默认引用的原生IO证据
+
+【已跑验证】d2e46f2原push39783885342和两lint成功，原PR39783891700的WinPS x86取证success用例25秒失败，所有原纯规则SelfTest均成功；七份执行日志及原包12428960423已核SHA/CRC和路径。错误回执diagnostic-1-success-failure.json为25056ms、两流全空，无入口标记，不将其它成功DMP当本例现场。原失败保留，未开始无仪器C20。
+
+唯一新原生诊断39785205874同源d2e46f2原attempt1失败。最终Jobs REST修正聚合视图尾部仍显示一个in_progress的延迟：53执行job为43成功/10失败，矩阵11/20完整成功；53原日志均核SHA。全部带仪器样本不计C，原63个可能执行核心中的依赖包正常跳过。各故障区分原生转储、PSRP读栈、共享映像清理、csc编译与x86启动，不能归为同一种插件逻辑错误。
+
+sample12实际失败x86 PID5484/parent10036/UniqueProcessKey18446647368447771520从13:23:14.2682972Z运行24953.48ms，首个x86诊断命令前缀、父进程、次序及失败JSON联合核对；ETW命令后缀截断只解完整base64组，没有补造完整源码。原ETL761266176字节、SHA73aae86772164c63aa18ed22d4b1bbe64a79a623889264555c5f3087fe10c95d，EventsLost0。官方严格栈根/线程5264/原25秒窗口：CPU821.96ms、硬缺页13036.95ms、disk9959.72ms；CLR8.937秒、mscorlib3.608秒、SMA2.166秒文件等待，主要WofCompressedData。符号栈为CLR EEStartup/native-image binding→NTFS读取，尚未进入用户脚本；不是根据后置校准或PSRP线程推测。
+
+sample8的实际collector5300在原5秒内，主线程7004 CPU171.08ms、硬缺页2850.40ms、disk1956.06ms。栈在原HostChildDiagnostics.Write→PInvoke→dbgcore读取目标模块，secondary暂停只发生在原5秒之后，分析窗口已裁剪，不混计后续暂停。该原因仍须单独处理，不能由改变转储标志或延长期限冒充修复。
+
+sample13原编译进程748/parent9104/TID8364在14957.37ms被原owner结束，CPU250.64ms、disk9744.31ms、硬缺页4858.79ms；读取无关Forms/Data/Web等Framework程序集。原CSC.RSP默认引用整套程序集已由微软文档及实际本机文件核对，新增#41。最小候选只在五处实际/镜像编译调用增加/noconfig和/reference:System.dll，源、平台、10/15秒期限与输出断言不变；不预先运行x86、不修改Windows安装/配置。
+
+【已读源码、已跑验证】回归在F独占目录复制未修改的微软编译器及所需资源，自己的csc.rsp注入缺失无关引用，调用真实prepare脚本。先红CS0006，再两架构真实编译成功并查PE机器类型，响应文件原样；只白名单清理文件/空目录。私人原型首次缺cscui.dll并非有效红例，补复制实际编译器语言资源后才建立控制，失败保留。完整npm session81623 exit0、21源全程不变，repository4/publication56/lifecycle38/host57、mouse每引擎198、concurrency22、VSIX8通过；首次窄审无确认P0–P3，无修复复审。compiler-references-final-local-validation.json及work/compiler-reference-first-review.md。本轮纯测试编译修复不单独发版。x86系统冷IO和其它独立诊断超时仍未修复，接下来须在同源/同期限下比较实际托管映像，不能未经对照就换runner或预热掩盖。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。

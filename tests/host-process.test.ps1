@@ -523,7 +523,7 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
         $ownedBinaryDirectoryCreated = $true
         $compileStart = New-Object Diagnostics.ProcessStartInfo
         $compileStart.FileName = $compilerPath
-        $compileStart.Arguments = '/nologo /target:exe /codepage:65001 /platform:' + $fixture.Platform + ' /out:"' + $fixture.Engine + '" "' + $fixtureSourcePath + '"'
+        $compileStart.Arguments = '/nologo /noconfig /reference:System.dll /target:exe /codepage:65001 /platform:' + $fixture.Platform + ' /out:"' + $fixture.Engine + '" "' + $fixtureSourcePath + '"' # 2026-10-22：只引用夹具所需System，原源和平台不变。
         $compileStart.UseShellExecute = $false
         $compileStart.CreateNoWindow = $true
         $compileStart.RedirectStandardOutput = $true

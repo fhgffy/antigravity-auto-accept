@@ -13,7 +13,8 @@ const executable = path.join(directory, 'host-dump-collector.exe');
 const compiler = path.join(process.env.WINDIR, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe');
 const sources = ['host-child-diagnostics.cs', 'host-dump-collector.cs'].map(name => path.join(__dirname, 'fixtures', name));
 const sourceHashes = Object.fromEntries(sources.map(file => [path.basename(file), crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex')]));
-const result = spawnSync(compiler, ['/nologo', '/target:exe', '/codepage:65001', '/platform:' + platform, ...(platform === 'x86' ? ['/define:OWNED_X86_COLLECTOR'] : []), '/out:' + executable, ...sources],
+// 2026-10-22：禁用引用全部Framework的默认响应文件；两个原生工具源只需mscorlib和System。
+const result = spawnSync(compiler, ['/nologo', '/noconfig', '/reference:System.dll', '/target:exe', '/codepage:65001', '/platform:' + platform, ...(platform === 'x86' ? ['/define:OWNED_X86_COLLECTOR'] : []), '/out:' + executable, ...sources],
     { encoding: 'utf8', windowsHide: true, timeout: 15000 });
 const record = { compiler, sources: sourceHashes, platform, path: executable, status: result.status, signal: result.signal,
     error: result.error ? { code: result.error.code, message: result.error.message } : null, stdout: result.stdout, stderr: result.stderr };

@@ -17,7 +17,8 @@ fs.renameSync(process.env.AAA_COMPILER_IDENTITY + '.tmp', process.env.AAA_COMPIL
 let result;
 before(() => {
     const begin = Date.now();
-    result = spawnSync(args.compiler, ['/nologo', '/target:exe', '/codepage:65001', '/platform:anycpu',
+    // 2026-10-22：诊断探针复用实际构建的精确引用边界，原十五秒期限不变。
+    result = spawnSync(args.compiler, ['/nologo', '/noconfig', '/reference:System.dll', '/target:exe', '/codepage:65001', '/platform:anycpu',
         '/out:' + fixture, args.source], { encoding: 'utf8', windowsHide: true, timeout: 15000 });
     fs.writeFileSync(process.env.AAA_COMPILER_RESULT, JSON.stringify({
         nodePid: process.pid, elapsedMs: Date.now() - begin, status: result.status, signal: result.signal,

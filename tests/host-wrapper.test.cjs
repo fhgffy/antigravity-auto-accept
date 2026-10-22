@@ -19,13 +19,14 @@ const engines = process.env.HOST_WRAPPER_ENGINE ? [process.env.HOST_WRAPPER_ENGI
 
 before(() => {
     const compiler = path.join(process.env.WINDIR, 'Microsoft.NET/Framework64/v4.0.30319/csc.exe');
-    const result = spawnSync(compiler, ['/nologo', '/target:exe', '/codepage:65001', '/platform:anycpu', '/out:' + fixture,
+    // 2026-10-22：夹具与收集器只引用实际所需程序集，避免默认CSC.RSP读取整套Framework。
+    const result = spawnSync(compiler, ['/nologo', '/noconfig', '/reference:System.dll', '/target:exe', '/codepage:65001', '/platform:anycpu', '/out:' + fixture,
         path.join(__dirname, 'fixtures/host-wrapper-output.cs')], { encoding: 'utf8', windowsHide: true, timeout: 15000 });
     let diagnosticBuild; // 2026-10-22：分别保留两次编译的原两流与返回字段。
     try {
         assert.ifError(result.error);
         assert.equal(result.status, 0, result.stdout + result.stderr);
-        diagnosticBuild = spawnSync(compiler, ['/nologo', '/target:exe', '/codepage:65001', '/platform:x64', '/out:' + diagnosticCollector,
+        diagnosticBuild = spawnSync(compiler, ['/nologo', '/noconfig', '/reference:System.dll', '/target:exe', '/codepage:65001', '/platform:x64', '/out:' + diagnosticCollector,
             path.join(__dirname, 'fixtures/host-child-diagnostics.cs'), path.join(__dirname, 'fixtures/host-dump-collector.cs')],
             { encoding: 'utf8', windowsHide: true, timeout: 15000 });
         assert.ifError(diagnosticBuild.error);
