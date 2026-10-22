@@ -217,6 +217,14 @@ sample13原编译进程748/parent9104/TID8364在14957.37ms被原owner结束，CP
 
 【已读源码、已跑验证】回归在F独占目录复制未修改的微软编译器及所需资源，自己的csc.rsp注入缺失无关引用，调用真实prepare脚本。先红CS0006，再两架构真实编译成功并查PE机器类型，响应文件原样；只白名单清理文件/空目录。私人原型首次缺cscui.dll并非有效红例，补复制实际编译器语言资源后才建立控制，失败保留。完整npm session81623 exit0、21源全程不变，repository4/publication56/lifecycle38/host57、mouse每引擎198、concurrency22、VSIX8通过；首次窄审无确认P0–P3，无修复复审。compiler-references-final-local-validation.json及work/compiler-reference-first-review.md。本轮纯测试编译修复不单独发版。x86系统冷IO和其它独立诊断超时仍未修复，接下来须在同源/同期限下比较实际托管映像，不能未经对照就换runner或预热掩盖。
 
+### 2026-10-22：默认关闭的同源托管映像对照入口
+
+【已跑验证】99bd18f原push39795513208的WinPS x86同一25秒前置失败，原PR39795520020和两lint成功；七份原日志与12433522211原失败包（SHAddc7880486c8e2c6ed063d6ba6e228a73c5a99a3fc695085eb5e8bbea4f26068）已核对，全部未重跑。GitHub14:18官方Actions Results事故使状态/步骤结果延迟，14:35仍调查中；原运行保留到终态，不将延迟归因本地卡死或取消重派。此前39785205874的52诊断产物/42ETL现全部核SHA/CRC，三次下载尾部TLS EOF改原文件续读取回，仅恢复读取、不重跑CI，所有ETL报告0lost。
+
+候选只新增windows_2022默认false布尔输入：手动入口/共享core对齐，validation仅手动事件透传，stability也透传；两个core作业只在固定windows-latest/windows-2022之间选择。false展开后的两个完整YAML语义等同99bd18f，所有原实际步骤正文/期限/发布和运行源码不变。不是直接将正常CI切到2022，也没有新增预热步骤。实际云端对照必须同时读回Operating System及Image版本，不能只信请求label。
+
+静态门先红后绿、actionlint1.7.12成功、首次窄审无确认P0–P3。完整npm session46322 exit0、21源全程不变，repository4/publication56/lifecycle38/host57，mouse每引擎198、concurrency22、VSIX8；hosted-image-option-final-local-validation.json及work/hosted-image-option-first-review.md。云端2022对照尚未运行，不宣称该映像解决IO或C20。原99bd四CI均已终态才允许推送新候选，避免取消未完成结果；下一步仅显式单次原生诊断对照，不计完整连绿。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。

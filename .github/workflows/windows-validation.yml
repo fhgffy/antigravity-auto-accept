@@ -12,6 +12,10 @@ on:
       native_startup_trace:
         type: boolean
         default: false
+      # 2026-10-22：显式布尔选择只映射两个托管标签，禁止任意runner字符串；步骤与期限不变。
+      windows_2022:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,7 +23,7 @@ permissions:
 jobs:
   test:
     name: Test (${{ matrix.label }})
-    runs-on: windows-latest
+    runs-on: ${{ inputs.windows_2022 && 'windows-2022' || 'windows-latest' }}
     timeout-minutes: 15
     # 2026-10-07：作业默认值支持矩阵上下文，步骤 shell 字段不能直接使用矩阵表达式。
     defaults:
@@ -194,7 +198,7 @@ jobs:
   package:
     name: Verified VSIX
     needs: test
-    runs-on: windows-latest
+    runs-on: ${{ inputs.windows_2022 && 'windows-2022' || 'windows-latest' }}
     timeout-minutes: 15
     steps:
       # 2026-10-07：采用官方 Node 24 运行时 Actions，测试项目仍使用 Node 22。

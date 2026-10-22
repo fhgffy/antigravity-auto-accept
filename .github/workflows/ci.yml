@@ -21,6 +21,11 @@ on:
         description: 'Record native startup scheduling and I/O on hosted Windows; diagnosis only'
         type: boolean
         default: false
+      # 2026-10-22：只为同源映像对照显式选择2022；普通push/PR仍使用原latest。
+      windows_2022:
+        description: 'Use hosted Windows 2022 for a same-source image comparison; default keeps latest'
+        type: boolean
+        default: false
       # 2026-10-22：复用main已有手动入口，分支合并前也能执行完整二十组，而非先发布新工作流。
       complete_stability:
         description: 'Run 20 complete two-engine and verified-package samples; no publication'
@@ -346,6 +351,7 @@ jobs:
     uses: ./.github/workflows/windows-validation.yml
     with:
       native_startup_trace: ${{ github.event_name == 'workflow_dispatch' && inputs.native_startup_trace }}
+      windows_2022: ${{ github.event_name == 'workflow_dispatch' && inputs.windows_2022 }}
 
   # 2026-10-22：仅显式手动选项运行完整矩阵，普通push/PR不增加负担，不接收发布凭据。
   stability:
@@ -361,6 +367,7 @@ jobs:
     with:
       artifact_suffix: -stability-${{ matrix.iteration }}
       native_startup_trace: ${{ inputs.native_startup_trace }}
+      windows_2022: ${{ inputs.windows_2022 }}
 
   # 2026-10-07：只发布本仓库主分支同次绿色构建的原包，分支和 PR 不取得发布入口。
   publish:
