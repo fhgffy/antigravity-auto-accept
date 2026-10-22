@@ -187,6 +187,12 @@ PSModulePath 另作单变量 Node 桥接对照：继承 PS7 环境的 WinPS 选�
 
 两引擎假WPR依赖回放各七项、共14项成功，覆盖start/save/cancel错误、无意图、坏身份及拒绝非hosted；这些是假工具边界，不是原生ETW能力通过。首次独立审查发现P2：可选大ETL上传无独立预算且挡住原失败产物。边界检查先红后绿，修复为先上传原失败产物，再以一分钟上限上传ETL；新增四步均一分钟，原job十五分钟不变。原审查与一次修复保留在work/native-etw-first-review.md，无修复复审。静态actionlint、两引擎AST和剥离新增项后整个YAML等值检查通过；原始控制在native-etw-workflow-controls/summary.json，来源不变量在native-etw-original-core-invariance.json。完整npm/VSIX以本候选最终回执为准，尚不宣称云端已记录成功。
 
+【已跑验证】da62b56的四次普通push/PR/lint原始运行成功，八份执行日志归档ci-da62b56。新原生诊断唯一39767767716在两引擎及包三个原作业全绿，两边WPR起停/保存/上传都成功；这是带仪器样本，不计C。Go API读取ZIP首次HTTP2 EOF，换HTTP1取回第一包，但第二包仍EOF；保留全部不完整文件和错误，改原生curl用同一产物临时重定向URL续读，未读取账号令牌、未重派CI。两个原ZIP均与服务端SHA一致且CRC/成员安全检查通过；原ETL833617920/920649728字节，原日志/ZIP/映射在native-etw-cloud-39767767716。
+
+官方TraceEvent4.0.0离线解析两份ETL均EventsLost=0，包含CSwitch/ReadyThread/DiskIO/StackWalk/CLR。自有原45秒夹具PID2648/创建身份与父PID核对：wall45023.7764ms、主线程CPU27.7664ms，ExecutionDelay44978.7964ms，唤醒后0.0199ms调度；4374条栈按FrameCount逐帧核对、最大127帧。native-wait-control.json只证明已知控制可读，不是未知启动根因。首个通用PayloadNames解码只列前四IP，短于四帧还产生额外槽；已用专用InstructionPointer逐帧读取，旧不完整解码保留，失败校验及修正均记ledger。第二个校验原先误用枚举名DelayExecution，已按实际TraceEvent值ExecutionDelay严格核对，43秒控制阈值未改。
+
+【已读源码、已跑静态验证】下一轮将现有ETW开关透传到已有20组共享核心，仅显式开启时命名Native trace CI；关闭仍为Complete CI，所有原步骤、两引擎/包、产物隔离和期限不变。此轮只为覆盖实际偶发故障的前置和宿主现场，带仪器的全部样本不计无仪器二十连绿。透传检查先红后绿，首次窄审无确认P0–P3，105个可能产物名无冲突，无修复复审；work/native-etw-matrix-first-review.md。批量先解析进程/线程元数据和丢事件数，只对实际故障身份展开全量事件，避免复制数十份冗余JSON。新的完整本地测试/包以本候选最终回执为准。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。

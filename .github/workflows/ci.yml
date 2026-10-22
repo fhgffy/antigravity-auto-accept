@@ -349,7 +349,8 @@ jobs:
 
   # 2026-10-22：仅显式手动选项运行完整矩阵，普通push/PR不增加负担，不接收发布凭据。
   stability:
-    name: Complete CI ${{ matrix.iteration }}
+    # 2026-10-22：显式ETW矩阵仅作故障诊断，不计完整连绿；关闭仪器时保留原名称和核心步骤。
+    name: ${{ inputs.native_startup_trace && 'Native trace CI' || 'Complete CI' }} ${{ matrix.iteration }}
     if: github.event_name == 'workflow_dispatch' && inputs.complete_stability
     strategy:
       fail-fast: false
@@ -359,6 +360,7 @@ jobs:
     uses: ./.github/workflows/windows-validation.yml
     with:
       artifact_suffix: -stability-${{ matrix.iteration }}
+      native_startup_trace: ${{ inputs.native_startup_trace }}
 
   # 2026-10-07：只发布本仓库主分支同次绿色构建的原包，分支和 PR 不取得发布入口。
   publish:
