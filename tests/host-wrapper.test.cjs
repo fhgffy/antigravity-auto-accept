@@ -411,7 +411,7 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                     assert.ok(dump.readUInt32LE(8) > 0);
                     // 2026-10-22：必须区分身份核验、文件/句柄准备、原生调用返回与关闭完成，零字节不再被猜作具体阶段。
                     const phases = fs.readFileSync(diagnostic + '.phases.log', 'utf8').trim().split(/\r?\n/).map(line => line.split(' ')[1]);
-                    assert.deepEqual(phases, ['collector-entered', 'identity-verified', 'write-entered', 'file-opened', 'handles-ready', 'native-returned:0', 'complete']);
+                    assert.deepEqual(phases, ['collector-entered', 'identity-verified', 'write-entered', 'file-opened', 'handles-ready', 'dbghelp-load-entered', 'dbghelp-load-returned:0', 'dbghelp-export-entered', 'dbghelp-export-returned:0', 'native-returned:0', 'complete']);
                 } else {
                     assert.equal(records[0].Written, false);
                     assert.ok(records[0].Error.length > 0);

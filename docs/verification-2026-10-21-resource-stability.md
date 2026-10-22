@@ -122,6 +122,14 @@ e718587 的 push 39714938769、PR 39714943896 两次完整 Windows CI，以及�
 
 针对 #34 的原 SelfTest 停顿，在原 15 秒失败成立后、原持有者停止目标之前，复用有界只读栈工具，再执行原转储。其独立读栈进程至多等待 5 秒并单独收尾，原 SelfTest 循环及 15 秒判定逐字未变；取证失败仍不能遮盖原失败。两个引擎的新增断言先因缺少 selftest.callstack.json 失败，接入后均读到受控 Start-Sleep 60，原失败、MDMP、身份、两流和退出断言都通过，耗时约 18 秒，原 35 秒元测试外限保留。读栈启动失败与退出 1 的两项真实进程故障对照也保留有效 MDMP、活目标及最后原持有者退出确认，见 selftest-callstack-reader-faults；这是提高现场信息，并非原 SelfTest 根因已定位。 修后完整 npm test 通过（host-wrapper 48/48），7 个功能/运行文件起点哈希一致，正式测试 VSIX 八项、编码及函数边界检查通过；最终本地回执为 selftest-callstack-final-local-validation.json。
 
+5fa51f6 的 push 39722205571、PR 39722212147 均完整成功，两个独立 lint 也成功，原日志和元数据在 ci-5fa51f6。它们验证最新读栈接线在云端正常执行，未触发原 SelfTest 停滞，不作为根因修复证据。
+
+针对独立的 #36，在同一短命收集器中显式从 System32 加载 dbghelp.dll，再解析 MiniDumpWriteDump 导出，并分别记录进入/返回阶段；原 P/Invoke、0x1124 标志和五秒期限未变。六个正例先因缺少阶段失败，修后十一阶段全部符合；私有真实目标的缺库 126、缺导出 127 两例保留立即取得的原错误码、目标存活及最终原持有者退出。完整 npm test 再次通过（host-wrapper 48/48），测试前后九个功能/运行文件哈希一致。原日志为 dump-native-load-phases-red/green.log、dump-native-load-full-test.log，故障旁证为 work/dump-native-load-errors/summary.json。此改动用于缩小后续停顿边界，尚无原云端故障的加载/导出阶段，不能称为其修复。
+
+另一方法 WCT 已在自有互斥等待进程做实际控制：三种原样查询均只返回目标阻塞线程，没有识别已知互斥和所有者，故标记未验证、不接入 CI；没有调整权限。首次私有断言失败前未保存原返回节点，第二次已先保存原始 JSON 再判断，保留 KnownChain=false 和目标正常退出，见 wait-chain-controlled-proof-follow.json。不能将 API 返回成功当作已定位等待链。
+
+这批六文件新诊断做了一次独立首次窄审：未发现有依据的 P0–P3 新缺陷；另独立检查三个实际引擎的语法、六文件编码/换行、JSON 转义以及差异边界。该结论不覆盖旧运行优化、WCT、云端根因或整个分支的合并门槛，未追加修复复审。记录在 work/diagnostic-module-boundary-first-review.md。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。
