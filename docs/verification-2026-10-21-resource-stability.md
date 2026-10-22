@@ -179,6 +179,14 @@ PSModulePath 另作单变量 Node 桥接对照：继承 PS7 环境的 WinPS 选�
 
 【已跑验证】本轮完整npm通过publication56/lifecycle38/host-wrapper55、两引擎mouse各188、concurrency22；17份源码/配置哈希全程未变，VSIX八项通过。红绿、编码/CRLF、diff、原生primary Write/期限/运行字节不变的汇总为observer-confirmed-exit-final-local-validation.json。原前置lifecycle缺栈和真实原生收集器停滞仍未定位；不因诊断器修复宣称#33/#34/#36/#38消失。
 
+### 不连接目标远程会话的原生轨迹方法
+
+【已跑验证】d557fa8的四次普通push/PR/lint原运行全部成功，八份执行日志在ci-d557fa8；#40修复仍不表示未知启动根因解决。失败的后置5572控制原生转储已由x86 CDB/匹配4.8.9345 DAC读到线程0在WaitOne、ExecuteCommandAsyncHelper、ConsoleHost.DoRunspaceInitialization；另有AnalysisCacheData.Cleanup和PSRP协商线程。读栈进程在五秒截止，原实际Node已0；这只是校准初始化阶段旁证，且连接目标远程会话可能引入额外协商工作，不能反推原生命周期或collector等待原因。cloud-x86-failed-control-5572-analysis.json保留此边界。
+
+【已读源码、已跑验证】下一候选增加默认关闭native_startup_trace，仅显式手动运行传入共享核心，在GitHub临时WindowsVM记录GeneralProfile ETW，覆盖原前置和后续真实宿主；不连接目标PSRP，普通步骤主体/顺序/预算、稳定性样本和发布门保持不变。记录唯一实例意图后再启动，失败也按同一实例save/cancel，不作全局取消；原生工具使用[微软实例参数与skipPdbGen语义](https://learn.microsoft.com/en-us/windows-hardware/test/wpt/wpr-command-line-options#instancename)。本机非管理员，不提升权限、不录用户系统。已本机只读导出配置，确认CSwitch/ReadyThread/DiskIO及相应栈；实际ETL解析和丢事件核对须以云端原件为准，仪器样本不计C完整连绿。
+
+两引擎假WPR依赖回放各七项、共14项成功，覆盖start/save/cancel错误、无意图、坏身份及拒绝非hosted；这些是假工具边界，不是原生ETW能力通过。首次独立审查发现P2：可选大ETL上传无独立预算且挡住原失败产物。边界检查先红后绿，修复为先上传原失败产物，再以一分钟上限上传ETL；新增四步均一分钟，原job十五分钟不变。原审查与一次修复保留在work/native-etw-first-review.md，无修复复审。静态actionlint、两引擎AST和剥离新增项后整个YAML等值检查通过；原始控制在native-etw-workflow-controls/summary.json，来源不变量在native-etw-original-core-invariance.json。完整npm/VSIX以本候选最终回执为准，尚不宣称云端已记录成功。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。

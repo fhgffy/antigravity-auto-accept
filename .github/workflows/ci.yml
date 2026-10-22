@@ -16,6 +16,11 @@ on:
         description: 'Observe 20 unchanged lifecycle tests on fresh Windows jobs; diagnosis only'
         type: boolean
         default: false
+      # 2026-10-22：原生ETW覆盖原前置及宿主失败阶段，不连接目标PSRP，不计完整稳定性验收。
+      native_startup_trace:
+        description: 'Record native startup scheduling and I/O on hosted Windows; diagnosis only'
+        type: boolean
+        default: false
       # 2026-10-22：复用main已有手动入口，分支合并前也能执行完整二十组，而非先发布新工作流。
       complete_stability:
         description: 'Run 20 complete two-engine and verified-package samples; no publication'
@@ -339,6 +344,8 @@ jobs:
   validation:
     name: Validate Windows
     uses: ./.github/workflows/windows-validation.yml
+    with:
+      native_startup_trace: ${{ github.event_name == 'workflow_dispatch' && inputs.native_startup_trace }}
 
   # 2026-10-22：仅显式手动选项运行完整矩阵，普通push/PR不增加负担，不接收发布凭据。
   stability:

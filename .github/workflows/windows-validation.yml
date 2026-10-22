@@ -8,6 +8,10 @@ on:
         description: 'Optional sample suffix; empty preserves the normal release artifact name'
         type: string
         default: ''
+      # 2026-10-22：普通push/PR和稳定性样本默认不记录；仅显式手动诊断实例。
+      native_startup_trace:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -44,6 +48,22 @@ jobs:
         run: |
           if ($PSVersionTable.PSVersion.Major -ne ${{ matrix.major }}) { throw 'Unexpected PowerShell engine' }
           Write-Output "PowerShell=$($PSVersionTable.PSVersion) edition=$($PSVersionTable.PSEdition)"
+      # 2026-10-22：只在一次性云端VM记录系统ETW；先存唯一实例意图，启动失败后仍可精确收尾。
+      - name: Start native startup trace
+        if: inputs.native_startup_trace
+        timeout-minutes: 1
+        run: |
+          if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') { throw 'Native trace requires a disposable hosted VM' }
+          $root = Join-Path $env:RUNNER_TEMP 'AntigravityAA-ci-startup-trace'
+          if ([IO.Directory]::Exists($root)) { throw 'Preserve previous native trace evidence' }
+          [void][IO.Directory]::CreateDirectory((Join-Path $root 'raw'))
+          $instance = 'AAA-' + [Guid]::NewGuid().ToString('N')
+          [IO.File]::WriteAllText((Join-Path $root 'instance.txt'), $instance, [Text.UTF8Encoding]::new($false))
+          & "$env:WINDIR\System32\wpr.exe" -start GeneralProfile -filemode -recordtempto (Join-Path $root 'raw') -instancename $instance *> (Join-Path $root 'start.log')
+          $code = $LASTEXITCODE
+          Get-Content -LiteralPath (Join-Path $root 'start.log')
+          if ($code -ne 0) { throw "Native trace start failed: $code" }
+          [IO.File]::WriteAllText((Join-Path $root 'started.txt'), [DateTime]::UtcNow.ToString('o'), [Text.UTF8Encoding]::new($false))
       - name: Install locked dependencies
         run: npm ci
       - name: Compile and typecheck
@@ -115,6 +135,38 @@ jobs:
           if ($parseErrors.Count -gt 0) { throw 'Concurrency test parse errors' }
           & ($testAst.GetScriptBlock()) -PowerShellEngines @('${{ matrix.executable }}')
 
+      # 2026-10-22：原步骤失败也保存ETW，所有原命令/断言/截止不变；跳过额外NGen符号生成的停录成本。
+      - name: Save native startup trace
+        if: ${{ always() && inputs.native_startup_trace }}
+        timeout-minutes: 1
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'AntigravityAA-ci-startup-trace'
+          $identity = Join-Path $root 'instance.txt'
+          if (-not [IO.File]::Exists($identity)) { return }
+          $instance = [IO.File]::ReadAllText($identity)
+          if ($instance -cnotmatch '^AAA-[a-f0-9]{32}$') { throw 'Native trace instance identity invalid' }
+          & "$env:WINDIR\System32\wpr.exe" -status -instancename $instance *> (Join-Path $root 'status.log')
+          $trace = Join-Path $root 'startup.etl'
+          & "$env:WINDIR\System32\wpr.exe" -stop $trace -skipPdbGen -instancename $instance *> (Join-Path $root 'save.log')
+          $code = $LASTEXITCODE
+          Get-Content -LiteralPath (Join-Path $root 'save.log')
+          if ($code -ne 0) { throw "Native trace save failed: $code" }
+          if (-not [IO.File]::Exists($trace) -or ([IO.FileInfo]$trace).Length -le 0) { throw 'Native ETL absent or empty' }
+          [IO.File]::WriteAllText((Join-Path $root 'saved.txt'), [DateTime]::UtcNow.ToString('o'), [Text.UTF8Encoding]::new($false))
+      # 2026-10-22：仅撤销本作业预存的唯一实例，禁止全局cancel；原失败不会因收尾成功变绿。
+      - name: Clean up owned native trace instance
+        if: ${{ always() && inputs.native_startup_trace }}
+        timeout-minutes: 1
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'AntigravityAA-ci-startup-trace'
+          $identity = Join-Path $root 'instance.txt'
+          if (-not [IO.File]::Exists($identity) -or [IO.File]::Exists((Join-Path $root 'saved.txt'))) { return }
+          $instance = [IO.File]::ReadAllText($identity)
+          if ($instance -cnotmatch '^AAA-[a-f0-9]{32}$') { throw 'Native trace cleanup identity invalid' }
+          & "$env:WINDIR\System32\wpr.exe" -cancel -instancename $instance *> (Join-Path $root 'cancel.log')
+          $code = $LASTEXITCODE
+          [IO.File]::WriteAllText((Join-Path $root 'cancel-code.txt'), [string]$code, [Text.UTF8Encoding]::new($false))
+          if ($code -ne 0 -and [IO.File]::Exists((Join-Path $root 'started.txt'))) { throw "Owned native trace cleanup unconfirmed: $code" }
       # 2026-10-22：只上传本测试独占前缀的失败子进程二进制与转储，不收集用户进程或整个临时目录。
       - name: Preserve owned host child timeout diagnostics
         if: failure()
@@ -126,6 +178,16 @@ jobs:
             ~\AppData\Local\Temp\AntigravityAA-HostWrapper-*\*
             ~\AppData\Local\Temp\AntigravityAA-ScannerTimeout-*\*
             ~\AppData\Local\Temp\AntigravityAA-DumpCollector-*\*
+          if-no-files-found: warn
+          retention-days: 14
+      # 2026-10-22：先保留原失败产物，再以一分钟预算上传可选ETL，避免大诊断挡住原证据。
+      - name: Preserve native startup trace
+        timeout-minutes: 1
+        if: ${{ always() && inputs.native_startup_trace }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: native-startup-trace-${{ github.run_id }}-${{ matrix.major }}${{ inputs.artifact_suffix }}
+          path: ${{ runner.temp }}/AntigravityAA-ci-startup-trace/
           if-no-files-found: warn
           retention-days: 14
 
