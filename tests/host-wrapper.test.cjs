@@ -545,3 +545,30 @@ test('cleanup rejects a mismatched creation identity before stopping a live targ
     }
     if (failure) throw failure;
 });
+
+// 2026-10-22：CIM快照之后正常退出的自有候选不是观察器故障；真实旧调用必须先复现ArgumentException。
+for (const engine of engines) {
+    test(engine + ': observer handles a confirmed exited candidate and retains live lookup', () => {
+        const quote = value => "'" + value.replace(/'/g, "''") + "'";
+        const observer = path.join(__dirname, 'observe-host-wrapper-diagnostic.ps1');
+        const command = "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$p=" + quote(observer) + ";$t=$null;$e=$null;"
+            + "$a=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($p,[Text.Encoding]::UTF8),$p,[ref]$t,[ref]$e);"
+            + "$f=@($a.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Open-ObserverCandidateProcess'},$true));"
+            + "if($f.Count -eq 1){$a=[Management.Automation.Language.Parser]::ParseInput($f[0].Extent.Text,$p,[ref]$t,[ref]$e);. ($a.GetScriptBlock())}"
+            + "else{function Open-ObserverCandidateProcess([int]$CandidatePid){return [Diagnostics.Process]::GetProcessById($CandidatePid)}};"
+            + "$s=[Diagnostics.ProcessStartInfo]::new();$s.FileName=$env:ComSpec;$s.Arguments='/d /c exit 0';$s.UseShellExecute=$false;$s.CreateNoWindow=$true;"
+            + "$child=[Diagnostics.Process]::new();$child.StartInfo=$s;$started=$false;"
+            + "try{if(-not $child.Start()){throw 'Owned exit control start failed'};$started=$true;[void]$child.Handle;"
+            + "if(-not $child.WaitForExit(5000) -or $child.ExitCode -ne 0){throw 'Owned exit control not complete'};"
+            + "$live=Open-ObserverCandidateProcess $PID;try{if($null -eq $live -or $live.Id -ne $PID){throw 'Live lookup lost'}}finally{if($null -ne $live){$live.Dispose()}};"
+            + "$gone=Open-ObserverCandidateProcess $child.Id;if($null -ne $gone){$gone.Dispose();throw 'Exited lookup retained an unavailable candidate'};"
+            + "[Console]::WriteLine('OBSERVER_CONFIRMED_EXIT_RACE_HANDLED')}"
+            + "finally{if($started){if(-not $child.HasExited){$child.Kill()};if(-not $child.WaitForExit(1000)){throw 'Owned exit control cleanup unconfirmed'}};$child.Dispose()}";
+        const result = spawnSync(engine, ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')],
+            { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 25000 });
+        assert.ifError(result.error);
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(result.stderr, '');
+        assert.match(result.stdout, /OBSERVER_CONFIRMED_EXIT_RACE_HANDLED/);
+    });
+}

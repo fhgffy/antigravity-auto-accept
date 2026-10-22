@@ -166,6 +166,8 @@ jobs:
           & $a.GetScriptBlock() -PowerShellEngines @('${{ matrix.executable }}') -TimeoutCollectorPath $collector.path
       # 2026-10-22：只编译不运行x86工具，原目标开始前不预热32位运行时。
       - name: Prepare native x86 observer collector
+        # 2026-10-22：前置失败后仍为后置控制准备同位数工具；取消时不再启动编译，不预热原前置测试。
+        if: ${{ !cancelled() }}
         run: |
           $prepared = node tests/prepare-dump-collector.cjs --x86
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

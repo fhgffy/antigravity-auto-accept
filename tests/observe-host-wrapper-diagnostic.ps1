@@ -18,6 +18,17 @@ if ($e.Count -or $function.Count -ne 1) { throw 'Exact owned dump helper boundar
 $ast = [Management.Automation.Language.Parser]::ParseInput($function[0].Extent.Text,$utilityPath,[ref]$t,[ref]$e)
 if ($e.Count) { throw 'Owned dump helper parse failed' }
 . ($ast.GetScriptBlock())
+
+# 2026-10-22：只在ArgumentException且CIM再次确认PID已消失时返回空；仍存在或查询错误必须保留原诊断失败。
+function Open-ObserverCandidateProcess([ValidateRange(1,2147483647)][int]$CandidatePid) {
+    try { return [Diagnostics.Process]::GetProcessById($CandidatePid) }
+    catch [ArgumentException] {
+        $present = Get-CimInstance Win32_Process -OperationTimeoutSec 1 -Filter ('ProcessId=' + $CandidatePid)
+        if ($null -ne $present) { throw }
+        return $null
+    }
+}
+
 foreach ($iteration in 1..$Repetitions) {
     $directory = Join-Path $EvidenceDirectory ('case-' + $iteration)
     [void][IO.Directory]::CreateDirectory($directory)
@@ -31,7 +42,7 @@ foreach ($iteration in 1..$Repetitions) {
     $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
     $start.StandardOutputEncoding = [Text.Encoding]::UTF8; $start.StandardErrorEncoding = [Text.Encoding]::UTF8
     $node = [Diagnostics.Process]::new(); $node.StartInfo = $start
-    $started = $false; $failure = $null; $cleanupErrors = @(); $observationErrors = @()
+    $started = $false; $failure = $null; $cleanupErrors = @(); $observationErrors = @(); $observationRaces = @()
     $owned = [Collections.Generic.List[Diagnostics.Process]]::new(); $seen = @{}
     $clock = [Diagnostics.Stopwatch]::StartNew()
     try {
@@ -62,7 +73,12 @@ foreach ($iteration in 1..$Repetitions) {
                         if ($expectedSelfTestSource) {
                             if (-not $command.Contains(("'" + $expectedSelfTestSource + "'")) -or -not $command.Contains(' -SelfTest')) { continue }
                         } elseif (-not $command.Contains('DUMP_DIAGNOSTIC_CHILD_READY') -or -not $command.Contains('host-dump-collector.exe')) { continue }
-                        $target = [Diagnostics.Process]::GetProcessById([int]$info.ProcessId); $targetRegistered = $false
+                        $target = Open-ObserverCandidateProcess ([int]$info.ProcessId); $targetRegistered = $false
+                        if ($null -eq $target) {
+                            # 2026-10-22：保留退出竞争的原PID/创建时间；不登记新目标，也不把原测试成功改成故障。
+                            $observationRaces += [ordered]@{Stage='target-handle';Pid=$info.ProcessId;CreationDate=$info.CreationDate.ToUniversalTime().ToString('o');Reason='confirmed-exited-before-handle'}
+                            continue
+                        }
                         # 2026-10-22：临时持有对象遇到元数据竞争也要释放，登记后才交给统一只读收尾。
                         try {
                             [void]$target.Handle
@@ -113,7 +129,7 @@ foreach ($iteration in 1..$Repetitions) {
                 [IO.File]::WriteAllText((Join-Path $directory $stream.File),$text,[Text.UTF8Encoding]::new($false))
             } catch { $observationErrors += [ordered]@{Stage=$stream.File;Type=$_.Exception.GetBaseException().GetType().FullName;Message=$_.Exception.GetBaseException().Message} }
         }
-        $result = [ordered]@{ExitCode=$exitCode;ElapsedMs=$clock.ElapsedMilliseconds;ObservedTargets=@($seen.Keys|Where-Object {$_ -like 'target-*'});StdoutComplete=$complete.Stdout;StderrComplete=$complete.Stderr;ObservationErrors=$observationErrors}
+        $result = [ordered]@{ExitCode=$exitCode;ElapsedMs=$clock.ElapsedMilliseconds;ObservedTargets=@($seen.Keys|Where-Object {$_ -like 'target-*'});StdoutComplete=$complete.Stdout;StderrComplete=$complete.Stderr;ObservationErrors=$observationErrors;ObservationRaces=$observationRaces}
         try { [IO.File]::WriteAllText((Join-Path $directory 'result.json'),($result|ConvertTo-Json -Depth 6 -Compress),[Text.UTF8Encoding]::new($false)) }
         catch { $observationErrors += [ordered]@{Stage='result.json';Type=$_.Exception.GetBaseException().GetType().FullName;Message=$_.Exception.GetBaseException().Message} }
         $result.ObservationErrors = $observationErrors

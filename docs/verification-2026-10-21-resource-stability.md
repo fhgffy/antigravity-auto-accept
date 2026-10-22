@@ -171,6 +171,14 @@ PSModulePath 另作单变量 Node 桥接对照：继承 PS7 环境的 WinPS 选�
 
 原collector-stall三个调用者先因缺.tsv旁证红，再3/3绿，仍要求有效最小MDMP及原耗时小于8秒。独立真实x64/x86工具控制分别515/547ms，在原1.5秒预算内返回；16条上下文分别1232/716字节，寄存器IP可对应ntdll模块，目标仍活并由原Popen句柄持有者最后退出。证据 collector-raw-context-red/green.log、collector-raw-context-bitness-controls/summary.json。原native32案例也转发同一x86工具，失败时采它自身旁证，不延长原期限。首次窄审未确认P0-P2；P3为线程自然退出可能截断旁证的源码假设，未作故障注入，明确保留为非阻塞限制（无END不得接受为完整控制）。首审报告work/collector-raw-context-first-review.md，无修复复审。新完整npm通过publication56/lifecycle38/host-wrapper53、两引擎mouse各188、concurrency22；17份源码/配置未变，VSIX八项通过，编码/diff/原期限和Write字节检查通过，回执collector-raw-context-final-local-validation.json。这些控制仍非云端根因修复。另24个原云端手动前缀均成功、最长100秒、无取消，生命周期scope本head未派发；manual-network-prefix-original-39747161643.json保留边界。
 
+### 自然退出观察竞态与前置失败后的校准
+
+【已跑验证】c90813b的四次普通push/PR/lint原始运行全绿，八份日志在ci-c90813b。唯一手动39752711623未开完整样本选项：生命周期20/20成功，host观察16/20成功，四个启动诊断和三个普通验证作业成功；47份执行日志及全部ZIP/SHA/CRC保留在diagnostic-matrix-c90813b-39752711623。四个失败逐项保留：119736971339在原前置lifecycle20秒截止，host实际套件未运行；119736971453/1557原Node均0但观察器GetProcessById遭遇正常退出竞争；119736971678实际Node0，后置x86 Sleep20控制撞原25秒，DMP为有效Intel0。这不计二十次完整全绿。
+
+【已读源码、已跑验证】#40的候选只对GetProcessById的ArgumentException再次用一秒CIM确认PID消失；仍存在或查询失败继续抛错。确认退出时保留原PID/创建时间/reason，后续目标仍须原父PID/创建时间/映像检查；原Node失败优先、全部截止和原用例主体不变。真实自有已退出进程旧调用两红，新helper两绿；新增用例同时要求活进程正常返回。工作流另仅在原前置步骤之后加!cancelled()，让前置失败后的校准仍能编译同位数工具，不提前预热原测试。条件检查红绿日志保留。首次独立审查无确认P0–P3，另实跑两引擎各四种lookup/查询错误边界，无修复复审；work/observer-confirmed-exit-first-review.md。
+
+【已跑验证】本轮完整npm通过publication56/lifecycle38/host-wrapper55、两引擎mouse各188、concurrency22；17份源码/配置哈希全程未变，VSIX八项通过。红绿、编码/CRLF、diff、原生primary Write/期限/运行字节不变的汇总为observer-confirmed-exit-final-local-validation.json。原前置lifecycle缺栈和真实原生收集器停滞仍未定位；不因诊断器修复宣称#33/#34/#36/#38消失。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。
