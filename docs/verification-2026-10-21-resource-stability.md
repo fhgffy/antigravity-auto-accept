@@ -193,6 +193,16 @@ PSModulePath 另作单变量 Node 桥接对照：继承 PS7 环境的 WinPS 选�
 
 【已读源码、已跑静态验证】下一轮将现有ETW开关透传到已有20组共享核心，仅显式开启时命名Native trace CI；关闭仍为Complete CI，所有原步骤、两引擎/包、产物隔离和期限不变。此轮只为覆盖实际偶发故障的前置和宿主现场，带仪器的全部样本不计无仪器二十连绿。透传检查先红后绿，首次窄审无确认P0–P3，105个可能产物名无冲突，无修复复审；work/native-etw-matrix-first-review.md。批量先解析进程/线程元数据和丢事件数，只对实际故障身份展开全量事件，避免复制数十份冗余JSON。新的完整本地测试/包以本候选最终回执为准。
 
+### 2026-10-22：真实SelfTest冷编译现场与依赖拆分
+
+【已跑验证】a5611a1唯一带仪器矩阵39773923275原attempt1有61个执行job成功、1个失败；sample18 PS7 SelfTest仍按原15秒失败，依赖的包被跳过。62份完整原job日志已核SHA；原失败ETL399507456字节、SHA5c127428221f85915795df143cf61a4f0875168d97c853f8d0c99f6ebbada5cc，报告EventsLost=0。PID6724、创建ticks639282672833761378，原生命周期15.5585374秒，最后95通过/退出0不能覆盖已成立超时。没有有效DMP。
+
+官方TraceEvent4.0.0 ThreadTimeStackComputer重建后按严格进程栈根及pipeline TID1216筛选：硬缺页区间并集12.9328478秒，其中Microsoft.CodeAnalysis.dll为4.0811117秒、Microsoft.CodeAnalysis.CSharp.dll为6.9909093秒；CPU样本约0.9007秒，等待CPU0.0141秒。该线程大部分时间被编译依赖的缺页IO占据，不是凭模型自述归因。所有线程指标不能累加为墙钟时间；早期手工聚合未截断已退出线程且Any-PID误选相关进程的结果已标为无效，不能引用。原ETW及严格分析在native-etw-matrix-cloud-39773923275，原生解析的实验性边界保留；不将本次证据外推到旧#33/#36/#38或所有历史SelfTest。
+
+【已读源码、已跑验证】最小候选让纯规则SelfTest跳过不需要的Add-Type和UIA加载。原C#文本和正常扫描初始化顺序逐字不变；87项纯判定留原入口，原8项窗口归属输入和真实C#调用迁入已有mouse-helper测试，并增加零target及零expectedPID两例。没有虚报同进程执行95，也没有删除或放宽原断言；原十五秒、stderr/exit/完成协议仍严格保留。新禁止Add-Type的真实两引擎先2红，再与禁止桌面getter共4绿；八个原生守卫逐一改坏，两引擎16个变异均被新归属断言拒绝，2个未改动控制成功。私人变异脚本首次命令超过Windows长度、随后WinPS模块进度进入stderr，两次无效控制保留；改用F盘UTF8文件短引导及原测试相同静默进度后18结果成立，没有放宽stderr。
+
+完整本地npm session42180 exit0，19份被测源在全程无变化；56publication/38lifecycle/57host-wrapper，mouse每引擎198，concurrency22，固定项目工具VSIX8项通过。首次窄审无确认P0–P3，没有修复复审循环。证据selftest-compiler-boundary-final-local-validation.json、selftest-no-compiler-red/green.log、selftest-native-ownership-mutations-v2/summary.json及work/selftest-compiler-boundary-first-review.md。带仪器矩阵不计C连绿；新普通CI及修复后二十次无仪器完整两引擎/包验收仍待执行。此项只改变自测依赖，不单独发版，继续并入本轮5.3.13。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。

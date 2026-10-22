@@ -10,6 +10,8 @@ param(
 
 # 2026-10-21：等待者仅解析初始化块，拿到原全局互斥后才编译和加载 UIA；异常仍由原 finally 释放锁。
 $initializeAutomation = {
+# 2026-10-22：纯规则自测不编译桌面类型；原生窗口归属断言由鼠标方法回归直接验证生产C#。
+if (-not $SelfTest) {
 Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
@@ -725,8 +727,7 @@ namespace AntigravityUia
 
 Add-Type -AssemblyName UIAutomationClient
 
-# 2026-10-21：自测只运行纯判定，不查询桌面根或创建扫描条件；正常扫描保留原初始化。
-if (-not $SelfTest) {
+# 2026-10-22：正常扫描的类型、桌面根及条件初始化顺序保持不变。
     $automation = [System.Windows.Automation.AutomationElement]::RootElement
     $winCondition = New-Object System.Windows.Automation.PropertyCondition(
         [System.Windows.Automation.AutomationElement]::ClassNameProperty, "Chrome_WidgetWin_1"
@@ -1477,24 +1478,6 @@ function Invoke-SelfTest {
         }
     }
 
-    $stateCases = @(
-        @{ Root = 42; Exists = $true; Visible = $true; Enabled = $true; Iconic = $false; Process = 10; Expected = $true },
-        @{ Root = 43; Exists = $true; Visible = $true; Enabled = $true; Iconic = $false; Process = 10; Expected = $false },
-        @{ Root = 0; Exists = $true; Visible = $true; Enabled = $true; Iconic = $false; Process = 10; Expected = $false },
-        @{ Root = 42; Exists = $false; Visible = $true; Enabled = $true; Iconic = $false; Process = 10; Expected = $false },
-        @{ Root = 42; Exists = $true; Visible = $false; Enabled = $true; Iconic = $false; Process = 10; Expected = $false },
-        @{ Root = 42; Exists = $true; Visible = $true; Enabled = $false; Iconic = $false; Process = 10; Expected = $false },
-        @{ Root = 42; Exists = $true; Visible = $true; Enabled = $true; Iconic = $true; Process = 10; Expected = $false },
-        @{ Root = 42; Exists = $true; Visible = $true; Enabled = $true; Iconic = $false; Process = 11; Expected = $false }
-    )
-    foreach ($case in $stateCases) {
-        $actual = [MouseHelper]::IsHitTargetWindow([IntPtr]42, [IntPtr]$case.Root, $case.Exists, $case.Visible, $case.Enabled, $case.Iconic, [uint32]$case.Process, [uint32]10)
-        if ($actual -ne $case.Expected) {
-            [Console]::WriteLine('___SELFTEST_FAIL___:window ownership')
-            $failed++
-        }
-    }
-
     $pathCases = @(
         @{ Path = 'C:\Apps\Antigravity IDE.exe'; Host = 'c:\apps\ANTIGRAVITY IDE.EXE'; Expected = $true },
         @{ Path = 'C:\Apps\Antigravity.exe'; Host = ''; Expected = $true },
@@ -1540,7 +1523,7 @@ function Invoke-SelfTest {
         exit 1
     }
 
-    [Console]::WriteLine("___SELFTEST_DONE___:passed=$($cases.Count + $stateCases.Count + $pathCases.Count + $cardCases.Count + 2)")
+    [Console]::WriteLine("___SELFTEST_DONE___:passed=$($cases.Count + $pathCases.Count + $cardCases.Count + 2)")
     exit 0
 }
 
@@ -1564,7 +1547,7 @@ function Test-ParentAlive {
 }
 
 if ($SelfTest) {
-    . $initializeAutomation # 2026-10-21：自测仍初始化所需类型，保留纯判定和原完成协议。
+    . $initializeAutomation # 2026-10-22：只定义实际纯判定函数；87项与原生回归的8项共同保留原95项断言。
     Invoke-SelfTest
 }
 

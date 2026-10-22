@@ -1,6 +1,7 @@
+# 2026-10-22：87项纯规则仍受原十五秒期限约束；原8项C#窗口归属断言在mouse-helper真实编译回归执行。
 # 2026-10-05：解析实际扫描器并运行无点击回归，独立互斥名称不干扰真实 IDE。
 # 2026-10-06：旧源码副本可指定原自测数量，使红灯证据落在行为缺陷而非数量变化。
-param([string[]]$PowerShellEngines = @('powershell.exe', 'pwsh.exe'), [string]$ScannerSourcePath = '', [int]$ExpectedSelfTestCount = 95, [string]$TimeoutCollectorPath = '')
+param([string[]]$PowerShellEngines = @('powershell.exe', 'pwsh.exe'), [string]$ScannerSourcePath = '', [int]$ExpectedSelfTestCount = 87, [string]$TimeoutCollectorPath = '')
 
 $ErrorActionPreference = 'Stop'
 # 2026-10-06：允许只读旧源码副本复现红灯，避免回滚共享工作区中的修复。

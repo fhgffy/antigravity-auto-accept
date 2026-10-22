@@ -1,3 +1,4 @@
+# 2026-10-22：87项纯规则仍受原十五秒期限约束；原8项C#窗口归属断言在mouse-helper真实编译回归执行。
 # 2026-10-22：仅手动诊断重复真实SelfTest包装循环；每次保持十五秒和严格原断言，首次失败即停止。
 param([ValidateSet(5,7)][int]$ExpectedMajor, [string]$Engine, [ValidateRange(1,20)][int]$Repetitions = 20, [Parameter(Mandatory=$true)][string]$EvidenceDirectory, [string]$TimeoutCollectorPath = '')
 $ErrorActionPreference = 'Stop'
@@ -24,7 +25,7 @@ if ($bootstrap.Count -ne 1 -or $loop.Count -ne 1) { throw 'Exact SelfTest loop o
 $body = [scriptblock]::Create($loop[0].Extent.Text)
 $engines = @((Get-Command $Engine -ErrorAction Stop).Source)
 $escapedScannerPath = $scannerPath.Replace("'", "''")
-$ExpectedSelfTestCount = 95
+$ExpectedSelfTestCount = 87
 $checks = 0
 $header = [ordered]@{ Engine = $engines[0]; CallerVersion = $PSVersionTable.PSVersion.ToString(); Repetitions = $Repetitions; DeadlineMs = 15000; ScannerSHA256 = (Get-FileHash $scannerPath -Algorithm SHA256).Hash.ToLowerInvariant(); WrapperSHA256 = (Get-FileHash $wrapperPath -Algorithm SHA256).Hash.ToLowerInvariant() }
 [IO.File]::WriteAllText((Join-Path $EvidenceDirectory 'identity.json'), ($header | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))

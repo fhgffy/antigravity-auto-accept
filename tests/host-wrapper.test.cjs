@@ -192,7 +192,7 @@ for (const [index, engine] of engines.entries()) {
             else assert.equal(result.stderr, '');
         });
     }
-    for (const mode of ['stdout', 'stderr', 'exit', 'missing-done', 'timeout', 'ledger-failure', 'selftest-no-desktop']) {
+    for (const mode of ['stdout', 'stderr', 'exit', 'missing-done', 'timeout', 'ledger-failure', 'selftest-no-desktop', 'selftest-no-compiler']) {
         test(`${engine}: scanner SelfTest wrapper ${mode}`, () => {
             const pidFile = path.join(owned, `selftest-${index}-${mode}.json`);
             const scriptFile = path.join(owned, `selftest-${index}-${mode}.ps1`);
@@ -211,12 +211,17 @@ for (const [index, engine] of engines.entries()) {
                 timeout: "[Console]::Out.WriteLine('SCANNER_WRAPPER_STDOUT:before-stall'); [Console]::Out.WriteLine('___SELFTEST_DONE___:passed=95'); [Console]::Error.WriteLine('SCANNER_WRAPPER_STDERR:before-stall'); Start-Sleep -Seconds 60",
                 'ledger-failure': "Start-Sleep -Seconds 60"
             };
-            if (mode === 'selftest-no-desktop') {
-                // 2026-10-21：仅替换真实源码的唯一桌面 getter 为失败探针，保留其余完整 SelfTest 路径及95项断言。
+            if (mode === 'selftest-no-desktop' || mode === 'selftest-no-compiler') {
+                // 2026-10-21：仅替换真实源码的唯一桌面 getter 为失败探针，保留87项纯规则；原8项C#断言已迁入原生鼠标回归。
                 const scanner = fs.readFileSync(path.join(root, 'src/autoClicker.ps1'), 'utf8');
                 const desktopGetter = '[System.Windows.Automation.AutomationElement]::RootElement';
                 assert.equal(scanner.split(desktopGetter).length, 2, 'exact desktop root getter');
-                fs.writeFileSync(scriptFile, scanner.replace(desktopGetter, "$(throw 'SELFTEST_DESKTOP_ACCESS_PROBE')"), 'utf8');
+                assert.equal(scanner.split('$initializeAutomation = {').length, 2, 'exact initialization boundary');
+                // 2026-10-22：完整真实入口必须不调用编译/程序集加载；探针失败不能被完成标记掩盖。
+                const candidate = mode === 'selftest-no-compiler'
+                    ? scanner.replace('$initializeAutomation = {', "function Add-Type { throw 'SELFTEST_COMPILER_ACCESS_PROBE' }\r\n$initializeAutomation = {")
+                    : scanner.replace(desktopGetter, "$(throw 'SELFTEST_DESKTOP_ACCESS_PROBE')");
+                fs.writeFileSync(scriptFile, candidate, 'utf8');
             } else {
                 fs.writeFileSync(scriptFile, '# 2026-10-21：只控制子自测输出，不调用扫描器或桌面输入。\r\nparam([switch]$SelfTest)\r\n' + bodies[mode] + '\r\n', 'utf8');
             }
@@ -246,7 +251,7 @@ for (const [index, engine] of engines.entries()) {
                 + "try {[Console]::WriteLine('___SCANNER_SELFTEST_OBSERVER_CLEANUP___:'+($cleanup|ConvertTo-Json -Compress))} catch {};throw $failure}}; "
                 + "$engines=@((Get-Command " + quote(mode === 'ledger-failure' ? fixture : engine) + ").Source); $escapedScannerPath=" + quote(scriptFile.replace(/'/g, "''")) + "; "
                 + "$TimeoutCollectorPath=" + quote(diagnosticCollector) + "; "
-                + "$ExpectedSelfTestCount=95; $checks=0; $bootstrapEncoding='$ProgressPreference=''SilentlyContinue'';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);'; "
+                + `$ExpectedSelfTestCount=${mode.startsWith('selftest-') ? 87 : 95}; $checks=0; $bootstrapEncoding='$ProgressPreference=''SilentlyContinue'';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);'; `
                 + "try {. ([scriptblock]::Create($loop[0].Extent.Text))} catch {[Console]::Error.WriteLine($_.Exception.Message);exit 1}";
             const started = Date.now();
             const result = spawnSync(engine, ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-ExecutionPolicy', 'Bypass',
@@ -290,11 +295,11 @@ for (const [index, engine] of engines.entries()) {
                 catch (cleanupError) { keepArtifacts = true; console.error('Owned SelfTest cleanup failed: ' + cleanupError.message); }
                 throw error;
             }
-            if (mode === 'stdout' || mode === 'selftest-no-desktop') {
+            if (mode === 'stdout' || mode === 'selftest-no-desktop' || mode === 'selftest-no-compiler') {
                 assert.ok(typeof record.ExpectedImage === 'string' && path.isAbsolute(record.ExpectedImage), 'launch expectation retained even before module enumeration');
                 assert.equal(path.basename(record.ExpectedImage).toLowerCase(), path.basename(engine).toLowerCase());
                 assert.equal(result.status, 0, result.stderr);
-                assert.match(result.stdout, /PASS SelfTest 95 cases:/);
+                assert.match(result.stdout, new RegExp(`PASS SelfTest ${mode.startsWith('selftest-') ? 87 : 95} cases:`));
                 return;
             }
             assert.notEqual(result.status, 0, 'invalid or stalled SelfTest must fail');
