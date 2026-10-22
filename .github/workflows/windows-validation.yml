@@ -15,7 +15,8 @@ on:
       # 2026-10-22：显式布尔选择只映射两个托管标签，禁止任意runner字符串；步骤与期限不变。
       windows_2022:
         type: boolean
-        default: false
+        # 2026-10-23：旧调用者同样默认使用已对照的2022，不预读系统文件或放宽任何检查。
+        default: true
 
 permissions:
   contents: read

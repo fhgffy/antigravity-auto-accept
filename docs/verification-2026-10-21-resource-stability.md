@@ -233,6 +233,18 @@ sample13原编译进程748/parent9104/TID8364在14957.37ms被原owner结束，CP
 
 【已跑验证】2020005原push/PR的两引擎及包均成功，两lint仍原失败，八份执行日志已核SHA归档ci-2020005/final-summary.json；没有取消/重跑。修复后完整本地session8229 exit0、21源全程不变，repository4/publication56/lifecycle38/host57，mouse每引擎198、concurrency22；session79171 VSIX8通过。explicit-package-shell-final-local-validation.json核对当前源/字节及只增加pwsh默认声明的完整YAML不变性；云端修复版真实ShellCheck仍待新原运行。
 
+### 2026-10-23：同源冷IO对照与常规映像候选
+
+【已跑验证】50b原四CI已终态：两lint成功，三份x86诊断25秒原失败、六日志及三个故障包SHA/CRC保留。两例空两流，另一例已写出成功转储和DUMP_TARGET_ALIVE但总期限超时，不能统称入口前卡住，最后一例确切慢阶段未证。下载Go EOF只恢复同一个原包读取，未重跑CI；ci-50b51fa/artifact-read-recovered-summary.json和three-original-x86-failure-readback.json。
+
+同一50b源码，2022原39808588036和latest原39810120462各两引擎+包全成功，六日志/六包/四ETL均核SHA、CRC及0lost，均不计C。实际2022为20261012.333.1；latest实际2025-vs2026的PS5/PS7映像分别20261007.264.1/20261021.278.1。首次x86寿命2022为8.769/8.665秒，latest为5.990/14.536秒，不能宣称每个2022样本更快。证据在测试根evidence/hosted-image-comparison-50b51fa…-{windows-2022,windows-latest}-cloud-{39808588036,39810120462}/final-summary.json。
+
+精确创建身份主线程对照：2022 PID2948/TID4468和PID8032/TID4036的IO并集6.634/6.938秒、WOF文件IO均0；同源2025 PID2700/TID5848 IO11.997秒、WOF7.293秒。原真实失败5484在24.953秒内IO22.997秒/WOF17.249秒。代表样本与官方2025-only程序集LZX策略相符，尚不能隔离全部OS/CLR/宿主磁盘差异或证明LZX唯一原因。各original-budget-thread-analysis.json、work/cold-io-next-mitigation-readonly.md；普通默认2022仍须无仪器完整20绿验收，不靠单次仪器成功宣告修复。
+
+最小候选只把既有windows_2022两端默认改true，普通事件透传true、手动显式false仍选latest，stability透传不变；两runs-on、实际步骤正文、原期限/断言、发布、生产源均不改。无预热、系统解压、位数替换或防护变更。离线ETW工具另按PID/对象地址/创建时间及有限生命周期联合筛选，省略/错误创建时间的真实控制仍拒绝；2022内核512字符命令只匹配冻结源码唯一模板的实际前缀、Node创建身份和七原例顺序，绝不补造后缀。
+
+【已跑验证】默认候选完整本地session52234 exit0，21源全程不变；repository4/publication56/lifecycle38/host57、mouse每引擎198、concurrency22。session34194 VSIX8通过；hosted-default-2022-final-local-validation.json核对当前源和完整YAML仅三处既有映像选择差异。actionlint及真实语言派发静态门通过，本机无ShellCheck不称完整规则通过；首次窄审无确认P0–P3，无修复复审，work/hosted-default-first-review.md。普通新默认云端OS核对及无仪器完整20组仍待提交后原运行，不计前述仪器控制。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。
