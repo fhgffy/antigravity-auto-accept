@@ -1,0 +1,45 @@
+# 2026-10-22：独立语义检查在主工作流无法创建作业时也能报告上下文错误，不依赖主工作流成功。
+name: Workflow lint
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate workflow syntax and contexts
+        env:
+          ACTIONLINT_VERSION: '1.7.12'
+          ACTIONLINT_SHA256: '8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8'
+        shell: bash
+        run: |
+          # 2026-10-22：固定官方发布版本及SHA，不执行未核对的下载；保留原始语义检查失败。
+          tool_dir="$(mktemp -d "$RUNNER_TEMP/antigravity-actionlint.XXXXXX")"
+          curl --fail --location --retry 2 --connect-timeout 10 --max-time 60 \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            -o "$tool_dir/actionlint.tar.gz"
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" "$tool_dir/actionlint.tar.gz" | sha256sum --check --
+          tar -xzf "$tool_dir/actionlint.tar.gz" -C "$tool_dir"
+          "$tool_dir/actionlint" -color=false .github/workflows/*.yml | tee "$RUNNER_TEMP/antigravity-actionlint.log"
+      - name: Preserve workflow lint failure
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: workflow-lint-${{ github.run_id }}
+          path: ${{ runner.temp }}/antigravity-actionlint.log
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,6 +1,7 @@
+# 2026-10-22：87项纯规则仍受原十五秒期限约束；原8项C#窗口归属断言在mouse-helper真实编译回归执行。
 # 2026-10-05：解析实际扫描器并运行无点击回归，独立互斥名称不干扰真实 IDE。
 # 2026-10-06：旧源码副本可指定原自测数量，使红灯证据落在行为缺陷而非数量变化。
-param([string[]]$PowerShellEngines = @('powershell.exe', 'pwsh.exe'), [string]$ScannerSourcePath = '', [int]$ExpectedSelfTestCount = 95)
+param([string[]]$PowerShellEngines = @('powershell.exe', 'pwsh.exe'), [string]$ScannerSourcePath = '', [int]$ExpectedSelfTestCount = 87, [string]$TimeoutCollectorPath = '')
 
 $ErrorActionPreference = 'Stop'
 # 2026-10-06：允许只读旧源码副本复现红灯，避免回滚共享工作区中的修复。
@@ -60,6 +61,63 @@ function Start-TestProcess([string]$Executable, [string]$Command) {
     return $process
 }
 
+# 2026-10-22：原十五秒截止判定后才采集持有子进程；取证失败不能覆盖自测超时或跳过原回收。
+function Save-ScannerTimeoutEvidence {
+    param([Diagnostics.Process]$Target, [string]$ExpectedImage, [string]$SourcePath, [string]$UtilityPath = '', [string]$CollectorEngine = '', [switch]$ExecutableCollector)
+    $record = [ordered]@{ Directory = ''; Error = '' }
+    try {
+        $record.Directory = Join-Path ([IO.Path]::GetTempPath()) ('AntigravityAA-ScannerTimeout-' + [Guid]::NewGuid().ToString('N'))
+        [void][IO.Directory]::CreateDirectory($record.Directory)
+        [void]$Target.Handle
+        $identity = [ordered]@{ Pid = $Target.Id; StartTicks = $Target.StartTime.ToUniversalTime().Ticks.ToString(); Image = $Target.MainModule.FileName; CapturedUtc = [DateTime]::UtcNow.ToString('o'); CpuMs = $Target.TotalProcessorTime.TotalMilliseconds }
+        if (-not [String]::Equals($identity.Image, $ExpectedImage, [StringComparison]::OrdinalIgnoreCase)) { throw 'Owned SelfTest image mismatch' }
+        [IO.File]::WriteAllText((Join-Path $record.Directory 'identity.json'), ($identity | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+        [IO.File]::Copy($SourcePath, (Join-Path $record.Directory 'source.ps1'), $false)
+        if ([string]::IsNullOrWhiteSpace($UtilityPath)) { $UtilityPath = Join-Path $PSScriptRoot 'host-process.test.ps1' }
+        $tokens = $null; $errors = $null
+        $utility = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($UtilityPath, [Text.Encoding]::UTF8), $UtilityPath, [ref]$tokens, [ref]$errors)
+        $definition = @($utility.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Save-HostTimeoutDump' }, $true))
+        if ($errors.Count -or $definition.Count -ne 1) { throw 'Owned dump utility boundary missing' }
+        $functionAst = [Management.Automation.Language.Parser]::ParseInput($definition[0].Extent.Text, $UtilityPath, [ref]$tokens, [ref]$errors)
+        if ($errors.Count) { throw 'Owned dump utility parse failed' }
+        . ($functionAst.GetScriptBlock())
+        # 2026-10-22：原十五秒失败已成立，先复用只读栈工具观察同一持有目标；工具失败不跳过原转储和回收。
+        $reader = $null; $readerStarted = $false
+        $readerRecord = [ordered]@{ Pid = $null; TimedOut = $false; ExitConfirmed = $false; ExitCode = $null; Stdout = ''; Stderr = ''; Error = '' }
+        try {
+            $readerSource = [IO.Path]::Combine([IO.Path]::GetDirectoryName($UtilityPath), 'read-owned-callstack.ps1')
+            $readerStart = [Diagnostics.ProcessStartInfo]::new()
+            $readerStart.FileName = [IO.Path]::Combine($env:ProgramW6432, 'PowerShell\7\pwsh.exe')
+            $readerStart.Arguments = '-NoProfile -NonInteractive -OutputFormat Text -File "' + $readerSource + '" -TargetPid ' + $Target.Id + ' -StartTicks "' + $identity.StartTicks + '" -ExpectedImage "' + $identity.Image + '" -ExpectedParentId ' + $PID + ' -OutputFile "' + [IO.Path]::Combine($record.Directory, 'selftest.callstack.json') + '"'
+            $readerStart.UseShellExecute = $false; $readerStart.CreateNoWindow = $true
+            $readerStart.RedirectStandardOutput = $true; $readerStart.RedirectStandardError = $true
+            $reader = [Diagnostics.Process]::new(); $reader.StartInfo = $readerStart
+            if (-not $reader.Start()) { throw 'Owned SelfTest stack reader did not start' }
+            $readerStarted = $true; $readerRecord.Pid = $reader.Id
+            $readerOut = $reader.StandardOutput.ReadToEndAsync(); $readerErr = $reader.StandardError.ReadToEndAsync()
+            $readerRecord.TimedOut = -not $reader.WaitForExit(5000)
+        }
+        catch { $readerRecord.Error = $_.Exception.GetBaseException().GetType().FullName + ':' + $_.Exception.GetBaseException().Message }
+        finally {
+            if ($null -ne $reader) {
+                if ($readerStarted) {
+                    try { if (-not $reader.HasExited) { $reader.Kill() }; $readerRecord.ExitConfirmed = $reader.WaitForExit(1000); if ($readerRecord.ExitConfirmed) { $readerRecord.ExitCode = $reader.ExitCode } }
+                    catch { $readerRecord.Error += ';stop:' + $_.Exception.GetType().FullName }
+                    try { if ($readerOut.Wait(1000)) { $readerRecord.Stdout = $readerOut.GetAwaiter().GetResult() }; if ($readerErr.Wait(1000)) { $readerRecord.Stderr = $readerErr.GetAwaiter().GetResult() } }
+                    catch { $readerRecord.Error += ';streams:' + $_.Exception.GetType().FullName }
+                }
+                try { $reader.Dispose() } catch { $readerRecord.Error += ';dispose:' + $_.Exception.GetType().FullName }
+            }
+            try { [IO.File]::WriteAllText([IO.Path]::Combine($record.Directory, 'selftest.reader.json'), ($readerRecord | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false)) }
+            catch { $record.Error += ';stack-record:' + $_.Exception.GetType().FullName }
+        }
+        $stackTool = if ($ExecutableCollector) { $CollectorEngine } else { '' } # 2026-10-22：复用预编译工具，只在原取证超时后读收集器自身最小栈。
+        Save-HostTimeoutDump $Target $ExpectedImage (Join-Path $record.Directory 'selftest.dmp') -CollectorEngine $CollectorEngine -ExecutableCollector:$ExecutableCollector -CollectorStackTool $stackTool
+    }
+    catch { $record.Error = $_.Exception.GetBaseException().GetType().FullName + ':' + $_.Exception.GetBaseException().Message }
+    return [pscustomobject]$record
+}
+
 # 2026-10-05：读取协议使用有限超时，失败时保留错误输出并由外层清理测试进程。
 function Read-ProtocolLine($Process, [string]$Expected) {
     $pending = $Process.StandardOutput.ReadLineAsync()
@@ -102,6 +160,13 @@ $selfTestBlock = [scriptblock]::Create($selfTestSource)
         # 2026-10-21：沿用宿主测试的有限超时旁证，清理或读取失败不能覆盖原自测失败。
         if ($timedOut) {
             $diagnostic = [ordered]@{ Pid = $process.Id; ExitConfirmed = $false; StdoutComplete = $false; StderrComplete = $false; Stdout = $null; Stderr = $null; StopError = ''; ReadError = ''; DisposeError = '' }
+            # 2026-10-22：先保留线程现场，再由原Process持有者回收；成功标记不能改变已经成立的超时。
+            # 2026-10-22：CI预编译工具在原失败成立后直接取证；未提供时仍保留现有本地最佳努力路径。
+            $collectorArguments = @{}
+            if ($TimeoutCollectorPath) { $collectorArguments = @{ CollectorEngine = $TimeoutCollectorPath; ExecutableCollector = $true } }
+            $capture = Save-ScannerTimeoutEvidence $process $engine $escapedScannerPath.Replace("''", "'") @collectorArguments
+            $diagnostic.DumpDirectory = $capture.Directory
+            $diagnostic.CollectionError = $capture.Error
             try {
                 if (-not $process.HasExited) { $process.Kill() }
                 $diagnostic.ExitConfirmed = $process.WaitForExit(5000)
@@ -115,6 +180,9 @@ $selfTestBlock = [scriptblock]::Create($selfTestSource)
                 } catch { $diagnostic.ReadError += $stream.Name + ':' + $_.Exception.GetType().FullName + ';' }
             }
             try { $process.Dispose() } catch { $diagnostic.DisposeError = $_.Exception.GetType().FullName }
+            try {
+                if ($diagnostic.DumpDirectory) { [IO.File]::WriteAllText((Join-Path $diagnostic.DumpDirectory 'streams.json'), ($diagnostic | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false)) }
+            } catch { $diagnostic.CollectionError += ';streams:' + $_.Exception.GetType().FullName }
             try { [Console]::WriteLine('___SCANNER_SELFTEST_TIMEOUT___:' + ($diagnostic | ConvertTo-Json -Compress)) } catch { }
         } else {
             if (-not $process.HasExited) { $process.Kill(); [void]$process.WaitForExit(5000) }
@@ -145,7 +213,7 @@ $checks++
 
 # 2026-10-05：执行实际卡片函数，只将外部 UIA 父节点查找替换成可控树，所有点击为计数桩。
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes # 2026-10-07：空树回放不会触发实际 UIA 对象的依赖加载。
-$testFunctions = @('Test-OneTimeApprovalName', 'Test-ApprovalCardShape', 'Test-ApprovalOptionSelected', 'Test-LiveApprovalCard', 'Write-ApprovalDiagnostic', 'Get-ApprovalEventContext', 'Invoke-ApprovalCards', 'Get-ButtonCenter', 'Test-ButtonMatch', 'Test-PrefixBoundary') # 2026-10-20
+$testFunctions = @('Test-OneTimeApprovalName', 'Test-ApprovalCardShape', 'Test-ApprovalOptionSelected', 'Test-LiveApprovalCard', 'Write-ApprovalDiagnostic', 'Get-ApprovalEventContext', 'Invoke-ApprovalCards', 'Get-ButtonCenter', 'Test-ButtonMatch', 'Test-PrefixBoundary', 'Get-ScannerWindows') # 2026-10-21：尾段仍执行真实窗口入口，空树只替换原生边界。
 foreach ($name in $testFunctions) {
     $definition = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     # 2026-10-20：只读旧源码回放允许缺少新增格式函数，仍须由真实旧成功事件触发归属断言红灯。
@@ -441,6 +509,7 @@ $tailIndex = $source.IndexOf('$script:parentProcess = $null', [StringComparison]
 if ($tailIndex -lt 0) { throw 'Mutex lifecycle entry not found' }
 $mutexName = 'Local\AntigravityAutoAcceptScanner.Test.' + [Guid]::NewGuid().ToString('N')
 $lifecycleSource = $source.Substring($tailIndex).Replace('Local\AntigravityAutoAcceptScanner', $mutexName)
+$initializeAutomation = {} # 2026-10-21：尾段回放提供现有空树；完整入口另有冷等待和编译失败回归。
 
 # 2026-10-05：执行实际扫描尾段，控件查找期间模拟父宿主退出，旧版 Run 的调用桩必须保持零次。
 $script:testParentAlive = $true
@@ -1443,7 +1512,9 @@ foreach ($mode in @('disconnected', 'com', 'argument')) {
 
 # 2026-10-07：生命周期子进程显式提供空窗口枚举，不能依赖旧的空进程图让扫描入口跳轮。
 $stub = $parentFunction[0].Extent.Text + [Environment]::NewLine
+$stub += (Get-Item Function:\Get-ScannerWindows).ScriptBlock.Ast.Parent.Extent.Text + [Environment]::NewLine # 2026-10-21：子进程加载同一真实窗口入口。
 $stub += @'
+$initializeAutomation = {} # 2026-10-21：并发子进程使用既有空树，不加载桌面根。
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 function Get-TargetProcessIds([int]$ProcessId) { return @{} }
 $automation = [pscustomobject]@{}
@@ -1461,6 +1532,7 @@ try {
         $common = "$bootstrapEncoding `$PollMs = 50; `$CooldownMs = 0; $stub"
         $owner = Start-TestProcess $engine "$common `$ParentProcessId = $($ownerParent.Id); $lifecycleSource"
         $processes.Add($owner)
+        Read-ProtocolLine $owner '___SCANNER_INITIALIZING___' # 2026-10-22：接管后先恢复初始化截止时间，再要求 READY。
         Read-ProtocolLine $owner '___AUTOCLICK_READY___'
         $checks++
         $waiter = Start-TestProcess $engine "$common `$ParentProcessId = $($waiterParent.Id); $lifecycleSource"
@@ -1480,6 +1552,7 @@ try {
         $ownerErrorOutput = $ownerErrors.GetAwaiter().GetResult()
         if ($ownerErrorOutput.Length -gt 0 -or $ownerOutput -match '___CLICK_|___ERROR___') { throw "Unexpected owner diagnostic: stdout=$ownerOutput stderr=$ownerErrorOutput" }
         $checks++
+        Read-ProtocolLine $waiter '___SCANNER_INITIALIZING___' # 2026-10-22：接管后先恢复初始化截止时间，再要求 READY。
         Read-ProtocolLine $waiter '___AUTOCLICK_READY___'
         $checks++
         # 2026-10-07：接管者已消费 READY 后才读取同一输出流，不能与协议 ReadLine 并发。
@@ -1512,4 +1585,24 @@ foreach ($path in @($scannerPath, $PSCommandPath)) {
     }
     $checks++
 }
+# 2026-10-21：两引擎 CI 和本地完整回归都执行完整冷启动入口，尾段空树桩不能掩盖提前编译或初始化锁泄漏。
+$startupTestPath = Join-Path $PSScriptRoot 'scanner-startup.test.ps1'
+$startupTestAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($startupTestPath,[Text.Encoding]::UTF8),$startupTestPath,[ref]$tokens,[ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Startup regression parse failed' }
+& $startupTestAst.GetScriptBlock() -PowerShellEngines $PowerShellEngines -ScannerSourcePath $scannerPath
+# 2026-10-21：同一 CI 引擎回放真实尾段的缓存裁剪和提供者失败回退，保留旧实时审批断言。
+$discoveryTestPath = Join-Path $PSScriptRoot 'scanner-discovery.test.ps1'
+$discoveryTestAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($discoveryTestPath,[Text.Encoding]::UTF8),$discoveryTestPath,[ref]$tokens,[ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Discovery regression parse failed' }
+& $discoveryTestAst.GetScriptBlock() -ScannerSourcePath $scannerPath
+# 2026-10-21：缓存窗口只复用实时根，独立覆盖替换、缺失、重复、不完整快照及原查询回退。
+$windowsTestPath = Join-Path $PSScriptRoot 'scanner-windows.test.ps1'
+$windowsTestAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($windowsTestPath,[Text.Encoding]::UTF8),$windowsTestPath,[ref]$tokens,[ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Window regression parse failed' }
+& $windowsTestAst.GetScriptBlock() -ScannerSourcePath $scannerPath
+# 2026-10-21：脱敏原生图与派生布局逐项核对原实时判定，缓存发现不能漏掉已有候选。
+$replayTestPath = Join-Path $PSScriptRoot 'scanner-replay.test.ps1'
+$replayTestAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($replayTestPath,[Text.Encoding]::UTF8),$replayTestPath,[ref]$tokens,[ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Replay regression parse failed' }
+& $replayTestAst.GetScriptBlock() -ScannerSourcePath $scannerPath
 Write-Output "___SCANNER_TEST_DONE___:passed=$checks"

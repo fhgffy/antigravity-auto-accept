@@ -185,13 +185,18 @@ function startAutoClicker() {
     psProcess = scannerProcess;
     scannerState = 'starting';
     updateStatusBar();
-    /* 2026-10-20：截止时间属于本次启动；普通输出不续期，过期回调不能重启新的扫描会话。 */
-    startupTimer = setTimeout(() => {
-        if (psProcess !== scannerProcess || !isActive || !isEnabled) { return; }
-        startupTimer = undefined;
-        log('⚠️', 'Scanner startup timed out after 60s; restarting.');
-        restartAutoClicker('startup timeout');
-    }, 60_000);
+    /* 2026-10-22：初次启动和等待后接管共用原一分钟上限，真正等锁不计超时；旧回调仍绑定本次进程。 */
+    const armStartupTimer = () => {
+        if (startupTimer !== undefined) { clearTimeout(startupTimer); }
+        startupTimer = setTimeout(() => {
+            if (psProcess !== scannerProcess || !isActive || !isEnabled) { return; }
+            startupTimer = undefined;
+            log('⚠️', 'Scanner startup timed out after 60s; restarting.');
+            restartAutoClicker('startup timeout');
+        }, 60_000);
+    };
+    armStartupTimer();
+    let initializationStarted = false; // 2026-10-22：重复初始化协议或迟到等待标记不能延长初始化截止时间。
     let stdoutBuffer = '';
     let hasExited = false; // 2026-10-07：进程退出后只接收管道尾部诊断，直到 close。
     scannerProcess.stdout?.setEncoding('utf8');
@@ -214,6 +219,21 @@ function startAutoClicker() {
             /* 2026-10-20：握手必须占完整一行；错误或按钮名称中的标记不能伪造就绪并撤销启动恢复。 */
             const protocolLine = line.trimStart();
             const handshake = protocolLine.trimEnd();
+            /* 2026-10-22：拿锁后先恢复初始化恢复能力；初次启动沿用已有截止时间，重复标记不续期。 */
+            if (handshake === '___SCANNER_INITIALIZING___') {
+                if (!initializationStarted && (scannerState === 'waiting' || scannerState === 'starting')) {
+                    initializationStarted = true;
+                    if (scannerState === 'waiting') { armStartupTimer(); }
+                    scannerState = 'starting';
+                    updateStatusBar();
+                    log('ℹ️', 'Scanner owns the desktop session; initializing.');
+                }
+                continue;
+            }
+            if (initializationStarted && ['___SCANNER_WAITING___', '___ALREADY_RUNNING___'].includes(handshake)) {
+                log('📡', line.trim());
+                continue;
+            }
             if (['___AUTOCLICK_READY___', '___SCANNER_WAITING___', '___ALREADY_RUNNING___'].includes(handshake)) {
                 if (startupTimer !== undefined) { clearTimeout(startupTimer); startupTimer = undefined; }
             }
@@ -225,6 +245,7 @@ function startAutoClicker() {
                 const info = protocolLine.slice('___CLICK_PHYSICAL___:'.length);
                 log('✅', `Auto-accepted (Physical): "${info}"`);
             } else if (handshake === '___AUTOCLICK_READY___') {
+                initializationStarted = false; // 2026-10-22：就绪后仍沿用既有正常运行与锁等待协议。
                 log('✅', 'UIAutomation scanner ready');
                 scannerState = 'ready';
                 updateStatusBar();

@@ -10,6 +10,8 @@ $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$tokens
 if ($parseErrors.Count -gt 0) { throw 'Scanner parse errors' }
 $parentFunction = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-ParentAlive' }, $true))
 if ($parentFunction.Count -ne 1) { throw 'Parent lifecycle function not found' }
+$windowFunction = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-ScannerWindows' }, $true)) # 2026-10-21：保留真实窗口入口，仅由原空树隔离桌面。
+if ($windowFunction.Count -ne 1) { throw 'Window lifecycle function not found' }
 $tailIndex = $source.IndexOf('$script:parentProcess = $null', [StringComparison]::Ordinal)
 if ($tailIndex -lt 0) { throw 'Scanner lifecycle entry not found' }
 $engines = @($PowerShellEngines | ForEach-Object { (Get-Command $_ -ErrorAction Stop).Source } | Select-Object -Unique)
@@ -85,7 +87,9 @@ for ($round = 1; $round -le $Rounds; $round++) {
     $common = '$ProgressPreference = ''SilentlyContinue''; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $PollMs = 25; $CooldownMs = 0; '
     # 2026-10-07：窗口 PID 查询前已有窗口枚举；只加载枚举类型并提供空树，不能靠空进程图跳过桌面入口。
     $common += $parentFunction[0].Extent.Text + [Environment]::NewLine
+    $common += $windowFunction[0].Extent.Text + [Environment]::NewLine # 2026-10-21：并发子进程执行同一入口。
     $common += @'
+$initializeAutomation = {} # 2026-10-21：并发回放保留真实尾段和互斥，初始化由完整入口回归覆盖。
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 function Get-TargetProcessIds([int]$ProcessId) { return @{} }
 $automation = [pscustomobject]@{}
@@ -101,6 +105,7 @@ $automation | Add-Member ScriptMethod FindAll { param($scope, $condition) return
             $processes.Add($scanner)
             $slots.Add([pscustomobject]@{ Parent = $parent; Scanner = $scanner; Pending = $null; Active = $false })
             if ($index -eq 0) {
+                Read-ConcurrencyLine $scanner '___SCANNER_INITIALIZING___' # 2026-10-22：初始化握手先于 READY，仍要求原就绪信号。
                 Read-ConcurrencyLine $scanner '___AUTOCLICK_READY___'
                 $slots[$index].Active = $true
             }
@@ -138,7 +143,8 @@ $automation | Add-Member ScriptMethod FindAll { param($scope, $condition) return
             $readyIndex = [Threading.Tasks.Task]::WaitAny($tasks, 10000)
             if ($readyIndex -lt 0) { throw 'No waiting scanner acquired released mutex' }
             $owner = $waiters[$readyIndex]
-            if ($owner.Pending.Result -cne '___AUTOCLICK_READY___') { throw 'Unexpected takeover protocol' }
+            if ($owner.Pending.Result -cne '___SCANNER_INITIALIZING___') { throw 'Unexpected takeover initialization protocol' } # 2026-10-22
+            Read-ConcurrencyLine $owner.Scanner '___AUTOCLICK_READY___'
             $remaining = @($waiters | Where-Object { $_ -ne $owner })
             if (@($remaining | Where-Object { $_.Pending.IsCompleted }).Count -ne 0) { throw 'Multiple waiting scanners acquired the mutex' }
             Write-Output "PASS concurrent handoff: round=$round abandoned=$abandon remaining=$($remaining.Count)"

@@ -181,6 +181,72 @@ test('READY 和两种 WAITING 握手取消启动超时，不误杀正常等待�
     }
 });
 
+/* 2026-10-22：真正等锁不计超时，接管初始化重新使用原一分钟上限；分段和重复协议不能续期。 */
+test('等待者接管初始化有截止时间，重复初始化标记不能延长', () => {
+    const harness = createHarness();
+    const child = harness.children[0].child;
+    child.stdout.emit('data', Buffer.from('___SCANNER_WAITING___\n'));
+    harness.advanceTime(180000);
+    assert.equal(child.killCalls, 0);
+    child.stdout.emit('data', Buffer.from('___SCANNER_INIT'));
+    assert.match(harness.status.text, /WAITING/);
+    assert.equal(harness.timers.size, 0);
+    child.stdout.emit('data', Buffer.from('IALIZING___\n'));
+    assert.match(harness.status.text, /STARTING/);
+    assert.equal(harness.timers.size, 1);
+    harness.advanceTime(55000);
+    child.stdout.emit('data', Buffer.from('___SCANNER_INITIALIZING___\n___SCANNER_WAITING___\n'));
+    harness.advanceTime(4999);
+    assert.equal(child.killCalls, 0);
+    harness.advanceTime(1);
+    assert.equal(child.killCalls, 1);
+    assert.match(harness.status.text, /RETRYING/);
+    harness.advanceTime(300);
+    assert.equal(harness.children.length, 2);
+});
+
+/* 2026-10-22：就绪撤销本次初始化计时；初次所有者不能靠初始化标记延长原启动截止时间。 */
+test('接管 READY 清除初始化计时，冷启动初始化不续期', () => {
+    const harness = createHarness();
+    const child = harness.children[0].child;
+    child.stdout.emit('data', Buffer.from('___SCANNER_WAITING___\n___SCANNER_INITIALIZING___\n'));
+    harness.advanceTime(59000);
+    child.stdout.emit('data', Buffer.from('___AUTOCLICK_READY___\n'));
+    assert.equal(harness.timers.size, 0);
+    harness.advanceTime(180000);
+    assert.equal(child.killCalls, 0);
+    assert.match(harness.status.text, /ON/);
+    const cold = createHarness();
+    cold.advanceTime(59000);
+    cold.children[0].child.stdout.emit('data', Buffer.from('___SCANNER_INITIALIZING___\n'));
+    cold.advanceTime(1000);
+    assert.equal(cold.children[0].child.killCalls, 1);
+});
+
+/* 2026-10-22：停止、卸载和换代均关闭本次初始化，旧实例的初始化或截止回调不能污染下一实例。 */
+test('接管初始化停止卸载和旧事件保持隔离', () => {
+    for (const action of ['stop', 'deactivate', 'restart']) {
+        const harness = createHarness();
+        const child = harness.children[0].child;
+        child.stdout.emit('data', Buffer.from('___SCANNER_WAITING___\n___SCANNER_INITIALIZING___\n'));
+        assert.equal(harness.timers.size, 1);
+        const oldDeadline = [...harness.timers.values()][0].callback;
+        if (action === 'deactivate') { harness.exports.deactivate(); } else { harness.command(action); }
+        if (action === 'restart') {
+            harness.advanceTime(300);
+            const second = harness.children[1].child;
+            second.stdout.emit('data', Buffer.from('___AUTOCLICK_READY___\n'));
+            oldDeadline();
+            child.stdout.emit('data', Buffer.from('___SCANNER_INITIALIZING___\n'));
+            assert.match(harness.status.text, /ON/);
+            assert.equal(second.killCalls, 0);
+        }
+        assert.equal(harness.timers.size, 0);
+        harness.advanceTime(180000);
+        assert.equal(harness.children.length, action === 'restart' ? 2 : 1);
+    }
+});
+
 /* 2026-10-20：日志中引用的握手不是就绪信号，不能提前显示 ON 或撤销启动恢复。 */
 test('普通输出引用协议标记时保留启动截止时间', () => {
     for (const marker of ['___AUTOCLICK_READY___', '___SCANNER_WAITING___', '___ALREADY_RUNNING___']) {
@@ -486,15 +552,39 @@ test('真实 PowerShell 启动协议通过扫描器自测且 stderr 为空', { s
     const encodedIndex = args.indexOf('-EncodedCommand');
     assert.notEqual(encodedIndex, -1);
     args[encodedIndex + 1] = Buffer.from(`${getScannerCommand(spawned)} -SelfTest`, 'utf16le').toString('base64');
+    /* 2026-10-23：仅在原同步调用返回后失败时保存其原件，不增加进程、预热或修改原截止时间。 */
+    const startedUtc = new Date().toISOString(), started = process.hrtime.bigint();
     const result = require('node:child_process').spawnSync(spawned.command, args, {
         windowsHide: true,
         encoding: 'utf8',
         timeout: 20000,
     });
-    assert.ifError(result.error);
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /___SELFTEST_DONE___:passed=[1-9][0-9]*/);
-    assert.equal(result.stderr, '');
+    const returnedUtc = new Date().toISOString(), durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+    try {
+        assert.ifError(result.error);
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /___SELFTEST_DONE___:passed=[1-9][0-9]*/);
+        assert.equal(result.stderr, '');
+    } catch (error) {
+        try {
+            const directory = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || require('node:os').tmpdir(), 'AntigravityAA-LifecycleTimeout-'));
+            const receipt = {
+                SpawnSyncReturned: true, PreKillCapture: false, StreamsAreNodeDecodedUtf8: true,
+                StartedUtc: startedUtc, ReturnedUtc: returnedUtc, DurationMs: durationMs,
+                Command: spawned.command, Args: args,
+                Pid: result.pid ?? null, Status: result.status ?? null, Signal: result.signal ?? null,
+                Error: result.error ? Object.fromEntries(['name', 'message', 'stack', 'code', 'errno', 'syscall', 'path']
+                    .map(name => [name, result.error[name] ?? null])) : null,
+                Stdout: result.stdout ?? null, Stderr: result.stderr ?? null,
+            };
+            fs.writeFileSync(path.join(directory, 'receipt.json'), JSON.stringify(receipt, null, 2), 'utf8');
+            fs.writeFileSync(path.join(directory, 'stdout.log'), result.stdout ?? '', 'utf8');
+            fs.writeFileSync(path.join(directory, 'stderr.log'), result.stderr ?? '', 'utf8');
+        } catch (diagnosticError) {
+            console.error('Lifecycle failure evidence could not be written:', diagnosticError);
+        }
+        throw error;
+    }
 });
 /* 2026-10-07：授信、展示配置和管道故障不能覆盖用户停止意图或中断宿主。 */
 test('用户停止后授予工作区信任仍保持 OFF', () => {

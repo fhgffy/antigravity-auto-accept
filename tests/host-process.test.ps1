@@ -378,6 +378,103 @@ finally { $current.Dispose() }
 Assert-Host ($null -eq [MouseHelper]::GetProcessImagePath(0)) 'real zero pid rejected'
 Assert-Host ($null -eq [MouseHelper]::GetProcessImagePath([uint32]4294967295)) 'real nonexistent pid rejected'
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'Cross-bitness test requires Windows x64' }
+# 2026-10-22：外部64位收集器只读取持有目标；固定五秒上限和独立回收，不能占满原45秒宿主截止时间。
+function Save-HostTimeoutDump {
+    # 2026-10-23：默认不改收集器模式；原生x86控制显式要求真实EXE的JIT回执。
+    param([Diagnostics.Process]$Target,[string]$ExpectedImage,[string]$DumpPath,[string]$CollectorEngine='',[switch]$ExecutableCollector,[string]$CollectorStackTool='',[switch]$CollectorJit) # 2026-10-22：仅失败后的可选旁路工具。
+    # 2026-10-22：此回执只有固定的字符串/整数/布尔字段，直接编码避免首次ConvertTo-Json自动加载阻塞取证收尾。
+    function ConvertTo-DumpJsonString([string]$Value) {
+        $text = [Text.StringBuilder]::new()
+        [void]$text.Append('"')
+        foreach ($character in $Value.ToCharArray()) {
+            $code = [int]$character
+            if ($code -eq 34 -or $code -eq 92) { [void]$text.Append('\'); [void]$text.Append($character) }
+            elseif ($code -lt 32 -or $code -ge 127) { [void]$text.Append('\u'); [void]$text.Append($code.ToString('x4',[Globalization.CultureInfo]::InvariantCulture)) }
+            else { [void]$text.Append($character) }
+        }
+        [void]$text.Append('"')
+        return $text.ToString()
+    }
+    $record=[ordered]@{Pid=$Target.Id;Path=$DumpPath;Written=$false;TimedOut=$false;Error='';CollectorPid=$null;CollectorExited=$false}
+    $collector=$null;$started=$false
+    try {
+        if([string]::IsNullOrWhiteSpace($CollectorEngine)){$CollectorEngine=[IO.Path]::Combine($env:ProgramW6432,'PowerShell\7\pwsh.exe')} # 2026-10-22：默认路径不依赖命令模块冷加载。
+        $source=[IO.Path]::Combine($PSScriptRoot,'fixtures\host-child-diagnostics.cs') # 2026-10-22：原生EXE分支也能在禁止自动加载时建立相同源路径。
+        $command='$ErrorActionPreference=''Stop''; if([IntPtr]::Size -ne 8){throw ''Dump collector requires x64''}; $p=[Diagnostics.Process]::GetProcessById('+ $Target.Id +'); try { if($p.StartTime.ToUniversalTime().Ticks -ne '+$Target.StartTime.ToUniversalTime().Ticks+' -or -not [String]::Equals($p.MainModule.FileName,'''+$ExpectedImage.Replace("'","''")+''',[StringComparison]::OrdinalIgnoreCase)){throw ''Owned dump target identity changed''}; Add-Type -TypeDefinition ([IO.File]::ReadAllText('''+$source.Replace("'","''")+''',[Text.Encoding]::UTF8)); [HostChildDiagnostics]::Write($p,'''+$DumpPath.Replace("'","''")+'''); [Console]::WriteLine(''___HOST_DUMP_WRITTEN___'') } finally {$p.Dispose()}'
+        $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=$CollectorEngine
+        $start.Arguments='-NoProfile -NonInteractive -OutputFormat Text -EncodedCommand '+[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        # 2026-10-22：独立预编译测试工具通过普通参数接收同一目标身份，五秒期限内无需启动PowerShell及现场编译。
+        if($ExecutableCollector){
+            if($ExpectedImage.Contains('"') -or $DumpPath.Contains('"')){throw 'Invalid owned collector path'}
+            $start.Arguments=$Target.Id.ToString([Globalization.CultureInfo]::InvariantCulture)+' '+$Target.StartTime.ToUniversalTime().Ticks.ToString([Globalization.CultureInfo]::InvariantCulture)+' "'+$ExpectedImage+'" "'+$DumpPath+'"'
+            if($CollectorJit){$start.Arguments+=' --require-jit'} # 2026-10-23：该标志只交给自有EXE，不追加给EncodedCommand分支。
+        }
+        # 2026-10-23：只改变本次自有收集器的启动环境，不向当前pwsh或其它测试进程传播。
+        if($CollectorJit){$start.EnvironmentVariables['COMPlus_ZapDisable']='1'}
+        $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
+        $collector=[Diagnostics.Process]::new();$collector.StartInfo=$start
+        if(-not $collector.Start()){throw 'Dump collector did not start'}
+        $started=$true;$record.CollectorPid=$collector.Id
+        $output=$collector.StandardOutput.ReadToEndAsync();$errors=$collector.StandardError.ReadToEndAsync()
+        if(-not $collector.WaitForExit(5000)){
+            $record.TimedOut=$true
+            # 2026-10-22：原失败已成立，最多再用1.5秒取超时收集器自身的最小栈；不递归、不改原回执或目标存活状态。
+            if(-not [string]::IsNullOrWhiteSpace($CollectorStackTool)){
+                $secondary=$null;$secondaryStarted=$false;$stackClock=[Diagnostics.Stopwatch]::StartNew()
+                $stackRecord=[ordered]@{Pid=$collector.Id;StartTicks='';Image='';Written=$false;TimedOut=$false;ExitConfirmed=$false;Error='';ElapsedMs=0;Stdout='';Stderr=''}
+                try {
+                    $stackRecord.StartTicks=$collector.StartTime.ToUniversalTime().Ticks.ToString([Globalization.CultureInfo]::InvariantCulture)
+                    $stackRecord.Image=[IO.Path]::GetFullPath($CollectorEngine) # 2026-10-22：32位调用者不能读64位MainModule；工具仍独立核验真实路径。
+                    if($stackRecord.Image.Contains('"') -or $DumpPath.Contains('"')){throw 'Invalid owned stack path'}
+                    $stackStart=[Diagnostics.ProcessStartInfo]::new();$stackStart.FileName=$CollectorStackTool
+                    $stackStart.Arguments=$stackRecord.Pid.ToString([Globalization.CultureInfo]::InvariantCulture)+' '+$stackRecord.StartTicks+' "'+$stackRecord.Image+'" "'+$DumpPath+'.collector.dmp" --collector-stack'
+                    if($CollectorJit){$stackStart.Arguments+=' --require-jit'} # 2026-10-23：次级取证也必须验证相同运行模式。
+                    # 2026-10-23：次级自有收集器也使用同一局部模式，仍受原1.5秒独立预算约束。
+                    if($CollectorJit){$stackStart.EnvironmentVariables['COMPlus_ZapDisable']='1'}
+                    $stackStart.UseShellExecute=$false;$stackStart.CreateNoWindow=$true;$stackStart.RedirectStandardOutput=$true;$stackStart.RedirectStandardError=$true
+                    $secondary=[Diagnostics.Process]::new();$secondary.StartInfo=$stackStart
+                    if(-not $secondary.Start()){throw 'Collector stack tool did not start'}
+                    $secondaryStarted=$true
+                    $stackOut=$secondary.StandardOutput.ReadToEndAsync();$stackErr=$secondary.StandardError.ReadToEndAsync()
+                    if(-not $secondary.WaitForExit([Math]::Max(0,1000-[int]$stackClock.ElapsedMilliseconds))){$stackRecord.TimedOut=$true;throw 'Collector stack deadline expired'}
+                    if(-not $stackOut.Wait([Math]::Max(0,1200-[int]$stackClock.ElapsedMilliseconds)) -or -not $stackErr.Wait([Math]::Max(0,1200-[int]$stackClock.ElapsedMilliseconds))){throw 'Collector stack streams incomplete'}
+                    $stackRecord.Stdout=$stackOut.GetAwaiter().GetResult();$stackRecord.Stderr=$stackErr.GetAwaiter().GetResult()
+                    if($secondary.ExitCode -ne 0 -or $stackRecord.Stderr.Length -ne 0 -or $stackRecord.Stdout.Trim() -cne '___HOST_COLLECTOR_STACK_WRITTEN___'){throw 'Collector stack tool failed'}
+                    $stackRecord.Written=$true
+                } catch {$stackRecord.Error=$_.Exception.GetBaseException().GetType().FullName+':'+$_.Exception.GetBaseException().Message}
+                finally {
+                    if($null -ne $secondary){
+                        if($secondaryStarted){try{if(-not $secondary.get_HasExited()){$secondary.Kill()};$stackRecord.ExitConfirmed=$secondary.WaitForExit([Math]::Max(0,1500-[int]$stackClock.ElapsedMilliseconds))}catch{$stackRecord.Error+=';cleanup:'+ $_.Exception.GetType().FullName}}
+                        try{$secondary.Dispose()}catch{$stackRecord.Error+=';dispose:'+ $_.Exception.GetType().FullName}
+                    }
+                    $stackRecord.ElapsedMs=$stackClock.ElapsedMilliseconds
+                    try {
+                        $stackJson='{"Pid":'+$stackRecord.Pid.ToString([Globalization.CultureInfo]::InvariantCulture)+',"StartTicks":'+(ConvertTo-DumpJsonString $stackRecord.StartTicks)+',"Image":'+(ConvertTo-DumpJsonString $stackRecord.Image)+',"Written":'+$stackRecord.Written.ToString().ToLowerInvariant()+',"TimedOut":'+$stackRecord.TimedOut.ToString().ToLowerInvariant()+',"ExitConfirmed":'+$stackRecord.ExitConfirmed.ToString().ToLowerInvariant()+',"Error":'+(ConvertTo-DumpJsonString $stackRecord.Error)+',"ElapsedMs":'+$stackRecord.ElapsedMs.ToString([Globalization.CultureInfo]::InvariantCulture)+',"Stdout":'+(ConvertTo-DumpJsonString $stackRecord.Stdout)+',"Stderr":'+(ConvertTo-DumpJsonString $stackRecord.Stderr)+'}'
+                        [IO.File]::WriteAllText($DumpPath+'.collector.json',$stackJson,[Text.UTF8Encoding]::new($false))
+                    } catch { }
+                }
+            }
+            throw 'Dump collector deadline expired'
+        }
+        if(-not $output.Wait(1000) -or -not $errors.Wait(1000)){throw 'Dump collector streams incomplete'}
+        $outText=$output.GetAwaiter().GetResult();$errText=$errors.GetAwaiter().GetResult()
+        if($collector.ExitCode -ne 0 -or $errText.Length -ne 0 -or $outText.Trim() -cne '___HOST_DUMP_WRITTEN___'){throw ('Dump collector failed: '+$errText.Trim())}
+        $record.Written=$true
+    } catch {$cause=$_.Exception.GetBaseException();$record.Error=$cause.GetType().FullName+':'+$cause.Message}
+    finally {
+        if($null -ne $collector){
+            if($started){try{if(-not $collector.get_HasExited()){$collector.Kill()};$record.CollectorExited=$collector.WaitForExit(1000)}catch{$record.Error+=';cleanup:'+ $_.Exception.GetType().FullName}}
+            try{$collector.Dispose()}catch{$record.Error+=';dispose:'+ $_.Exception.GetType().FullName}
+        }
+        # 2026-10-22：保留原JSON字段与null语义；字符串包含控制字符或UTF-16代理对也须按原文往返。
+        try {
+            $collectorPidJson = if ($null -eq $record.CollectorPid) { 'null' } else { $record.CollectorPid.ToString([Globalization.CultureInfo]::InvariantCulture) }
+            $json = '{"Pid":' + $record.Pid.ToString([Globalization.CultureInfo]::InvariantCulture) + ',"Path":' + (ConvertTo-DumpJsonString $record.Path) + ',"Written":' + $record.Written.ToString().ToLowerInvariant() + ',"TimedOut":' + $record.TimedOut.ToString().ToLowerInvariant() + ',"Error":' + (ConvertTo-DumpJsonString $record.Error) + ',"CollectorPid":' + $collectorPidJson + ',"CollectorExited":' + $record.CollectorExited.ToString().ToLowerInvariant() + '}'
+            [Console]::WriteLine('___HOST_CHILD_DUMP___:' + $json)
+        } catch { }
+    }
+}
+
 <# 2026-10-09：进程身份断言使用最小明确架构 EXE；PowerShell 启动语义留在独立冻结诊断。 #>
 $compilerPath = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $fixtureSourcePath = Join-Path $PSScriptRoot 'fixtures\host-process-child.cs'
@@ -422,6 +519,7 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
     $hasExitedAfterStop = $null
     $processQueryError = ''
     $stopError = ''
+    $ownedDiagnosticPath = $null # 2026-10-22：超时现场只写本例编译目录，保留二进制与转储用于定位。
     try {
         if ([IO.Directory]::Exists($ownedStageDirectory)) { throw 'Owned stage directory collision' }
         [void][IO.Directory]::CreateDirectory($ownedStageDirectory)
@@ -432,7 +530,7 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
         $ownedBinaryDirectoryCreated = $true
         $compileStart = New-Object Diagnostics.ProcessStartInfo
         $compileStart.FileName = $compilerPath
-        $compileStart.Arguments = '/nologo /target:exe /codepage:65001 /platform:' + $fixture.Platform + ' /out:"' + $fixture.Engine + '" "' + $fixtureSourcePath + '"'
+        $compileStart.Arguments = '/nologo /noconfig /reference:System.dll /target:exe /codepage:65001 /platform:' + $fixture.Platform + ' /out:"' + $fixture.Engine + '" "' + $fixtureSourcePath + '"' # 2026-10-22：只引用夹具所需System，原源和平台不变。
         $compileStart.UseShellExecute = $false
         $compileStart.CreateNoWindow = $true
         $compileStart.RedirectStandardOutput = $true
@@ -444,7 +542,12 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
             $compilerStarted = $true; $compilerPid = $compiler.Id
             $compileOut = $compiler.StandardOutput.ReadToEndAsync()
             $compileError = $compiler.StandardError.ReadToEndAsync()
-            if (-not $compiler.WaitForExit(10000)) { throw 'Owned child compile timeout' }
+            if (-not $compiler.WaitForExit(10000)) {
+                # 2026-10-22：编译器同样保留活实例转储，仍抛原十秒编译超时，不延长成功截止时间。
+                $ownedDiagnosticPath = [IO.Path]::Combine($ownedBinaryDirectory, 'compiler-timeout.dmp')
+                Save-HostTimeoutDump $compiler $compilerPath $ownedDiagnosticPath
+                throw 'Owned child compile timeout'
+            }
             if ($compiler.ExitCode -ne 0 -or $compileOut.GetAwaiter().GetResult().Length -ne 0 -or $compileError.GetAwaiter().GetResult().Length -ne 0) { throw 'Owned child compile failed' }
         } finally {
             # 2026-10-09：清理旁证不覆盖原编译异常；无法确认退出时保留自有目录。
@@ -468,6 +571,11 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
             try { $exitedBeforeStop = $child.get_HasExited() } catch { $processQueryError = $_.Exception.GetType().FullName }
             $readyState = $pendingReady.Status.ToString()
             $errorState = $pendingError.Status.ToString()
+            # 2026-10-22：原十秒 READY 已失败，独立有界收集器退出后仍按原路径停止目标并抛超时。
+            if ($exitedBeforeStop -eq $false) {
+                $ownedDiagnosticPath = [IO.Path]::Combine($ownedBinaryDirectory, 'ready-timeout.dmp')
+                Save-HostTimeoutDump $child $fixture.Expected $ownedDiagnosticPath
+            }
             try { if ($exitedBeforeStop -ne $true) { $child.Kill() } } catch { $stopError = $_.Exception.GetType().FullName }
             try { if ($exitedBeforeStop -ne $true) { $exitWaitCompleted = $child.WaitForExit(5000) } } catch { $stopError = $_.Exception.GetType().FullName }
             try { $hasExitedAfterStop = $child.get_HasExited() } catch { $processQueryError = $_.Exception.GetType().FullName }
@@ -569,7 +677,8 @@ foreach ($fixture in @(@{ Platform = 'x64'; Bits = 8 }, @{ Platform = 'x86'; Bit
         <# 2026-10-09：子进程和编译器均确认退出后，只删登记的绝对 EXE，非递归删除独占空目录。 #>
         $binaryCleanup = [ordered]@{ CompilerPid = $compilerPid; CompilerStarted = $compilerStarted; CompilerExitConfirmed = $compilerExitConfirmed; CompilerError = $compilerCleanupError; Directory = $ownedBinaryDirectory; State = 'not-created'; Error = '' }
         if ($ownedBinaryDirectoryCreated) {
-            if ((-not $childStarted -or $hasExitedAfterStop -eq $true) -and (-not $compilerStarted -or $compilerExitConfirmed)) {
+            if ($null -ne $ownedDiagnosticPath) { $binaryCleanup.State = 'kept-timeout-diagnostic' } # 2026-10-22：失败现场不进入成功清理分支。
+            elseif ((-not $childStarted -or $hasExitedAfterStop -eq $true) -and (-not $compilerStarted -or $compilerExitConfirmed)) {
                 try {
                     $binaryDirectory = [IO.Path]::GetFullPath($ownedBinaryDirectory)
                     $binaryPath = [IO.Path]::GetFullPath($fixture.Engine)

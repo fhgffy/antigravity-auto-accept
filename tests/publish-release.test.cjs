@@ -191,7 +191,7 @@ function execute(id, mode, overrides = {}) {
 
 test('publish entry excludes PR/fork and consumes only the same run artifact', () => {
   const job = workflow.slice(workflow.indexOf('\n  publish:'));
-  assert.match(job, /needs: package/);
+  assert.match(job, /needs: validation/); // 2026-10-22：发布等待共享的两引擎与打包验证整体成功。
   assert.match(job, /github\.repository == 'fhgffy\/antigravity-auto-accept'/);
   assert.match(job, /github\.event_name == 'push'/);
   assert.match(job, /github\.ref == 'refs\/heads\/main'/);
@@ -199,6 +199,37 @@ test('publish entry excludes PR/fork and consumes only the same run artifact', (
   assert.match(job, /name: antigravity-auto-accept-\$\{\{ github\.sha \}\}/);
   assert.doesNotMatch(job, /workflow_run|--clobber/);
   assert.match(workflow, /cancel-in-progress: \$\{\{ github\.ref != 'refs\/heads\/main' \}\}/);
+});
+
+// 2026-10-22：完整验收复用生产门，验证两引擎先于打包、默认产物契约及二十份产物隔离，防止诊断样本冒充完整CI。
+test('complete stability samples reuse the same read-only two-engine and package workflow', () => {
+  const core = fs.readFileSync(path.join(root, '.github/workflows/windows-validation.yml'), 'utf8');
+  const stability = workflow.slice(workflow.indexOf('\n  stability:'), workflow.indexOf('\n  # 2026-10-07：只发布'));
+  const validation = workflow.slice(workflow.indexOf('\n  validation:'), workflow.indexOf('\n  stability:'));
+  assert.match(validation, /uses: \.\/\.github\/workflows\/windows-validation\.yml/);
+  assert.match(core, /workflow_call:/);
+  assert.match(core, /artifact_suffix:[\s\S]*?type: string[\s\S]*?default: ''/);
+  assert.match(core, /permissions:\r?\n  contents: read/);
+  assert.doesNotMatch(core, /^  (?:publish|concurrency):|secrets:|contents: write|workflow_dispatch:|pull_request:/m);
+  const engine = core.slice(core.indexOf('\n  test:'), core.indexOf('\n  package:'));
+  assert.match(engine, /label: Windows PowerShell 5\.1/);
+  assert.match(engine, /label: PowerShell 7/);
+  assert.match(engine, /fail-fast: false/);
+  for (const step of ['Scanner regression on one engine', 'Host wrapper timeout diagnostics and failure boundaries', 'Host process identity across architectures', 'Mouse input interference without desktop clicks', 'Concurrent scanner handoff without desktop clicks']) assert.ok(engine.includes('name: ' + step), step);
+  const pack = core.slice(core.indexOf('\n  package:'));
+  assert.match(pack, /needs: test/);
+  assert.match(pack, /name: antigravity-auto-accept-\$\{\{ github\.sha \}\}\$\{\{ inputs\.artifact_suffix \}\}/);
+  assert.match(pack, /\.\/tests\/validate-vsix\.ps1 -VsixPath \$vsix/);
+  assert.match(workflow, /complete_stability:[\s\S]*?type: boolean[\s\S]*?default: false/);
+  assert.match(stability, /if: github\.event_name == 'workflow_dispatch' && inputs\.complete_stability/);
+  assert.match(workflow, /permissions:\r?\n  contents: read/);
+  assert.match(stability, /fail-fast: false/);
+  assert.match(stability, /uses: \.\/\.github\/workflows\/windows-validation\.yml/);
+  assert.match(stability, /artifact_suffix: -stability-\$\{\{ matrix\.iteration \}\}/);
+  const samples = stability.match(/iteration: (\[[0-9, ]+\])/);
+  assert.ok(samples);
+  assert.deepEqual(JSON.parse(samples[1]), Array.from({ length: 20 }, (_, index) => index + 1));
+  assert.doesNotMatch(stability, /secrets:|contents: write|workflow_run:|pull_request:|\n  push:/);
 });
 
 for (const mode of ['new', 'same-sha', 'missing-both', 'package-only']) {

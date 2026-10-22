@@ -52,6 +52,28 @@ if ([string]::IsNullOrWhiteSpace($mouseClassSource)) { throw 'MouseHelper class 
 Add-Type -TypeDefinition $csharp -ErrorAction Stop
 $checks = 1
 $failures = @()
+# 2026-10-22：从SelfTest原样迁入八项窗口归属输入，直接调用未替换的生产C#，不调用任何桌面API。
+    $stateCases = @(
+        @{ Root = 42; Exists = $true; Visible = $true; Enabled = $true; Iconic = $false; Process = 10; Expected = $true },
+        @{ Root = 43; Exists = $true; Visible = $true; Enabled = $true; Iconic = $false; Process = 10; Expected = $false },
+        @{ Root = 0; Exists = $true; Visible = $true; Enabled = $true; Iconic = $false; Process = 10; Expected = $false },
+        @{ Root = 42; Exists = $false; Visible = $true; Enabled = $true; Iconic = $false; Process = 10; Expected = $false },
+        @{ Root = 42; Exists = $true; Visible = $false; Enabled = $true; Iconic = $false; Process = 10; Expected = $false },
+        @{ Root = 42; Exists = $true; Visible = $true; Enabled = $false; Iconic = $false; Process = 10; Expected = $false },
+        @{ Root = 42; Exists = $true; Visible = $true; Enabled = $true; Iconic = $true; Process = 10; Expected = $false },
+        @{ Root = 42; Exists = $true; Visible = $true; Enabled = $true; Iconic = $false; Process = 11; Expected = $false }
+    )
+foreach ($case in $stateCases) {
+    $actual = [MouseHelper]::IsHitTargetWindow([IntPtr]42, [IntPtr]$case.Root, $case.Exists, $case.Visible, $case.Enabled, $case.Iconic, [uint32]$case.Process, [uint32]10)
+    if ($actual -ne $case.Expected) { throw "Native window ownership mismatch: $($case | ConvertTo-Json -Compress)" }
+    $checks++
+}
+# 2026-10-22：补齐两个独立零身份边界，不能让匹配根句柄或PID相等代替有效身份。
+foreach ($case in @(@{ Target = 0; Root = 0; ExpectedProcess = 10 }, @{ Target = 42; Root = 42; ExpectedProcess = 0 })) {
+    if ([MouseHelper]::IsHitTargetWindow([IntPtr]$case.Target, [IntPtr]$case.Root, $true, $true, $true, $false, [uint32]$case.ExpectedProcess, [uint32]$case.ExpectedProcess)) { throw 'Native zero window/process identity accepted' }
+    $checks++
+}
+Write-Output 'PASS native window ownership: original=8 zero-identity=2'
 $inputType = [MouseHelper].GetNestedType('INPUT')
 if ($null -ne $inputType) {
     $expectedSize = if ([IntPtr]::Size -eq 8) { 40 } else { 28 }

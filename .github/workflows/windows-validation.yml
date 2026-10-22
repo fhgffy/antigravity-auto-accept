@@ -1,0 +1,240 @@
+# 2026-10-22：生产CI与手动完整验收共用原两引擎和打包步骤；本文件不含发布、凭据或并发取消。
+name: Windows validation core
+
+on:
+  workflow_call:
+    inputs:
+      artifact_suffix:
+        description: 'Optional sample suffix; empty preserves the normal release artifact name'
+        type: string
+        default: ''
+      # 2026-10-22：普通push/PR和稳定性样本默认不记录；仅显式手动诊断实例。
+      native_startup_trace:
+        type: boolean
+        default: false
+      # 2026-10-22：显式布尔选择只映射两个托管标签，禁止任意runner字符串；步骤与期限不变。
+      windows_2022:
+        type: boolean
+        # 2026-10-23：旧调用者同样默认使用已对照的2022，不预读系统文件或放宽任何检查。
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.label }})
+    runs-on: ${{ inputs.windows_2022 && 'windows-2022' || 'windows-latest' }}
+    timeout-minutes: 15
+    # 2026-10-07：作业默认值支持矩阵上下文，步骤 shell 字段不能直接使用矩阵表达式。
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Windows PowerShell 5.1
+            shell: powershell
+            executable: powershell.exe
+            major: 5
+          - label: PowerShell 7
+            shell: pwsh
+            executable: pwsh.exe
+            major: 7
+    steps:
+      # 2026-10-07：采用官方 Node 24 运行时 Actions，测试项目仍使用 Node 22。
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Verify selected engine
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne ${{ matrix.major }}) { throw 'Unexpected PowerShell engine' }
+          Write-Output "PowerShell=$($PSVersionTable.PSVersion) edition=$($PSVersionTable.PSEdition)"
+      # 2026-10-22：只在一次性云端VM记录系统ETW；先存唯一实例意图，启动失败后仍可精确收尾。
+      - name: Start native startup trace
+        if: inputs.native_startup_trace
+        timeout-minutes: 1
+        run: |
+          if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') { throw 'Native trace requires a disposable hosted VM' }
+          $root = Join-Path $env:RUNNER_TEMP 'AntigravityAA-ci-startup-trace'
+          if ([IO.Directory]::Exists($root)) { throw 'Preserve previous native trace evidence' }
+          [void][IO.Directory]::CreateDirectory((Join-Path $root 'raw'))
+          $instance = 'AAA-' + [Guid]::NewGuid().ToString('N')
+          [IO.File]::WriteAllText((Join-Path $root 'instance.txt'), $instance, [Text.UTF8Encoding]::new($false))
+          & "$env:WINDIR\System32\wpr.exe" -start GeneralProfile -filemode -recordtempto (Join-Path $root 'raw') -instancename $instance *> (Join-Path $root 'start.log')
+          $code = $LASTEXITCODE
+          Get-Content -LiteralPath (Join-Path $root 'start.log')
+          if ($code -ne 0) { throw "Native trace start failed: $code" }
+          [IO.File]::WriteAllText((Join-Path $root 'started.txt'), [DateTime]::UtcNow.ToString('o'), [Text.UTF8Encoding]::new($false))
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Compile and typecheck
+        run: |
+          npm run compile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run typecheck
+      - name: Validate repository and extension lifecycle
+        run: |
+          npm run test:repository
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:lifecycle
+      # 2026-10-07：执行真实发布脚本的离线边界回归，PR 不联网或使用发布凭据。
+      - name: Offline release and store publication regression
+        run: node --test tests/publish-release.test.cjs
+      # 2026-10-22：取证EXE事先按原十五秒编译上限准备，原自测十五秒与取证五秒均不增加。
+      - name: Prepare bounded dump collector
+        run: |
+          $prepared = node tests/prepare-dump-collector.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $collector = $prepared | ConvertFrom-Json
+          [IO.File]::AppendAllText($env:GITHUB_ENV, ('AAA_TEST_DUMP_COLLECTOR=' + $collector.path + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
+      - name: Scanner regression on one engine
+        run: |
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/scanner.test.ps1'))
+          $tokens = $null
+          $parseErrors = $null
+          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw 'Scanner test parse errors' }
+          & ($testAst.GetScriptBlock()) -PowerShellEngines @('${{ matrix.executable }}') -TimeoutCollectorPath $env:AAA_TEST_DUMP_COLLECTOR
+      # 2026-10-16：先注入真实四十五秒停滞，验证失败诊断和回收；成功标记不能使超时变绿。
+      - name: Host wrapper timeout diagnostics and failure boundaries
+        env:
+          HOST_WRAPPER_ENGINE: ${{ matrix.executable }}
+        run: npm run test:host-wrapper
+      # 2026-10-07：实际查询自有跨位数进程路径，退出、权限及缓冲边界只替原生依赖。
+      - name: Host process identity across architectures
+        run: |
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/host-process.test.ps1'))
+          $tokens = $null
+          $parseErrors = $null
+          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw 'Host process test parse errors' }
+          $hostEngines = @('${{ matrix.executable }}')
+          if ($PSVersionTable.PSVersion.Major -eq 5) {
+            $hostEngines += Join-Path $env:WINDIR 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+          }
+          & ($testAst.GetScriptBlock()) -PowerShellEngines $hostEngines
+      # 2026-10-07：直接回放生产物理方法，系统输入边界用内存替身，CI 不点击桌面。
+      - name: Mouse input interference without desktop clicks
+        run: |
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/mouse-helper.test.ps1'))
+          $tokens = $null
+          $parseErrors = $null
+          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw 'Mouse helper test parse errors' }
+          # 2026-10-07：PS5 作业同时验证 x86 原生 INPUT 布局，不能用 x64 结构大小替代。
+          $mouseEngines = @('${{ matrix.executable }}')
+          if ($PSVersionTable.PSVersion.Major -eq 5) {
+            $mouseEngines += Join-Path $env:WINDIR 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+          }
+          & ($testAst.GetScriptBlock()) -PowerShellEngines $mouseEngines
+      - name: Concurrent scanner handoff without desktop clicks
+        run: |
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/scanner-concurrency.test.ps1'))
+          $tokens = $null
+          $parseErrors = $null
+          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw 'Concurrency test parse errors' }
+          & ($testAst.GetScriptBlock()) -PowerShellEngines @('${{ matrix.executable }}')
+
+      # 2026-10-22：原步骤失败也保存ETW，所有原命令/断言/截止不变；跳过额外NGen符号生成的停录成本。
+      - name: Save native startup trace
+        if: ${{ always() && inputs.native_startup_trace }}
+        timeout-minutes: 1
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'AntigravityAA-ci-startup-trace'
+          $identity = Join-Path $root 'instance.txt'
+          if (-not [IO.File]::Exists($identity)) { return }
+          $instance = [IO.File]::ReadAllText($identity)
+          if ($instance -cnotmatch '^AAA-[a-f0-9]{32}$') { throw 'Native trace instance identity invalid' }
+          & "$env:WINDIR\System32\wpr.exe" -status -instancename $instance *> (Join-Path $root 'status.log')
+          $trace = Join-Path $root 'startup.etl'
+          & "$env:WINDIR\System32\wpr.exe" -stop $trace -skipPdbGen -instancename $instance *> (Join-Path $root 'save.log')
+          $code = $LASTEXITCODE
+          Get-Content -LiteralPath (Join-Path $root 'save.log')
+          if ($code -ne 0) { throw "Native trace save failed: $code" }
+          if (-not [IO.File]::Exists($trace) -or ([IO.FileInfo]$trace).Length -le 0) { throw 'Native ETL absent or empty' }
+          [IO.File]::WriteAllText((Join-Path $root 'saved.txt'), [DateTime]::UtcNow.ToString('o'), [Text.UTF8Encoding]::new($false))
+      # 2026-10-22：仅撤销本作业预存的唯一实例，禁止全局cancel；原失败不会因收尾成功变绿。
+      - name: Clean up owned native trace instance
+        if: ${{ always() && inputs.native_startup_trace }}
+        timeout-minutes: 1
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP 'AntigravityAA-ci-startup-trace'
+          $identity = Join-Path $root 'instance.txt'
+          if (-not [IO.File]::Exists($identity) -or [IO.File]::Exists((Join-Path $root 'saved.txt'))) { return }
+          $instance = [IO.File]::ReadAllText($identity)
+          if ($instance -cnotmatch '^AAA-[a-f0-9]{32}$') { throw 'Native trace cleanup identity invalid' }
+          & "$env:WINDIR\System32\wpr.exe" -cancel -instancename $instance *> (Join-Path $root 'cancel.log')
+          $code = $LASTEXITCODE
+          [IO.File]::WriteAllText((Join-Path $root 'cancel-code.txt'), [string]$code, [Text.UTF8Encoding]::new($false))
+          if ($code -ne 0 -and [IO.File]::Exists((Join-Path $root 'started.txt'))) { throw "Owned native trace cleanup unconfirmed: $code" }
+      # 2026-10-22：只上传本测试独占前缀的失败子进程二进制与转储，不收集用户进程或整个临时目录。
+      - name: Preserve owned host child timeout diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: host-child-timeout-${{ github.run_id }}-${{ matrix.major }}${{ inputs.artifact_suffix }} # 2026-10-22：同次矩阵按样本隔离失败旁证。
+          # 2026-10-23：同步自测失败回执覆盖托管临时根与默认临时根，不扩大到其他进程。
+          path: |
+            ~\AppData\Local\Temp\AntigravityAA-HostBinary-*\*
+            ~\AppData\Local\Temp\AntigravityAA-HostWrapper-*\*
+            ~\AppData\Local\Temp\AntigravityAA-ScannerTimeout-*\*
+            ~\AppData\Local\Temp\AntigravityAA-DumpCollector-*\*
+            ${{ runner.temp }}/AntigravityAA-LifecycleTimeout-*/*
+            ~\AppData\Local\Temp\AntigravityAA-LifecycleTimeout-*\*
+          if-no-files-found: warn
+          retention-days: 14
+      # 2026-10-22：先保留原失败产物，再以一分钟预算上传可选ETL，避免大诊断挡住原证据。
+      - name: Preserve native startup trace
+        timeout-minutes: 1
+        if: ${{ always() && inputs.native_startup_trace }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: native-startup-trace-${{ github.run_id }}-${{ matrix.major }}${{ inputs.artifact_suffix }}
+          path: ${{ runner.temp }}/AntigravityAA-ci-startup-trace/
+          if-no-files-found: warn
+          retention-days: 14
+
+  package:
+    name: Verified VSIX
+    needs: test
+    runs-on: ${{ inputs.windows_2022 && 'windows-2022' || 'windows-latest' }}
+    timeout-minutes: 15
+    # 2026-10-22：动态runner表达式无法静态推断Windows默认语言；显式保留原pwsh及完整ShellCheck。
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      # 2026-10-07：采用官方 Node 24 运行时 Actions，测试项目仍使用 Node 22。
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Package extension
+        run: npm run package
+      - name: Verify packaged runtime and metadata
+        id: vsix
+        run: |
+          $manifest = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
+          $vsix = "$($manifest.name)-$($manifest.version).vsix"
+          & ./tests/validate-vsix.ps1 -VsixPath $vsix
+          $hash = (Get-FileHash -LiteralPath $vsix -Algorithm SHA256).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $PWD "$vsix.sha256"), "$hash  $vsix`n", [Text.UTF8Encoding]::new($false))
+          "path=$vsix" >> $env:GITHUB_OUTPUT
+      - name: Upload verified installable package
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: antigravity-auto-accept-${{ github.sha }}${{ inputs.artifact_suffix }} # 2026-10-22：空后缀保持原发布契约。
+          path: |
+            ${{ steps.vsix.outputs.path }}
+            ${{ steps.vsix.outputs.path }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
