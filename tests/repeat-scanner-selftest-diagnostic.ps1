@@ -31,13 +31,24 @@ $header = [ordered]@{ Engine = $engines[0]; CallerVersion = $PSVersionTable.PSVe
 foreach ($iteration in 1..$Repetitions) {
     $record = [ordered]@{ Iteration = $iteration; StartedUtc = [DateTime]::UtcNow.ToString('o'); ElapsedMs = 0; Passed = $false }
     $clock = [Diagnostics.Stopwatch]::StartNew()
+    # 2026-10-22：正文失败优先保留；旁证落盘失败另行报告，成功正文的记录失败本身仍须失败。
+    $failure = $null
     try {
         & $body
         $record.Passed = $true
     }
+    catch { $failure = $_ }
     finally {
         $record.ElapsedMs = $clock.ElapsedMilliseconds
-        [IO.File]::WriteAllText((Join-Path $EvidenceDirectory ('case-' + $iteration + '.json')), ($record | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+        try {
+            [IO.File]::WriteAllText((Join-Path $EvidenceDirectory ('case-' + $iteration + '.json')), ($record | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+        }
+        catch {
+            $writeFailure = $_
+            try { [Console]::Error.WriteLine('___SELFTEST_DIAGNOSTIC_WRITE_FAILED___:' + $writeFailure.Exception.GetBaseException().Message) } catch { }
+            if ($null -eq $failure) { throw $writeFailure }
+        }
     }
+    if ($null -ne $failure) { throw $failure }
 }
 Write-Output "___SCANNER_SELFTEST_DIAGNOSTIC_DONE___:passed=$Repetitions"

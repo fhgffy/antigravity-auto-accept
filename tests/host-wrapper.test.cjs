@@ -138,7 +138,7 @@ function stopOwnedSelfTest(pidFile, parentPid) {
     const command = "$ErrorActionPreference='Stop'; $record=Get-Content -LiteralPath $env:AAA_SELFTEST_PIDFILE -Raw|ConvertFrom-Json; "
         + "$child=Get-Process -Id ([int]$record.Pid) -ErrorAction SilentlyContinue; if($null -eq $child){exit 0}; try { "
         + "if($child.StartTime.ToUniversalTime().Ticks.ToString() -cne $record.StartTicks -or "
-        + "-not [String]::Equals($child.MainModule.FileName,$record.Path,[StringComparison]::OrdinalIgnoreCase) -or "
+        + "-not [String]::Equals($child.MainModule.FileName,$record.ExpectedImage,[StringComparison]::OrdinalIgnoreCase) -or "
         + "(Get-CimInstance Win32_Process -Filter ('ProcessId='+$record.Pid)).ParentProcessId -ne [int]$env:AAA_SELFTEST_PARENT_PID){throw 'Owned SelfTest identity mismatch'}; "
         + "$child.Kill(); if(-not $child.WaitForExit(5000)){throw 'Owned SelfTest exit unconfirmed'} "
         + "} finally {$child.Dispose()}";
@@ -152,6 +152,44 @@ function stopOwnedSelfTest(pidFile, parentPid) {
 }
 
 for (const [index, engine] of engines.entries()) {
+    // 2026-10-22：回放真实手动循环，证据写入与正文同时失败时仍保留首个自测错误，并在第一轮停止。
+    for (const mode of ['body-failure', 'write-failure', 'both-failure']) {
+        test(`${engine}: SelfTest iteration evidence ${mode}`, () => {
+            const evidencePath = path.join(owned, `iteration-${index}-${mode}`);
+            const bodyFails = mode !== 'write-failure';
+            const writeFails = mode !== 'body-failure';
+            if (writeFails) {
+                fs.writeFileSync(evidencePath, 'owned file blocks the directory', 'utf8');
+                selfTestFiles.push(evidencePath);
+            } else {
+                fs.mkdirSync(evidencePath);
+                selfTestDirectories.push(evidencePath);
+                selfTestFiles.push(path.join(evidencePath, 'case-1.json'));
+            }
+            const quote = value => "'" + value.replace(/'/g, "''") + "'";
+            const command = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); $t=$null;$e=$null; "
+                + "$a=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText("
+                + quote(path.join(__dirname, 'repeat-scanner-selftest-diagnostic.ps1')) + ",[Text.Encoding]::UTF8),[ref]$t,[ref]$e); "
+                + "$loops=@($a.EndBlock.Statements|Where-Object {$_ -is [Management.Automation.Language.ForEachStatementAst] -and $_.Extent.Text.Contains('$record.Passed')}); "
+                + "if($e.Count -or $loops.Count -ne 1){throw 'Exact diagnostic iteration loop missing'}; $Repetitions=3; $script:bodyCount=0; $EvidenceDirectory="
+                + quote(evidencePath) + "; $body={ $script:bodyCount++; "
+                + (bodyFails ? "throw [InvalidOperationException]::new('ORIGINAL_SELFTEST_FAILURE')" : "[void]0")
+                + " }; try {. ([scriptblock]::Create($loops[0].Extent.Text)); throw 'Iteration unexpectedly succeeded'} catch { "
+                + "[Console]::WriteLine('___SELFTEST_ITERATION_RESULT___:'+([ordered]@{Error=$_.Exception.Message;Iterations=$script:bodyCount}|ConvertTo-Json -Compress)) }";
+            const result = spawnSync(engine, ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand',
+                Buffer.from(command, 'utf16le').toString('base64')], { encoding: 'utf8', windowsHide: true, timeout: 10000 });
+            assert.ifError(result.error);
+            assert.equal(result.status, 0, result.stderr);
+            const line = result.stdout.split(/\r?\n/).find(value => value.startsWith('___SELFTEST_ITERATION_RESULT___:'));
+            assert.ok(line, 'diagnostic loop outcome retained');
+            const outcome = JSON.parse(line.slice('___SELFTEST_ITERATION_RESULT___:'.length));
+            assert.equal(outcome.Iterations, 1, 'first failure must stop repetitions');
+            if (bodyFails) assert.equal(outcome.Error, 'ORIGINAL_SELFTEST_FAILURE');
+            else assert.doesNotMatch(outcome.Error, /Iteration unexpectedly succeeded|ORIGINAL_SELFTEST_FAILURE/);
+            if (writeFails) assert.match(result.stderr, /___SELFTEST_DIAGNOSTIC_WRITE_FAILED___:/);
+            else assert.equal(result.stderr, '');
+        });
+    }
     for (const mode of ['stdout', 'stderr', 'exit', 'missing-done', 'timeout', 'ledger-failure', 'selftest-no-desktop']) {
         test(`${engine}: scanner SelfTest wrapper ${mode}`, () => {
             const pidFile = path.join(owned, `selftest-${index}-${mode}.json`);
@@ -196,8 +234,10 @@ for (const [index, engine] of engines.entries()) {
                 + quote(diagnosticCollector) + " -ExecutableCollector}}; "
                 + ". ([scriptblock]::Create($definition[0].Extent.Text.Replace('function Start-TestProcess(', 'function Start-ObservedChild('))); "
                 + "function Start-TestProcess($Executable,$Command){$child=Start-ObservedChild $Executable $Command; "
+                // 2026-10-22：模拟进程刚创建时模块列表尚不可用，启动归属不能依赖暂时为空的MainModule。
+                + "if($env:AAA_SCANNER_STARTUP_IMAGE_UNAVAILABLE -eq '1'){$child|Add-Member ScriptProperty MainModule {return $null} -Force}; "
                 // 2026-10-21：回执读取/写入失败时调用者尚未取得 Process，观察函数用本地对象有限回收并保留原异常。
-                + "try {[IO.File]::WriteAllText($env:AAA_SELFTEST_PIDFILE,([ordered]@{Pid=$child.Id;StartTicks=$child.StartTime.ToUniversalTime().Ticks.ToString();Path=$child.MainModule.FileName}|ConvertTo-Json),[Text.UTF8Encoding]::new($false)); return $child} "
+                + "try {[IO.File]::WriteAllText($env:AAA_SELFTEST_PIDFILE,([ordered]@{Pid=$child.Id;StartTicks=$child.StartTime.ToUniversalTime().Ticks.ToString();ExpectedImage=$Executable}|ConvertTo-Json),[Text.UTF8Encoding]::new($false)); return $child} "
                 + "catch {$failure=$_;$cleanup=[ordered]@{Pid=$child.Id;ExitConfirmed=$false;StopError='';DisposeError=''}; "
                 + "try {if(-not $child.HasExited){$child.Kill()};$cleanup.ExitConfirmed=$child.WaitForExit(5000)} catch {$cleanup.StopError=$_.Exception.GetType().FullName}; "
                 + "try {$child.Dispose()} catch {$cleanup.DisposeError=$_.Exception.GetType().FullName}; "
@@ -209,7 +249,7 @@ for (const [index, engine] of engines.entries()) {
             const result = spawnSync(engine, ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-ExecutionPolicy', 'Bypass',
                 '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
                 cwd: root, encoding: 'utf8', windowsHide: true, timeout: 35000, maxBuffer: 2 * 1024 * 1024,
-                env: { ...process.env, AAA_SELFTEST_PIDFILE: pidFile, AAA_HOST_WRAPPER_CASE: 'timeout', AAA_HOST_WRAPPER_PIDFILE: fallbackPidFile }
+                env: { ...process.env, AAA_SELFTEST_PIDFILE: pidFile, AAA_HOST_WRAPPER_CASE: 'timeout', AAA_HOST_WRAPPER_PIDFILE: fallbackPidFile, AAA_SCANNER_STARTUP_IMAGE_UNAVAILABLE: mode === 'stdout' ? '1' : '0' }
             });
             const elapsed = Date.now() - started;
             // 2026-10-21：回执写入失败发生在调用者取得 Process 之前，观察包装器必须自行确认 child 退出。
@@ -248,6 +288,8 @@ for (const [index, engine] of engines.entries()) {
                 throw error;
             }
             if (mode === 'stdout' || mode === 'selftest-no-desktop') {
+                assert.ok(typeof record.ExpectedImage === 'string' && path.isAbsolute(record.ExpectedImage), 'launch expectation retained even before module enumeration');
+                assert.equal(path.basename(record.ExpectedImage).toLowerCase(), path.basename(engine).toLowerCase());
                 assert.equal(result.status, 0, result.stderr);
                 assert.match(result.stdout, /PASS SelfTest 95 cases:/);
                 return;
@@ -279,9 +321,10 @@ for (const [index, engine] of engines.entries()) {
                 const identity = JSON.parse(fs.readFileSync(path.join(detail.DumpDirectory, 'identity.json'), 'utf8'));
                 assert.equal(identity.Pid, record.Pid);
                 assert.equal(identity.StartTicks, record.StartTicks);
-                assert.equal(identity.Image.toLowerCase(), record.Path.toLowerCase());
+                assert.equal(identity.Image.toLowerCase(), record.ExpectedImage.toLowerCase());
                 const dumpFile = path.join(detail.DumpDirectory, 'selftest.dmp');
-                assert.equal(fs.readFileSync(dumpFile).subarray(0, 4).toString('ascii'), 'MDMP');
+                assert.equal(fs.readFileSync(dumpFile).subarray(0, 4).toString('ascii'), 'MDMP',
+                    JSON.stringify({ status: result.status, stdout: result.stdout, stderr: result.stderr })); // 2026-10-22：真实采集失败保留收集器原两流，不能只剩空头断言。
                 assert.equal(fs.readFileSync(path.join(detail.DumpDirectory, 'source.ps1'), 'utf8'), fs.readFileSync(scriptFile, 'utf8'));
                 for (const name of ['identity.json', 'source.ps1', 'selftest.dmp', 'streams.json']) selfTestFiles.push(path.join(detail.DumpDirectory, name));
                 selfTestDirectories.push(detail.DumpDirectory);
