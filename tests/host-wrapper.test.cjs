@@ -188,6 +188,12 @@ for (const [index, engine] of engines.entries()) {
                 + "$definition=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Start-TestProcess'},$true)); "
                 + "$loop=@($ast.EndBlock.Statements|Where-Object {$_ -is [Management.Automation.Language.ForEachStatementAst] -and $_.Extent.Text.Contains('SelfTest failed:')}); "
                 + "if($definition.Count -ne 1 -or $loop.Count -ne 1){throw 'Exact SelfTest wrapper missing'}; "
+                // 2026-10-22：调用真实超时旁证函数；旧版仍运行原包装循环，再由缺少现场回执产生红灯。
+                + "$capture=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Save-ScannerTimeoutEvidence'},$true)); "
+                + "if($capture.Count -eq 1){$captureAst=[Management.Automation.Language.Parser]::ParseInput($capture[0].Extent.Text,"
+                + quote(path.join(__dirname, 'scanner.test.ps1')) + ",[ref]$tokens,[ref]$errors); . ([scriptblock]::Create($captureAst.Extent.Text.Replace('function Save-ScannerTimeoutEvidence {','function Save-ObservedTimeoutEvidence {'))); "
+                + "$scannerDumpTestRoot=" + quote(__dirname) + "; function Save-ScannerTimeoutEvidence($Target,$ExpectedImage,$SourcePath){Save-ObservedTimeoutEvidence $Target $ExpectedImage $SourcePath -UtilityPath (Join-Path $scannerDumpTestRoot 'host-process.test.ps1') -CollectorEngine "
+                + quote(diagnosticCollector) + " -ExecutableCollector}}; "
                 + ". ([scriptblock]::Create($definition[0].Extent.Text.Replace('function Start-TestProcess(', 'function Start-ObservedChild('))); "
                 + "function Start-TestProcess($Executable,$Command){$child=Start-ObservedChild $Executable $Command; "
                 // 2026-10-21：回执读取/写入失败时调用者尚未取得 Process，观察函数用本地对象有限回收并保留原异常。
@@ -268,6 +274,17 @@ for (const [index, engine] of engines.entries()) {
                 assert.equal(detail.StopError, '');
                 assert.equal(detail.ReadError, '');
                 assert.equal(detail.DisposeError, '');
+                // 2026-10-22：成功标记后停滞仍须失败；先保留真实MDMP和身份，再由原持有者确认退出。
+                assert.ok(detail.DumpDirectory, 'SelfTest timeout must retain a dump evidence directory');
+                const identity = JSON.parse(fs.readFileSync(path.join(detail.DumpDirectory, 'identity.json'), 'utf8'));
+                assert.equal(identity.Pid, record.Pid);
+                assert.equal(identity.StartTicks, record.StartTicks);
+                assert.equal(identity.Image.toLowerCase(), record.Path.toLowerCase());
+                const dumpFile = path.join(detail.DumpDirectory, 'selftest.dmp');
+                assert.equal(fs.readFileSync(dumpFile).subarray(0, 4).toString('ascii'), 'MDMP');
+                assert.equal(fs.readFileSync(path.join(detail.DumpDirectory, 'source.ps1'), 'utf8'), fs.readFileSync(scriptFile, 'utf8'));
+                for (const name of ['identity.json', 'source.ps1', 'selftest.dmp', 'streams.json']) selfTestFiles.push(path.join(detail.DumpDirectory, name));
+                selfTestDirectories.push(detail.DumpDirectory);
             } else {
                 assert.match(result.stderr, /SelfTest failed:/);
                 if (mode === 'stderr') assert.match(result.stderr, /SCANNER_WRAPPER_STDERR:tail/);

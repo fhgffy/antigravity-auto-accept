@@ -48,6 +48,20 @@ jobs:
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: '22'
+      # 2026-10-22：复现实际失败前的依赖、编译与离线发布步骤，不能把预热过的重复自测当作相同冷启动条件。
+      - name: Same pre-scanner validation prefix
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run compile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:repository
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:lifecycle
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test tests/publish-release.test.cjs
       # 2026-10-22：在同一runner先执行与普通CI相同的扫描器回归，保留实际失败前的步骤顺序。
       - name: Same scanner regression before compiler startup
         run: |
@@ -56,6 +70,14 @@ jobs:
           $a = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$t, [ref]$e)
           if ($e.Count) { throw 'Scanner diagnostic prefix parse errors' }
           & $a.GetScriptBlock() -PowerShellEngines @('${{ matrix.executable }}')
+      # 2026-10-22：同一实际包装器逐次复现自测，首次失败停止；手动诊断不能计作二十次完整CI。
+      - name: Repeat exact scanner SelfTest boundary
+        run: |
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/repeat-scanner-selftest-diagnostic.ps1'))
+          $t = $null; $e = $null
+          $a = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$t, [ref]$e)
+          if ($e.Count) { throw 'Scanner SelfTest diagnostic parse errors' }
+          & $a.GetScriptBlock() -ExpectedMajor ${{ matrix.major }} -Engine '${{ matrix.executable }}' -Repetitions ${{ github.event.inputs.host_repetitions }} -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'AntigravityAA-scanner-selftest-${{ matrix.major }}')
       # 2026-10-22：保持Node同步编译的原15秒限制，慢于8秒先保留本例编译器现场。
       - name: Exact Node compiler startup boundary
         run: |
@@ -80,10 +102,16 @@ jobs:
           [void](New-Item -ItemType Directory -Path $stage -ErrorAction Stop)
           $nodeEvidence = Join-Path $env:RUNNER_TEMP 'AntigravityAA-node-compiler-${{ matrix.major }}'
           if (Test-Path -LiteralPath $nodeEvidence) { Copy-Item -LiteralPath $nodeEvidence -Destination $stage -Recurse -ErrorAction Stop }
+          $scannerEvidence = Join-Path $env:RUNNER_TEMP 'AntigravityAA-scanner-selftest-${{ matrix.major }}'
+          if (Test-Path -LiteralPath $scannerEvidence) { Copy-Item -LiteralPath $scannerEvidence -Destination $stage -Recurse -ErrorAction Stop }
           $binaryRoot = Join-Path $env:LOCALAPPDATA 'Temp'
           foreach ($binary in @(Get-ChildItem -LiteralPath $binaryRoot -Directory -Filter 'AntigravityAA-HostBinary-*')) {
             if ($binary.Name -notmatch '^AntigravityAA-HostBinary-[a-f0-9]{32}$') { throw 'Unexpected owned diagnostic directory' }
             Copy-Item -LiteralPath $binary.FullName -Destination $stage -Recurse -ErrorAction Stop
+          }
+          foreach ($scanner in @(Get-ChildItem -LiteralPath $binaryRoot -Directory -Filter 'AntigravityAA-ScannerTimeout-*')) {
+            if ($scanner.Name -notmatch '^AntigravityAA-ScannerTimeout-[a-f0-9]{32}$') { throw 'Unexpected owned scanner diagnostic directory' }
+            Copy-Item -LiteralPath $scanner.FullName -Destination $stage -Recurse -ErrorAction Stop
           }
       - name: Preserve owned startup evidence
         if: always()
@@ -198,6 +226,7 @@ jobs:
           path: |
             ~\AppData\Local\Temp\AntigravityAA-HostBinary-*\*
             ~\AppData\Local\Temp\AntigravityAA-HostWrapper-*\*
+            ~\AppData\Local\Temp\AntigravityAA-ScannerTimeout-*\*
           if-no-files-found: warn
           retention-days: 14
 

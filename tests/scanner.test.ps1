@@ -60,6 +60,32 @@ function Start-TestProcess([string]$Executable, [string]$Command) {
     return $process
 }
 
+# 2026-10-22：原十五秒截止判定后才采集持有子进程；取证失败不能覆盖自测超时或跳过原回收。
+function Save-ScannerTimeoutEvidence {
+    param([Diagnostics.Process]$Target, [string]$ExpectedImage, [string]$SourcePath, [string]$UtilityPath = '', [string]$CollectorEngine = '', [switch]$ExecutableCollector)
+    $record = [ordered]@{ Directory = ''; Error = '' }
+    try {
+        $record.Directory = Join-Path ([IO.Path]::GetTempPath()) ('AntigravityAA-ScannerTimeout-' + [Guid]::NewGuid().ToString('N'))
+        [void][IO.Directory]::CreateDirectory($record.Directory)
+        [void]$Target.Handle
+        $identity = [ordered]@{ Pid = $Target.Id; StartTicks = $Target.StartTime.ToUniversalTime().Ticks.ToString(); Image = $Target.MainModule.FileName; CapturedUtc = [DateTime]::UtcNow.ToString('o'); CpuMs = $Target.TotalProcessorTime.TotalMilliseconds }
+        if (-not [String]::Equals($identity.Image, $ExpectedImage, [StringComparison]::OrdinalIgnoreCase)) { throw 'Owned SelfTest image mismatch' }
+        [IO.File]::WriteAllText((Join-Path $record.Directory 'identity.json'), ($identity | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+        [IO.File]::Copy($SourcePath, (Join-Path $record.Directory 'source.ps1'), $false)
+        if ([string]::IsNullOrWhiteSpace($UtilityPath)) { $UtilityPath = Join-Path $PSScriptRoot 'host-process.test.ps1' }
+        $tokens = $null; $errors = $null
+        $utility = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($UtilityPath, [Text.Encoding]::UTF8), $UtilityPath, [ref]$tokens, [ref]$errors)
+        $definition = @($utility.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -ceq 'Save-HostTimeoutDump' }, $true))
+        if ($errors.Count -or $definition.Count -ne 1) { throw 'Owned dump utility boundary missing' }
+        $functionAst = [Management.Automation.Language.Parser]::ParseInput($definition[0].Extent.Text, $UtilityPath, [ref]$tokens, [ref]$errors)
+        if ($errors.Count) { throw 'Owned dump utility parse failed' }
+        . ($functionAst.GetScriptBlock())
+        Save-HostTimeoutDump $Target $ExpectedImage (Join-Path $record.Directory 'selftest.dmp') -CollectorEngine $CollectorEngine -ExecutableCollector:$ExecutableCollector
+    }
+    catch { $record.Error = $_.Exception.GetBaseException().GetType().FullName + ':' + $_.Exception.GetBaseException().Message }
+    return [pscustomobject]$record
+}
+
 # 2026-10-05：读取协议使用有限超时，失败时保留错误输出并由外层清理测试进程。
 function Read-ProtocolLine($Process, [string]$Expected) {
     $pending = $Process.StandardOutput.ReadLineAsync()
@@ -102,6 +128,10 @@ $selfTestBlock = [scriptblock]::Create($selfTestSource)
         # 2026-10-21：沿用宿主测试的有限超时旁证，清理或读取失败不能覆盖原自测失败。
         if ($timedOut) {
             $diagnostic = [ordered]@{ Pid = $process.Id; ExitConfirmed = $false; StdoutComplete = $false; StderrComplete = $false; Stdout = $null; Stderr = $null; StopError = ''; ReadError = ''; DisposeError = '' }
+            # 2026-10-22：先保留线程现场，再由原Process持有者回收；成功标记不能改变已经成立的超时。
+            $capture = Save-ScannerTimeoutEvidence $process $engine $escapedScannerPath.Replace("''", "'")
+            $diagnostic.DumpDirectory = $capture.Directory
+            $diagnostic.CollectionError = $capture.Error
             try {
                 if (-not $process.HasExited) { $process.Kill() }
                 $diagnostic.ExitConfirmed = $process.WaitForExit(5000)
@@ -115,6 +145,9 @@ $selfTestBlock = [scriptblock]::Create($selfTestSource)
                 } catch { $diagnostic.ReadError += $stream.Name + ':' + $_.Exception.GetType().FullName + ';' }
             }
             try { $process.Dispose() } catch { $diagnostic.DisposeError = $_.Exception.GetType().FullName }
+            try {
+                if ($diagnostic.DumpDirectory) { [IO.File]::WriteAllText((Join-Path $diagnostic.DumpDirectory 'streams.json'), ($diagnostic | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false)) }
+            } catch { $diagnostic.CollectionError += ';streams:' + $_.Exception.GetType().FullName }
             try { [Console]::WriteLine('___SCANNER_SELFTEST_TIMEOUT___:' + ($diagnostic | ConvertTo-Json -Compress)) } catch { }
         } else {
             if (-not $process.HasExited) { $process.Kill(); [void]$process.WaitForExit(5000) }
