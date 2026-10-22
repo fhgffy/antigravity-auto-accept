@@ -12,7 +12,9 @@ internal static class HostDumpCollector
         Console.SetError(new System.IO.StreamWriter(Console.OpenStandardError(), new UTF8Encoding(false)) { AutoFlush = true });
         try
         {
-            if (IntPtr.Size != 8 || args.Length != 4) { throw new InvalidOperationException("Expected x64 owned collector arguments"); }
+            /* 2026-10-22：附加模式只接受明确标志，仍核验同一持有进程的PID、创建时间和绝对路径。 */
+            bool collectorStack = args.Length == 5 && args[4] == "--collector-stack";
+            if (IntPtr.Size != 8 || (args.Length != 4 && !collectorStack)) { throw new InvalidOperationException("Expected x64 owned collector arguments"); }
             HostChildDiagnostics.RecordPhase(args[3], "collector-entered"); // 2026-10-22：身份失败前的工具进入阶段单独保留。
             int pid = int.Parse(args[0], CultureInfo.InvariantCulture);
             long started = long.Parse(args[1], CultureInfo.InvariantCulture);
@@ -24,9 +26,10 @@ internal static class HostDumpCollector
                     throw new InvalidOperationException("Owned dump target identity changed");
                 }
                 HostChildDiagnostics.RecordPhase(args[3], "identity-verified"); // 2026-10-22：只有严格身份通过后才进入取证函数。
-                HostChildDiagnostics.Write(target, args[3]);
+                if (collectorStack) HostChildDiagnostics.WriteCollectorStack(target, args[3]); // 2026-10-22：仅超时收集器的旁路最小栈。
+                else HostChildDiagnostics.Write(target, args[3]);
             }
-            Console.WriteLine("___HOST_DUMP_WRITTEN___");
+            Console.WriteLine(collectorStack ? "___HOST_COLLECTOR_STACK_WRITTEN___" : "___HOST_DUMP_WRITTEN___"); // 2026-10-22：不混淆两种取证回执。
             return 0;
         }
         catch (Exception error)

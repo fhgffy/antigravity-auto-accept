@@ -132,7 +132,22 @@ e718587 的 push 39714938769、PR 39714943896 两次完整 Windows CI，以及�
 
 b2876f4 的 push/PR 与两个 lint 均通过，手动 39724780097 亦完整成功：四原 Node 全文及四固定 x86 控制通过，四组 SelfTest 各 20 次，最大 725/1379/754/1272ms；各二十次编译最大 156/182/163/193ms。八 artifact、原日志和逐 JSON summary 在 manual-b2876f4-39724780097。实际 2022/7 的 slow7816 只得到空 Runspace1 帧，原例约 9692ms 最终成功；不能将其当作定位栈。固定头串行控制器已有四次完整绿，随后为共享完整矩阵主动停止新派发；退出 1 的原因是自设 stop flag，不是测试失败，全部结果在 ci-series-b2876f4 保留。
 
-新增 #37 的完整矩阵将原 test/package job 移入唯一只读 reusable workflow；结构深比较确认除两 artifact 名称加可选后缀之外，所有 job/step 期限、步骤正文和断言保持原样。普通 ci 调用同提交该流程，publish 仍在外层，仅 needs 改为整体 validation；全部发布步骤相同。现有 CI 手动 complete_stability 选项的二十组分别通过两引擎后打包，独立 artifact 后缀、fail-fast=false，不传凭据、不进入发布。两个门检查先红后绿，当前四份 workflow 的 actionlint 通过；最终固定源码完整 npm test 已通过（publication 56/56、host-wrapper 48/48），十二个功能/配置文件起点哈希一致，正式测试 VSIX 八项通过。新配置首次窄审无具体 P0–P3；后续默认分支入口修正按官方说明由作者自审，矩阵对象只多显式手动条件，未追加复审。原本新建独立手动 workflow 在默认分支注册前无法分支派发，现改用原有 ci.yml 的默认 false 选项，入口一红两绿、最终四 workflow 语义检查通过。实际云端矩阵尚待完成，不预先计二十次成功。最终本地回执见 complete-ci-matrix-final-local-validation.json。
+新增 #37 的完整矩阵将原 test/package job 移入唯一只读 reusable workflow；结构深比较确认除两 artifact 名称加可选后缀之外，所有 job/step 期限、步骤正文和断言保持原样。普通 ci 调用同提交该流程，publish 仍在外层，仅 needs 改为整体 validation；全部发布步骤相同。现有 CI 手动 complete_stability 选项的二十组分别通过两引擎后打包，独立 artifact 后缀、fail-fast=false，不传凭据、不进入发布。两个门检查先红后绿，当前四份 workflow 的 actionlint 通过；最终固定源码完整 npm test 已通过（publication 56/56、host-wrapper 48/48），十二个功能/配置文件起点哈希一致，正式测试 VSIX 八项通过。新配置首次窄审无具体 P0–P3；后续默认分支入口修正按官方说明由作者自审，矩阵对象只多显式手动条件，未追加复审。原本新建独立手动 workflow 在默认分支注册前无法分支派发，现改用原有 ci.yml 的默认 false 选项，入口一红两绿、最终四 workflow 语义检查通过。该段记录矩阵派发前的本地状态；实际云端结果见下面的完整矩阵失败记录。最终本地回执见 complete-ci-matrix-final-local-validation.json。
+
+
+### 2026-10-22：首个完整矩阵真实失败与下一步取证
+
+【已跑验证】de1735c 的 push/PR 与两 lint 通过；手动完整矩阵 39728103877 已完成，二十组各按两引擎及打包联合判断，17 组全绿，3/6/14 失败，无取消、重跑或隐藏失败，不能验收为二十连绿。批量 gh 日志命令因六十 job 超过客户端请求上限，改逐 job REST 取得全部六十份执行日志；这是归档方法失败，与 CI 失败分开。原 metadata、完整分类、日志 SHA 清单在 complete-matrix-de1735c-39728103877。
+
+- 样本 3 / PS5：原 25 秒 x86 诊断在 CHILD_READY 后超时，未观测到收集器进入，不能套用后面的原生调用原因。新禁止命令模块自动加载对照，三个调用者都在 Join-Path 红；仅两个路径改 IO.Path.Combine 后绿，Management/Utility 始终未加载。修复的是已复现的多余冷加载依赖，不冒充原 25 秒失败根因。
+- 样本 6 / PS7 调用者：真实启动协议的 Windows PowerShell 子进程撞原 20 秒 spawnSync 截止（#38），原测试提前断言，没有两流/栈。新精确源码过滤的只读观察器保持原命令、源码及期限；旧过滤器控制缺栈红、新控制可读 Start-Sleep 20 且原 Node 0、两流完整、清理空；错误来源路径不会捕获。手动诊断二十个新 VM 保留原前置步骤、控制后置，不能算完整 CI。
+- 样本 14 / PS5：原人为等待夹具的收集器 5 秒失败，DMP0；最新阶段已明确系统库和导出均成功返回 0，随后没有 native-returned。边界缩到 P/Invoke/原生写入，但没有具体等待栈，#36 仍开。失败后以同一预编译 EXE 对该收集器自身另写最小栈，额外工具有独立 1.5 秒预算，原目标完整 0x1124、5 秒、JSON 契约及原失败不变。
+
+新增收集器栈三个调用者先因缺 sidecar 红，首次实现保留两种新失败：系统自动加 AVX 上下文位，原断言错误地把文件头当原请求标志；32 位调用者读取 64 位 MainModule 为 null。已改为核对禁止完整数据/句柄流、仅允许系统 AVX 位，并用已知可执行路径让 64 位工具再次严格核验真实身份。原来小于 8 秒的阈值没有改；三绿耗时约 6.14/5.87/6.48 秒。证据 collector-self-stack-red/green/green2.log。仓库源过滤控制原 Node 21.094 秒正常结束，明确 Start-Sleep 20、读栈退出、无 DMP 和空清理错误，lifecycle-observer-repo-control。以上属于诊断能力和已复现依赖修复，原 #33/#34/#36/#38 根因仍需云端证据。
+
+PSModulePath 另作单变量 Node 桥接对照：继承 PS7 环境的 WinPS 选择 PS7 模块清单，移除仅子进程 PSModulePath 后选择系统 WinPS 清单；两者真实 Add-Type/Join-Path 均成功（562/610ms），未复现超时。官方路径规则支持环境差异，但不能由清单路径差异推断当前超时因果；未改运行代码或全局环境，原始回执 psmodulepath-node-bridge-control.json。
+
+【已跑验证】本批最终完整 npm test 通过（publication 56、lifecycle 38、host-wrapper 51、mouse 两引擎各188、concurrency 22），16个功能/配置起点哈希完全相同，测试 VSIX 八项通过。旧 host 观察默认模式控制仍取得明确 Start-Sleep 20/有效DMP/原Node0，生命周期模式不产生DMP。附加工具不存在与自身停滞两个真实故障均保留原五秒超时、活目标、原所有者退出，耗时5119/6051ms；自身停滞的附加工具约1033ms确认回收。首个私有故障对照因遗漏夹具必需PIDFILE环境而无效，保留原记录，补齐后才计两项通过。CDB从最小控制DMP读到预期clr!Thread::UserSleep，只证明取证可读，不是云端根因。九个新源码/配置首次独立窄审无具体P0-P3，仅静态检查；服务在输出阶段容量错误后同一审查者只整理原报告，无修复复审。最终回执 collector-lifecycle-final-local-validation.json，报告 work/collector-lifecycle-first-review.md。
 
 ## D：发布与文档（进行中）
 

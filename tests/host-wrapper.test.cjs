@@ -358,7 +358,7 @@ for (const [index, engine] of engines.entries()) {
 // 2026-10-22：各项诊断使用独立目标和原25秒上限，避免三次5秒收集器叠加耗尽同一个外层截止时间。
 const diagnosticEngines = [...new Set([...engines, path.join(process.env.WINDIR, 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe')])];
 for (const [index, engine] of diagnosticEngines.entries()) {
-    for (const scenario of ['success', 'file-error', 'collector-stall', 'identity-error', 'json-unavailable', 'json-error-escaping']) {
+    for (const scenario of ['success', 'file-error', 'collector-stall', 'identity-error', 'json-unavailable', 'json-error-escaping', 'modules-unavailable']) {
         test(engine + ': bounded x64 minidump ' + scenario + ' retains target', () => {
             const quote = value => "'" + value.replace(/'/g, "''") + "'";
             const stem = 'diagnostic-' + index + '-' + scenario;
@@ -367,12 +367,13 @@ for (const [index, engine] of diagnosticEngines.entries()) {
             const collectorPidFile = path.join(owned, stem + '-collector.pid');
             pidFiles.push(pidFile);
             if (scenario === 'collector-stall' || scenario === 'json-error-escaping') pidFiles.push(collectorPidFile);
-            selfTestFiles.push(diagnostic, diagnostic + '.phases.log'); // 2026-10-22：取证阶段旁证按本例明确文件收尾。
+            selfTestFiles.push(diagnostic, diagnostic + '.phases.log', diagnostic + '.collector.dmp', diagnostic + '.collector.dmp.phases.log', diagnostic + '.collector.json'); // 2026-10-22：取证阶段旁证按本例明确文件收尾。
             const preserved = Buffer.from('existing-owned-dump-must-not-change');
             if (scenario === 'file-error') fs.writeFileSync(diagnostic, preserved, { flag: 'wx' });
             const hostPath = path.join(__dirname, 'host-process.test.ps1');
             // 2026-10-22：禁止JSON模块自动加载的真实子进程仍须完成取证回执，避免首次报告加载耗时突破原25秒。
             const noJsonModule = scenario.startsWith('json-');
+            const noCommandModules = scenario === 'modules-unavailable'; // 2026-10-22：原生EXE路径不应先冷加载任何命令模块。
             const dumpError = 'DUMP_ERROR:quote=" slash=\\ tab=\t cr=\r lf=\n 中文😀';
             const command = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Console]::WriteLine('DUMP_DIAGNOSTIC_ENTERED'); "
                 + "$hostPath=" + quote(hostPath) + ";$t=$null;$e=$null;$a=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($hostPath,[Text.Encoding]::UTF8),$hostPath,[ref]$t,[ref]$e);"
@@ -382,11 +383,13 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                 + "$child=[Diagnostics.Process]::new();$child.StartInfo=$start;try{[void]$child.Start();$out=$child.StandardOutput.ReadLineAsync();$err=$child.StandardError.ReadToEndAsync();if(-not $out.Wait(5000)){throw 'Owned diagnostic child start timeout'};"
                 + "[Console]::WriteLine('DUMP_DIAGNOSTIC_CHILD_READY');$clock=[Diagnostics.Stopwatch]::StartNew();"
                 + (noJsonModule ? "$null=Join-Path 'C:\\' 'module-probe';$PSModuleAutoLoadingPreference='None';if(Get-Module Microsoft.PowerShell.Utility){throw 'JSON module unexpectedly preloaded'};" : "")
+                + (noCommandModules ? "$PSModuleAutoLoadingPreference='None';if(Get-Module Microsoft.PowerShell.Management,Microsoft.PowerShell.Utility){throw 'Command module unexpectedly preloaded'};" : "")
                 + (scenario === 'collector-stall' || scenario === 'json-error-escaping' ? "$env:AAA_HOST_WRAPPER_PIDFILE=" + quote(collectorPidFile) + ";" : "")
                 + (scenario === 'json-error-escaping' ? "$env:AAA_HOST_WRAPPER_CASE='dump-json-error';" : "")
                 + "Save-HostTimeoutDump $child " + quote(scenario === 'identity-error' ? path.join(owned, 'unowned.exe') : fixture) + " " + quote(diagnostic)
-                + " -ExecutableCollector -CollectorEngine " + quote(scenario === 'collector-stall' || scenario === 'json-error-escaping' ? fixture : diagnosticCollector) + ";"
+                + " -ExecutableCollector -CollectorEngine " + quote(scenario === 'collector-stall' || scenario === 'json-error-escaping' ? fixture : diagnosticCollector) + " -CollectorStackTool " + quote(diagnosticCollector) + ";"
                 + (noJsonModule ? "if($PSModuleAutoLoadingPreference -cne 'None' -or (Get-Module Microsoft.PowerShell.Utility)){throw 'JSON module autoload guard changed'};" : "")
+                + (noCommandModules ? "if($PSModuleAutoLoadingPreference -cne 'None' -or (Get-Module Microsoft.PowerShell.Management,Microsoft.PowerShell.Utility)){throw 'Command module autoload guard changed'};" : "")
                 + "$clock.Stop();[Console]::WriteLine('DUMP_ELAPSED:'+$clock.ElapsedMilliseconds);"
                 + "if($child.HasExited){throw 'Diagnostic ended live target'};[Console]::WriteLine('DUMP_TARGET_ALIVE')"
                 + "}finally{if(-not $child.HasExited){$child.Kill()};if(-not $child.WaitForExit(5000)){throw 'Owned diagnostic child exit unconfirmed'};$child.Dispose()}";
@@ -404,7 +407,7 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                 assert.equal(records[0].CollectorExited, true);
                 assert.equal(records[0].Path, diagnostic);
                 assert.equal(records[0].Pid, Number(fs.readFileSync(pidFile, 'utf8')));
-                if (scenario === 'success' || scenario === 'json-unavailable') {
+                if (scenario === 'success' || scenario === 'json-unavailable' || scenario === 'modules-unavailable') {
                     assert.equal(records[0].Written, true, records[0].Error);
                     const dump = fs.readFileSync(diagnostic);
                     assert.equal(dump.toString('ascii', 0, 4), 'MDMP');
@@ -423,6 +426,18 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                         assert.equal(records[0].TimedOut, true);
                         const elapsed = Number(result.stdout.match(/DUMP_ELAPSED:(\d+)/)?.[1]);
                         assert.ok(elapsed >= 4900 && elapsed < 8000, 'fixed collector deadline and bounded stop: ' + elapsed);
+                        // 2026-10-22：原五秒仍失败，额外最小栈仅针对超时收集器自身，不替换原目标完整转储。
+                        const secondary = JSON.parse(fs.readFileSync(diagnostic + '.collector.json', 'utf8'));
+                        assert.equal(secondary.Pid, records[0].CollectorPid);
+                        assert.equal(secondary.Written, true, secondary.Error);
+                        assert.equal(secondary.TimedOut, false);
+                        assert.equal(secondary.ExitConfirmed, true);
+                        const stack = fs.readFileSync(diagnostic + '.collector.dmp');
+                        assert.equal(stack.toString('ascii', 0, 4), 'MDMP');
+                        // 2026-10-22：系统会自动加入AVX上下文位0x200000；仍禁止完整目标转储的数据标志和句柄数据流。
+                        assert.equal(stack.readBigUInt64LE(24) & ~0x200000n, 0n);
+                        const streamCount = stack.readUInt32LE(8), streamDirectory = stack.readUInt32LE(12);
+                        for (let stream = 0; stream < streamCount; stream++) assert.notEqual(stack.readUInt32LE(streamDirectory + stream * 12), 12);
                     }
                 }
                 for (const file of scenario === 'collector-stall' || scenario === 'json-error-escaping' ? [pidFile, collectorPidFile] : [pidFile]) {

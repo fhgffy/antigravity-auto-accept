@@ -11,6 +11,11 @@ on:
         type: choice
         default: '1'
         options: ['1', '10', '20']
+      # 2026-10-22：生命周期观察单独启用，不改变正常CI的冷启动顺序，不计完整连绿。
+      lifecycle_observation:
+        description: 'Observe 20 unchanged lifecycle tests on fresh Windows jobs; diagnosis only'
+        type: boolean
+        default: false
       # 2026-10-22：复用main已有手动入口，分支合并前也能执行完整二十组，而非先发布新工作流。
       complete_stability:
         description: 'Run 20 complete two-engine and verified-package samples; no publication'
@@ -25,6 +30,70 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }} # 2026-10-07：主分支发布串行完成，避免下一次提交中断已开始的上传。
 
 jobs:
+  # 2026-10-22：针对真实二十秒生命周期失败仅读栈，使用原前置步骤；控制样本后置，避免预热原目标。
+  lifecycle-observer:
+    if: github.event_name == 'workflow_dispatch' && inputs.lifecycle_observation
+    name: Lifecycle observer (${{ matrix.image }}, ${{ matrix.major }}, ${{ matrix.sample }})
+    runs-on: ${{ matrix.image }}
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        image: [windows-latest, windows-2022]
+        major: [5, 7]
+        sample: [1, 2, 3, 4, 5]
+        include:
+          - major: 5
+            shell: powershell
+          - major: 7
+            shell: pwsh
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+      - name: Same validation prefix before original lifecycle
+        run: |
+          npm ci
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run compile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:repository
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Observe unchanged original lifecycle source and deadline
+        run: |
+          $path = [IO.Path]::GetFullPath('tests/observe-host-wrapper-diagnostic.ps1')
+          $t = $null; $e = $null
+          $a = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path,[Text.Encoding]::UTF8),$path,[ref]$t,[ref]$e)
+          if ($e.Count) { throw 'Lifecycle observer parse errors' }
+          & $a.GetScriptBlock() -Repository $PWD.Path -NodePath (Get-Command node).Source -TestFile 'tests/extension.test.cjs' -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'AntigravityAA-lifecycle-actual') -FullSuite -SelfTestSourcePath (Join-Path $PWD 'src/autoClicker.ps1')
+      - name: Verify exact-source read-only observer after original test
+        if: always()
+        run: |
+          $path = [IO.Path]::GetFullPath('tests/observe-host-wrapper-diagnostic.ps1')
+          $t = $null; $e = $null
+          $a = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path,[Text.Encoding]::UTF8),$path,[ref]$t,[ref]$e)
+          if ($e.Count) { throw 'Lifecycle observer control parse errors' }
+          & $a.GetScriptBlock() -Repository $PWD.Path -NodePath (Get-Command node).Source -TestFile 'tests/fixtures/lifecycle-observer-wait.test.cjs' -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'AntigravityAA-lifecycle-control') -FullSuite -SelfTestSourcePath (Join-Path $PWD 'tests/fixtures/lifecycle-observer-wait.ps1') -RequireControlledCapture
+      - name: Preserve original lifecycle result and read-only observation
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: lifecycle-observer-${{ github.run_id }}-${{ matrix.image }}-${{ matrix.major }}-${{ matrix.sample }}
+          path: |
+            ${{ runner.temp }}/AntigravityAA-lifecycle-actual/
+            ${{ runner.temp }}/AntigravityAA-lifecycle-control/
+          if-no-files-found: warn
+          retention-days: 14
+
   host-wrapper-observer:
     # 2026-10-22：独立手动观察原Node全文测试，未改变其任何子进程期限，不计完整CI验收次数。
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.host_repetitions != '1'

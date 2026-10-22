@@ -110,7 +110,8 @@ function Save-ScannerTimeoutEvidence {
             try { [IO.File]::WriteAllText([IO.Path]::Combine($record.Directory, 'selftest.reader.json'), ($readerRecord | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false)) }
             catch { $record.Error += ';stack-record:' + $_.Exception.GetType().FullName }
         }
-        Save-HostTimeoutDump $Target $ExpectedImage (Join-Path $record.Directory 'selftest.dmp') -CollectorEngine $CollectorEngine -ExecutableCollector:$ExecutableCollector
+        $stackTool = if ($ExecutableCollector) { $CollectorEngine } else { '' } # 2026-10-22：复用预编译工具，只在原取证超时后读收集器自身最小栈。
+        Save-HostTimeoutDump $Target $ExpectedImage (Join-Path $record.Directory 'selftest.dmp') -CollectorEngine $CollectorEngine -ExecutableCollector:$ExecutableCollector -CollectorStackTool $stackTool
     }
     catch { $record.Error = $_.Exception.GetBaseException().GetType().FullName + ':' + $_.Exception.GetBaseException().Message }
     return [pscustomobject]$record

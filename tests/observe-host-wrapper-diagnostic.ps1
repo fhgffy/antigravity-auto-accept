@@ -1,5 +1,6 @@
 # 2026-10-22：独立观察原Node测试的自有PowerShell子进程，原spawnSync命令与二十五秒截止保持不变。
-param([string]$Repository, [string]$NodePath, [string]$TestFile, [string]$Engine = 'powershell.exe', [ValidateRange(1,20)][int]$Repetitions = 1, [string]$EvidenceDirectory, [switch]$FullSuite, [switch]$RequireControlledCapture)
+# 2026-10-22：可选生命周期模式保留原二十秒同步命令，精确来源过滤且仅读栈，不作转储暂停。
+param([string]$Repository, [string]$NodePath, [string]$TestFile, [string]$Engine = 'powershell.exe', [ValidateRange(1,20)][int]$Repetitions = 1, [string]$EvidenceDirectory, [switch]$FullSuite, [switch]$RequireControlledCapture, [string]$SelfTestSourcePath = '')
 $ErrorActionPreference = 'Stop'
 $Repository = [IO.Path]::GetFullPath($Repository)
 $EvidenceDirectory = [IO.Path]::GetFullPath($EvidenceDirectory)
@@ -7,6 +8,9 @@ if ([IO.Directory]::Exists($EvidenceDirectory)) { throw 'Preserve existing obser
 [void][IO.Directory]::CreateDirectory($EvidenceDirectory)
 $allowed = @((Get-Command powershell.exe).Source, (Get-Command pwsh.exe).Source, (Join-Path $env:WINDIR 'SysWOW64\WindowsPowerShell\v1.0\powershell.exe'))
 $utilityPath = Join-Path $Repository 'tests\host-process.test.ps1'
+# 2026-10-22：生命周期只识别同一编码命令中的精确源码与SelfTest；该模式仅读栈，不转储或改原二十秒。
+$expectedSelfTestSource = if ($SelfTestSourcePath) { [IO.Path]::GetFullPath($SelfTestSourcePath).Replace("'", "''") } else { '' }
+$expectedTestName = [IO.Path]::GetFileName($TestFile)
 $t = $null; $e = $null
 $ast = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($utilityPath,[Text.Encoding]::UTF8),$utilityPath,[ref]$t,[ref]$e)
 $function = @($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Save-HostTimeoutDump'},$true))
@@ -39,7 +43,7 @@ foreach ($iteration in 1..$Repetitions) {
             # 2026-10-22：查询、读栈或旁证异常只记诊断错误，不能提前终止仍在执行的原Node。
             try {
                 foreach ($workerInfo in @(Get-CimInstance Win32_Process -OperationTimeoutSec 1 -Filter ('ParentProcessId=' + $node.Id))) {
-                    if ($workerInfo.ExecutablePath -ine $NodePath -or ([string]$workerInfo.CommandLine).IndexOf('host-wrapper',[StringComparison]::OrdinalIgnoreCase) -lt 0) { continue }
+                    if ($workerInfo.ExecutablePath -ine $NodePath -or ([string]$workerInfo.CommandLine).IndexOf($expectedTestName,[StringComparison]::OrdinalIgnoreCase) -lt 0) { continue }
                     if (-not $seen.ContainsKey('worker-' + $workerInfo.ProcessId)) {
                         $worker = $null
                         try {
@@ -54,7 +58,10 @@ foreach ($iteration in 1..$Repetitions) {
                         $match = [regex]::Match([string]$info.CommandLine, '(?i)-EncodedCommand\s+([A-Za-z0-9+/=]+)')
                         if (-not $match.Success) { continue }
                         $command = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($match.Groups[1].Value))
-                        if (-not $command.Contains('DUMP_DIAGNOSTIC_CHILD_READY') -or -not $command.Contains('host-dump-collector.exe')) { continue }
+                        # 2026-10-22：只读原生命周期SelfTest或既有转储夹具，不能把同一Node下的其他PowerShell当目标。
+                        if ($expectedSelfTestSource) {
+                            if (-not $command.Contains(("'" + $expectedSelfTestSource + "'")) -or -not $command.Contains(' -SelfTest')) { continue }
+                        } elseif (-not $command.Contains('DUMP_DIAGNOSTIC_CHILD_READY') -or -not $command.Contains('host-dump-collector.exe')) { continue }
                         $target = [Diagnostics.Process]::GetProcessById([int]$info.ProcessId); $targetRegistered = $false
                         # 2026-10-22：临时持有对象遇到元数据竞争也要释放，登记后才交给统一只读收尾。
                         try {
@@ -80,7 +87,7 @@ foreach ($iteration in 1..$Repetitions) {
                                 $reader.Dispose()
                                 [IO.File]::WriteAllText((Join-Path $directory ('slow-'+$target.Id+'.reader.json')),($readerRecord|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
                             }
-                            Save-HostTimeoutDump $target $fresh.ExecutablePath (Join-Path $directory ('slow-' + $target.Id + '.dmp'))
+                            if (-not $expectedSelfTestSource) { Save-HostTimeoutDump $target $fresh.ExecutablePath (Join-Path $directory ('slow-' + $target.Id + '.dmp')) } # 2026-10-22：生命周期模式不触发转储的短暂线程冻结。
                         } finally { if (-not $targetRegistered) { $target.Dispose() } }
                     }
                 }

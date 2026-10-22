@@ -23,6 +23,24 @@ public static class HostChildDiagnostics
         catch { }
     }
 
+    /* 2026-10-22：原收集器已超过期限后，仅为它自身写最小栈；不替换原目标的完整转储或延长其五秒判定。 */
+    public static void WriteCollectorStack(Process process, string path)
+    {
+        RecordPhase(path, "collector-stack-entered");
+        if (process == null || process.HasExited) throw new InvalidOperationException("Owned collector is not alive");
+        using (FileStream file = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read))
+        {
+            IntPtr module = LoadLibraryExW("dbghelp.dll", IntPtr.Zero, 0x800);
+            int loadError = module == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0;
+            if (module == IntPtr.Zero) throw new Win32Exception(loadError, "Collector stack library load failed");
+            bool written = MiniDumpWriteDump(process.Handle, (uint)process.Id, file.SafeFileHandle.DangerousGetHandle(), 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+            int error = written ? 0 : Marshal.GetLastWin32Error();
+            RecordPhase(path, "collector-stack-returned:" + error.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (!written) throw new Win32Exception(error, "Collector stack write failed");
+        }
+        RecordPhase(path, "complete");
+    }
+
     public static void Write(Process process, string path)
     {
         RecordPhase(path, "write-entered"); // 2026-10-22：后续标记分别包围文件准备、句柄解析及原生调用点。

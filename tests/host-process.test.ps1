@@ -380,7 +380,7 @@ Assert-Host ($null -eq [MouseHelper]::GetProcessImagePath([uint32]4294967295)) '
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'Cross-bitness test requires Windows x64' }
 # 2026-10-22：外部64位收集器只读取持有目标；固定五秒上限和独立回收，不能占满原45秒宿主截止时间。
 function Save-HostTimeoutDump {
-    param([Diagnostics.Process]$Target,[string]$ExpectedImage,[string]$DumpPath,[string]$CollectorEngine='',[switch]$ExecutableCollector)
+    param([Diagnostics.Process]$Target,[string]$ExpectedImage,[string]$DumpPath,[string]$CollectorEngine='',[switch]$ExecutableCollector,[string]$CollectorStackTool='') # 2026-10-22：仅失败后的可选旁路工具。
     # 2026-10-22：此回执只有固定的字符串/整数/布尔字段，直接编码避免首次ConvertTo-Json自动加载阻塞取证收尾。
     function ConvertTo-DumpJsonString([string]$Value) {
         $text = [Text.StringBuilder]::new()
@@ -397,8 +397,8 @@ function Save-HostTimeoutDump {
     $record=[ordered]@{Pid=$Target.Id;Path=$DumpPath;Written=$false;TimedOut=$false;Error='';CollectorPid=$null;CollectorExited=$false}
     $collector=$null;$started=$false
     try {
-        if([string]::IsNullOrWhiteSpace($CollectorEngine)){$CollectorEngine=Join-Path $env:ProgramW6432 'PowerShell\7\pwsh.exe'}
-        $source=Join-Path $PSScriptRoot 'fixtures\host-child-diagnostics.cs'
+        if([string]::IsNullOrWhiteSpace($CollectorEngine)){$CollectorEngine=[IO.Path]::Combine($env:ProgramW6432,'PowerShell\7\pwsh.exe')} # 2026-10-22：默认路径不依赖命令模块冷加载。
+        $source=[IO.Path]::Combine($PSScriptRoot,'fixtures\host-child-diagnostics.cs') # 2026-10-22：原生EXE分支也能在禁止自动加载时建立相同源路径。
         $command='$ErrorActionPreference=''Stop''; if([IntPtr]::Size -ne 8){throw ''Dump collector requires x64''}; $p=[Diagnostics.Process]::GetProcessById('+ $Target.Id +'); try { if($p.StartTime.ToUniversalTime().Ticks -ne '+$Target.StartTime.ToUniversalTime().Ticks+' -or -not [String]::Equals($p.MainModule.FileName,'''+$ExpectedImage.Replace("'","''")+''',[StringComparison]::OrdinalIgnoreCase)){throw ''Owned dump target identity changed''}; Add-Type -TypeDefinition ([IO.File]::ReadAllText('''+$source.Replace("'","''")+''',[Text.Encoding]::UTF8)); [HostChildDiagnostics]::Write($p,'''+$DumpPath.Replace("'","''")+'''); [Console]::WriteLine(''___HOST_DUMP_WRITTEN___'') } finally {$p.Dispose()}'
         $start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=$CollectorEngine
         $start.Arguments='-NoProfile -NonInteractive -OutputFormat Text -EncodedCommand '+[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
@@ -412,7 +412,43 @@ function Save-HostTimeoutDump {
         if(-not $collector.Start()){throw 'Dump collector did not start'}
         $started=$true;$record.CollectorPid=$collector.Id
         $output=$collector.StandardOutput.ReadToEndAsync();$errors=$collector.StandardError.ReadToEndAsync()
-        if(-not $collector.WaitForExit(5000)){$record.TimedOut=$true;throw 'Dump collector deadline expired'}
+        if(-not $collector.WaitForExit(5000)){
+            $record.TimedOut=$true
+            # 2026-10-22：原失败已成立，最多再用1.5秒取超时收集器自身的最小栈；不递归、不改原回执或目标存活状态。
+            if(-not [string]::IsNullOrWhiteSpace($CollectorStackTool)){
+                $secondary=$null;$secondaryStarted=$false;$stackClock=[Diagnostics.Stopwatch]::StartNew()
+                $stackRecord=[ordered]@{Pid=$collector.Id;StartTicks='';Image='';Written=$false;TimedOut=$false;ExitConfirmed=$false;Error='';ElapsedMs=0;Stdout='';Stderr=''}
+                try {
+                    $stackRecord.StartTicks=$collector.StartTime.ToUniversalTime().Ticks.ToString([Globalization.CultureInfo]::InvariantCulture)
+                    $stackRecord.Image=[IO.Path]::GetFullPath($CollectorEngine) # 2026-10-22：32位调用者不能读64位MainModule；工具仍独立核验真实路径。
+                    if($stackRecord.Image.Contains('"') -or $DumpPath.Contains('"')){throw 'Invalid owned stack path'}
+                    $stackStart=[Diagnostics.ProcessStartInfo]::new();$stackStart.FileName=$CollectorStackTool
+                    $stackStart.Arguments=$stackRecord.Pid.ToString([Globalization.CultureInfo]::InvariantCulture)+' '+$stackRecord.StartTicks+' "'+$stackRecord.Image+'" "'+$DumpPath+'.collector.dmp" --collector-stack'
+                    $stackStart.UseShellExecute=$false;$stackStart.CreateNoWindow=$true;$stackStart.RedirectStandardOutput=$true;$stackStart.RedirectStandardError=$true
+                    $secondary=[Diagnostics.Process]::new();$secondary.StartInfo=$stackStart
+                    if(-not $secondary.Start()){throw 'Collector stack tool did not start'}
+                    $secondaryStarted=$true
+                    $stackOut=$secondary.StandardOutput.ReadToEndAsync();$stackErr=$secondary.StandardError.ReadToEndAsync()
+                    if(-not $secondary.WaitForExit([Math]::Max(0,1000-[int]$stackClock.ElapsedMilliseconds))){$stackRecord.TimedOut=$true;throw 'Collector stack deadline expired'}
+                    if(-not $stackOut.Wait([Math]::Max(0,1200-[int]$stackClock.ElapsedMilliseconds)) -or -not $stackErr.Wait([Math]::Max(0,1200-[int]$stackClock.ElapsedMilliseconds))){throw 'Collector stack streams incomplete'}
+                    $stackRecord.Stdout=$stackOut.GetAwaiter().GetResult();$stackRecord.Stderr=$stackErr.GetAwaiter().GetResult()
+                    if($secondary.ExitCode -ne 0 -or $stackRecord.Stderr.Length -ne 0 -or $stackRecord.Stdout.Trim() -cne '___HOST_COLLECTOR_STACK_WRITTEN___'){throw 'Collector stack tool failed'}
+                    $stackRecord.Written=$true
+                } catch {$stackRecord.Error=$_.Exception.GetBaseException().GetType().FullName+':'+$_.Exception.GetBaseException().Message}
+                finally {
+                    if($null -ne $secondary){
+                        if($secondaryStarted){try{if(-not $secondary.get_HasExited()){$secondary.Kill()};$stackRecord.ExitConfirmed=$secondary.WaitForExit([Math]::Max(0,1500-[int]$stackClock.ElapsedMilliseconds))}catch{$stackRecord.Error+=';cleanup:'+ $_.Exception.GetType().FullName}}
+                        try{$secondary.Dispose()}catch{$stackRecord.Error+=';dispose:'+ $_.Exception.GetType().FullName}
+                    }
+                    $stackRecord.ElapsedMs=$stackClock.ElapsedMilliseconds
+                    try {
+                        $stackJson='{"Pid":'+$stackRecord.Pid.ToString([Globalization.CultureInfo]::InvariantCulture)+',"StartTicks":'+(ConvertTo-DumpJsonString $stackRecord.StartTicks)+',"Image":'+(ConvertTo-DumpJsonString $stackRecord.Image)+',"Written":'+$stackRecord.Written.ToString().ToLowerInvariant()+',"TimedOut":'+$stackRecord.TimedOut.ToString().ToLowerInvariant()+',"ExitConfirmed":'+$stackRecord.ExitConfirmed.ToString().ToLowerInvariant()+',"Error":'+(ConvertTo-DumpJsonString $stackRecord.Error)+',"ElapsedMs":'+$stackRecord.ElapsedMs.ToString([Globalization.CultureInfo]::InvariantCulture)+',"Stdout":'+(ConvertTo-DumpJsonString $stackRecord.Stdout)+',"Stderr":'+(ConvertTo-DumpJsonString $stackRecord.Stderr)+'}'
+                        [IO.File]::WriteAllText($DumpPath+'.collector.json',$stackJson,[Text.UTF8Encoding]::new($false))
+                    } catch { }
+                }
+            }
+            throw 'Dump collector deadline expired'
+        }
         if(-not $output.Wait(1000) -or -not $errors.Wait(1000)){throw 'Dump collector streams incomplete'}
         $outText=$output.GetAwaiter().GetResult();$errText=$errors.GetAwaiter().GetResult()
         if($collector.ExitCode -ne 0 -or $errText.Length -ne 0 -or $outText.Trim() -cne '___HOST_DUMP_WRITTEN___'){throw ('Dump collector failed: '+$errText.Trim())}
