@@ -119,6 +119,59 @@ test('x86 diagnostic setting reaches a Windows Node child and descendant', { ski
     assert.deepEqual(observed, { own: ['1'], grand: ['1'] });
 });
 
+/* 2026-10-23：执行真实scanner回调直到启动边界即截获，不启动CLR，也不运行编译/清理钩子。 */
+function captureScannerWrapperSpawn(engine, mode) {
+    const parentEnvironment = Object.freeze({ WINDIR: process.env.WINDIR, SystemRoot: process.env.SystemRoot,
+        HOST_WRAPPER_ENGINE: engine, COMPLUS_ZAPDISABLE: '0', AAA_ENV_BOUNDARY_SENTINEL: 'keep' });
+    const parentBefore = JSON.stringify(parentEnvironment), realBefore = Object.entries(process.env);
+    const owned = path.join(root, 'tests', 'scanner-environment-capture-only');
+    const callbacks = [], scripts = [], stopped = new Error('scanner spawn captured');
+    let captured;
+    const modules = {
+        'node:assert/strict': assert, 'node:path': path, 'node:os': os,
+        'node:fs': { mkdtempSync: () => owned, realpathSync: { native: value => value }, mkdirSync: () => {},
+            writeFileSync: (file, text) => scripts.push({ file, text }), readFileSync: fs.readFileSync.bind(fs) },
+        'node:test': { test: (name, callback) => callbacks.push({ name, callback }), before: () => {}, after: () => {} },
+        'node:child_process': { spawnSync: (image, args, options) => { captured = { image, args, options }; throw stopped; } }
+    };
+    require('node:vm').runInNewContext(fs.readFileSync(path.join(__dirname, 'host-wrapper.test.cjs'), 'utf8'), {
+        require: name => { assert.ok(Object.hasOwn(modules, name), 'unexpected scanner dependency: ' + name); return modules[name]; },
+        __dirname, Buffer, process: { env: parentEnvironment, execPath: process.execPath, platform: process.platform }
+    }, { filename: 'host-wrapper.test.cjs', timeout: 5000 });
+    const selected = callbacks.filter(item => item.name === engine + ': scanner SelfTest wrapper ' + mode);
+    assert.equal(selected.length, 1, 'capture exactly one real scanner callback');
+    assert.throws(selected[0].callback, error => error === stopped);
+    assert.equal(JSON.stringify(parentEnvironment), parentBefore);
+    assert.deepEqual(Object.entries(process.env), realBefore);
+    assert.equal(captured.image, engine); assert.equal(captured.options.timeout, 35000);
+    assert.deepEqual(JSON.parse(JSON.stringify(captured.options.env)), { ...parentEnvironment,
+        AAA_SELFTEST_PIDFILE: path.join(owned, `selftest-0-${mode}.json`), AAA_HOST_WRAPPER_CASE: 'timeout',
+        AAA_HOST_WRAPPER_PIDFILE: path.join(owned, `selftest-0-${mode}-fallback.pid`),
+        AAA_SCANNER_STARTUP_IMAGE_UNAVAILABLE: mode === 'stdout' ? '1' : '0' });
+    return { command: Buffer.from(captured.args.at(-1), 'base64').toString('utf16le'), scripts };
+}
+
+/* 2026-10-23：仅人工stall的抽取目标设置JIT；父环境及其它模式不变，实际NI机制另由真实目标守卫确认。 */
+test('scanner artificial timeout JIT stays inside owned target launch', { skip: process.platform !== 'win32' }, () => {
+    for (const engine of ['powershell.exe', 'pwsh.exe']) {
+        const actual = captureScannerWrapperSpawn(engine, 'timeout');
+        assert.match(actual.command.replace(/''/g, "'"), /\$start\.EnvironmentVariables\['COMPlus_ZapDisable'\]='1'/,
+            'artificial stall must set JIT on its target ProcessStartInfo');
+        assert.ok(actual.command.includes('___SCANNER_STALL_TARGET_JIT_VERIFIED___'));
+        assert.equal(actual.scripts.length, 1);
+        assert.equal(Buffer.byteLength(actual.scripts[0].text, 'utf8'), 322, 'original fake stall source unchanged');
+    }
+});
+
+test('other scanner wrapper modes retain their original CLR settings', { skip: process.platform !== 'win32' }, () => {
+    for (const engine of ['powershell.exe', 'pwsh.exe']) {
+        for (const mode of ['stdout', 'stderr', 'exit', 'missing-done', 'ledger-failure', 'selftest-no-desktop', 'selftest-no-compiler']) {
+            const actual = captureScannerWrapperSpawn(engine, mode);
+            assert.doesNotMatch(actual.command, /COMPlus_ZapDisable|___SCANNER_STALL_TARGET_JIT_VERIFIED___/);
+        }
+    }
+});
+
 /* 2026-10-22：真实构建须忽略默认响应文件中的无关引用，保持原源文件和输出位数；不执行x86目标。 */
 test('diagnostic compiler ignores unrelated default response references', { skip: process.platform !== 'win32' }, () => {
     const actualCompiler = path.join(process.env.WINDIR, 'Microsoft.NET/Framework64/v4.0.30319');

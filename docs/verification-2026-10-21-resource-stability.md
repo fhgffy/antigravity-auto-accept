@@ -271,6 +271,18 @@ VM执行真实callback截获spawn，原实现2红/1绿，候选3绿；实际普�
 
 【已跑本地包验证】真实VSCE及validate均exit0，VSIX八项CRC/字节SHA和28源码输入不变已核对，并对齐上述21源快照；release/antigravity-auto-accept-5.3.13-native-x86-jit-local.vsix的SHA256为79a97c2f645cb2c427338ade11d795e82b5419cc108f38fd110bdbef9d4547d3，版本5.3.13、publisher fhgffy。包回执为evidence/native-x86-jit-package-{result,byte-readback}.json；独立汇总evidence/native-x86-jit-final-local-validation.json的SHA256为c5f52c19fb5fa32a0fde0919d5e28c5dc7d81689fcc0d2161c785410a6297e9e。尚未发布；云端C仍待新head的普通CI、同head原生机制核对及新的无仪器完整20组，所有历史仪器样本不计C。
 
+### 2026-10-23：x64人工超时原失败与单变量依赖控制
+
+【已跑验证】ef47463普通push/PR四次原运行成功；原生两引擎39846020099也成功，六个按创建身份绑定的x86目标/收集器均无NI映像。但新的无仪器39847410844在第2组WinPS人工scanner超时case失败：主x64 collector4900在原5000ms内未返回，原目标3020的身份、读栈者3184已确认退出0的独立回执及后置上下文均保留。整体61/62执行成功、20包，不能计作完整20绿；后置TID1660位于mscordacwks.dll不能证明前五秒IO或根因。原失败ZIP、62原日志与21ZIP在complete-uninstrumented-ef47463c3bc092a1049ae26daa44cd734a5af360-cloud-39847410844；源码审计见work/x64-collector-code-path-audit.md。
+
+【已跑验证】随后一次同源原生诊断39854307127完整63job成功，63原日志、63ZIP含42个0lost ETL及21核验包全部归档，没有复现4900故障。它带仪器，因此C计数仍0。此前两份成功x64采集器的真实IO含DAC和NI文件，这只是成功基线，不能冒充4900失败期间的证据。分别见x64-collector-native-split-ef47463c3bc092a1049ae26daa44cd734a5af360-cloud-39854307127和work/native-x64-collector-success-baseline-readback.json。
+
+【已跑验证，限本机暖缓存机制】私有八文件副本使用同一x64 collector字节、同一322B人工stall正文，唯一两臂差异为目标ProcessStartInfo的COMPlus_ZapDisable值0/1。两臂原case全部断言均通过；转储模块分别17/0个NI，独立无NI断言分别exit1/0。原15s/5s/35s、身份和回收均保持，外层Node/PowerShell与collector环境不改。work/scanner-stall-target-jit-ab/execution/receipt.json的SHA256为18bec61733556148bad6217e09f458755a19557fc044fa31929cb6d52833fc5e。该实验未证明冷性能改善或4900根因；后续最小候选仅隔离人工timeout目标，真实扫描器原环境不变，仍需新head完整门及新的无仪器20绿。
+
+【已读源码/已跑验证】最小实现只改host-wrapper的人工timeout私有启动函数与目标bootstrap：目标局部JIT、实际环境/无NI守卫及恰一次必需marker，真实scanner启动函数和322B正文原样。VM边界与真实守卫先红，候选VM/两引擎原case均绿；Env0和删除guard/output的私有变异均红，146条原断言逐字按序保留。work/scanner-stall-jit-source-controls/final-receipt.json；独立只读审查未见P0–P2。当前host-wrapper/repository源SHA分别15285dfb94981f6c589afec8e6d2a5337a9624125e129b71ed54e5c5d9b2bbe7/b9983043b3089e91646c59ce4674f94b2f708bef425ae3a3504f811a5d99514b。
+
+完整npm session27081 exit0，21输入全程不变；repository9/publication56/lifecycle38/host-wrapper57、scanner184、host-process每引擎131、mouse每引擎198、concurrency22。真实VSCE及包校验session85867均exit0、28输入不变，8项包完成标记已核对；本机原包release/antigravity-auto-accept-5.3.13-scanner-stall-jit-local.vsix的SHA256为f0e7d932890436286dc5a5712ddc6d28f22bac48d6ca32efbeb61200ffba887a。evidence/scanner-stall-jit-final-local-validation.json记录独立字节/CRC复核；仍未发布，C仍待新head原普通CI与新无仪器完整20组，不把上述本地门当云端稳定性通过。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。
@@ -299,7 +311,7 @@ README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发�
 
 原始证据及坐标审计在可信 12 根的 baseline12-browser-background-summary.json。窄栏待批截图已查看；宽栏批准发生在抓取前，没有把完成截图称为待批截图。
 
-英文结论已[发布并逐字回读](https://github.com/fhgffy/antigravity-auto-accept/pull/30#issuecomment-6326464387)：纯模式后台路径已工作，剩余窄栏菜单路径不能为后台功能跳过输入/前台保护；要求默认 false、保留保护、去 BOM 并补回归。本轮不合并该外部 PR。
+英文结论已[发布并逐字回读](https://github.com/fhgffy/antigravity-auto-accept/pull/30#issuecomment-6326464387)：纯模式后台路径已工作，剩余窄栏菜单路径不能为后台功能跳过输入/前台保护；要求默认 false、保留保护、去 BOM 并补回归。本轮不合并该外部 PR。 2026-10-23再次回读时，该PR已关闭且未合并，审查head仍为1f607c1a；本次未关闭或重开它。实际回执见测试根evidence/pr30-pr5-current-state-20261023.json。
 
 ## 审查与最终待办
 

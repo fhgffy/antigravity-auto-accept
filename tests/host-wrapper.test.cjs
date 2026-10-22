@@ -240,7 +240,12 @@ for (const [index, engine] of engines.entries()) {
                 + quote(path.join(__dirname, 'scanner.test.ps1')) + ",[ref]$tokens,[ref]$errors); . ([scriptblock]::Create($captureAst.Extent.Text.Replace('function Save-ScannerTimeoutEvidence {','function Save-ObservedTimeoutEvidence {'))); "
                 + "$scannerDumpTestRoot=" + quote(__dirname) + "; function Save-ScannerTimeoutEvidence($Target,$ExpectedImage,$SourcePath,$CollectorEngine,[switch]$ExecutableCollector){[Console]::WriteLine('___PREPARED_COLLECTOR_FORWARD___:'+([ordered]@{Engine=$CollectorEngine;Native=$ExecutableCollector.IsPresent}|ConvertTo-Json -Compress)); Save-ObservedTimeoutEvidence $Target $ExpectedImage $SourcePath -UtilityPath (Join-Path $scannerDumpTestRoot 'host-process.test.ps1') -CollectorEngine "
                 + quote(diagnosticCollector) + " -ExecutableCollector}}; "
-                + ". ([scriptblock]::Create($definition[0].Extent.Text.Replace('function Start-TestProcess(', 'function Start-ObservedChild('))); "
+                // 2026-10-23：仅人工超时的抽取启动函数在PSI编码后设置目标JIT，真实scanner及外层/收集器环境均不改。
+                + "$observedDefinition=$definition[0].Extent.Text.Replace('function Start-TestProcess(', 'function Start-ObservedChild('); "
+                + (mode === 'timeout' ? "$launchBoundary=" + quote('    $start.StandardErrorEncoding = [Text.Encoding]::UTF8\r\n    $process = New-Object Diagnostics.Process')
+                    + ";if($observedDefinition.Split([string[]]@($launchBoundary),[StringSplitOptions]::None).Length -ne 2){throw 'Exact stall launch boundary missing'};$observedDefinition=$observedDefinition.Replace($launchBoundary,"
+                    + quote("    $start.StandardErrorEncoding = [Text.Encoding]::UTF8\r\n    $start.EnvironmentVariables['COMPlus_ZapDisable']='1';\r\n    $process = New-Object Diagnostics.Process") + '); ' : '')
+                + ". ([scriptblock]::Create($observedDefinition)); "
                 + "function Start-TestProcess($Executable,$Command){$child=Start-ObservedChild $Executable $Command; "
                 // 2026-10-22：模拟进程刚创建时模块列表尚不可用，启动归属不能依赖暂时为空的MainModule。
                 + "if($env:AAA_SCANNER_STARTUP_IMAGE_UNAVAILABLE -eq '1'){$child|Add-Member ScriptProperty MainModule {return $null} -Force}; "
@@ -252,7 +257,10 @@ for (const [index, engine] of engines.entries()) {
                 + "try {[Console]::WriteLine('___SCANNER_SELFTEST_OBSERVER_CLEANUP___:'+($cleanup|ConvertTo-Json -Compress))} catch {};throw $failure}}; "
                 + "$engines=@((Get-Command " + quote(mode === 'ledger-failure' ? fixture : engine) + ").Source); $escapedScannerPath=" + quote(scriptFile.replace(/'/g, "''")) + "; "
                 + "$TimeoutCollectorPath=" + quote(diagnosticCollector) + "; "
-                + `$ExpectedSelfTestCount=${mode.startsWith('selftest-') ? 87 : 95}; $checks=0; $bootstrapEncoding='$ProgressPreference=''SilentlyContinue'';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);'; `
+                // 2026-10-23：人工stall的目标引导直接检查局部配置和真实模块，处置Process后才刷出独立标记；假脚本字节不变。
+                + `$ExpectedSelfTestCount=${mode.startsWith('selftest-') ? 87 : 95}; $checks=0; $bootstrapEncoding=`
+                + quote("$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);"
+                    + (mode === 'timeout' ? "$stallProcess=[Diagnostics.Process]::GetCurrentProcess();try{if([Environment]::GetEnvironmentVariable('COMPlus_ZapDisable') -cne '1'){throw 'Owned scanner stall JIT setting missing'};foreach($module in $stallProcess.Modules){if($module.ModuleName.EndsWith('.ni.dll',[StringComparison]::OrdinalIgnoreCase)){throw 'Owned scanner stall native image loaded'}}}finally{$stallProcess.Dispose()};[Console]::Out.WriteLine('___SCANNER_STALL_TARGET_JIT_VERIFIED___');[Console]::Out.Flush();" : '')) + '; '
                 + "try {. ([scriptblock]::Create($loop[0].Extent.Text))} catch {[Console]::Error.WriteLine($_.Exception.Message);exit 1}";
             const started = Date.now();
             const result = spawnSync(engine, ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-ExecutionPolicy', 'Bypass',
@@ -325,6 +333,8 @@ for (const [index, engine] of engines.entries()) {
                 for (const phase of ['bootstrap', 'source-read', 'scriptblock-created']) {
                     assert.ok(detail.Stdout.includes('___SCANNER_SELFTEST_PHASE___:' + phase), `missing SelfTest phase: ${phase}`);
                 }
+                // 2026-10-23：完成标记不能替代目标JIT/真实模块守卫，缺少或重复守卫标记均独立失败。
+                assert.equal(detail.Stdout.split(/\r?\n/).filter(value => value === '___SCANNER_STALL_TARGET_JIT_VERIFIED___').length, 1, 'owned stall target JIT guard marker');
                 assert.match(detail.Stdout, /SCANNER_WRAPPER_STDOUT:before-stall/);
                 assert.match(detail.Stdout, /___SELFTEST_DONE___:passed=95/);
                 assert.match(detail.Stderr, /SCANNER_WRAPPER_STDERR:before-stall/);
