@@ -20,6 +20,101 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }} # 2026-10-07：主分支发布串行完成，避免下一次提交中断已开始的上传。
 
 jobs:
+  host-wrapper-observer:
+    # 2026-10-22：独立手动观察原Node全文测试，未改变其任何子进程期限，不计完整CI验收次数。
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.host_repetitions != '1'
+    name: Host wrapper observer (${{ matrix.image }}, ${{ matrix.major }})
+    runs-on: ${{ matrix.image }}
+    timeout-minutes: 5
+    # 2026-10-22：只增加本作业npm旁证，不关审计、不改重试或安装期限。
+    env:
+      NPM_CONFIG_LOGS_DIR: ${{ runner.temp }}/AntigravityAA-npm-prefix-logs
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [windows-latest, windows-2022]
+        major: [5, 7]
+        include:
+          - major: 5
+            shell: powershell
+            executable: powershell.exe
+          - major: 7
+            shell: pwsh
+            executable: pwsh.exe
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '22'
+      # 2026-10-22：保留普通CI在宿主全文测试之前的实际验证顺序与单引擎扫描回归。
+      - name: Same validation prefix before observed host wrapper
+        run: |
+          [Console]::WriteLine('___OBSERVED_NPM_CI_BOOTSTRAP___')
+          npm ci --timing --loglevel=verbose
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run compile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:repository
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:lifecycle
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test tests/publish-release.test.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $prepared = node tests/prepare-dump-collector.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $collector = $prepared | ConvertFrom-Json
+          $path = [IO.Path]::GetFullPath('tests/scanner.test.ps1')
+          $t = $null; $e = $null
+          $a = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path,[Text.Encoding]::UTF8),$path,[ref]$t,[ref]$e)
+          if ($e.Count) { throw 'Observed scanner prefix parse errors' }
+          & $a.GetScriptBlock() -PowerShellEngines @('${{ matrix.executable }}') -TimeoutCollectorPath $collector.path
+      - name: Observe complete original host wrapper test
+        run: |
+          $path = [IO.Path]::GetFullPath('tests/observe-host-wrapper-diagnostic.ps1')
+          $t = $null; $e = $null
+          $a = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path,[Text.Encoding]::UTF8),$path,[ref]$t,[ref]$e)
+          if ($e.Count) { throw 'Observer source parse errors' }
+          & $a.GetScriptBlock() -Repository $PWD.Path -NodePath (Get-Command node).Source -TestFile 'tests/host-wrapper.test.cjs' -Engine '${{ matrix.executable }}' -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'AntigravityAA-host-observer-actual') -FullSuite
+      # 2026-10-22：受控验收放在原测试之后，避免先预热x86/读栈路径掩盖原冷启动故障。
+      - name: Verify bounded observer on controlled x86 wait
+        if: always()
+        run: |
+          $path = [IO.Path]::GetFullPath('tests/observe-host-wrapper-diagnostic.ps1')
+          $t = $null; $e = $null
+          $a = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path,[Text.Encoding]::UTF8),$path,[ref]$t,[ref]$e)
+          if ($e.Count) { throw 'Observer source parse errors' }
+          & $a.GetScriptBlock() -Repository $PWD.Path -NodePath (Get-Command node).Source -TestFile 'tests/fixtures/host-wrapper-observer-slow.test.cjs' -Engine '${{ matrix.executable }}' -EvidenceDirectory (Join-Path $env:RUNNER_TEMP 'AntigravityAA-host-observer-control') -RequireControlledCapture
+      # 2026-10-22：只复制本作业明确测试前缀到同盘上传根，原文件和失败均保留。
+      - name: Stage owned observer evidence
+        if: always()
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'AntigravityAA-host-observer-upload'
+          [void][IO.Directory]::CreateDirectory($stage)
+          foreach ($name in @('AntigravityAA-host-observer-control','AntigravityAA-host-observer-actual','AntigravityAA-npm-prefix-logs')) {
+            $source = Join-Path $env:RUNNER_TEMP $name
+            if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination $stage -Recurse -ErrorAction Stop }
+          }
+          $binaryRoot = Join-Path $env:LOCALAPPDATA 'Temp'
+          foreach ($source in @(Get-ChildItem -LiteralPath $binaryRoot -Directory | Where-Object Name -match '^AntigravityAA-(HostWrapper-[A-Za-z0-9]{6}|(HostBinary|ScannerTimeout|DumpCollector)-[a-f0-9]{32})$')) {
+            Copy-Item -LiteralPath $source.FullName -Destination $stage -Recurse -ErrorAction Stop
+          }
+      - name: Preserve owned observer evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: host-observer-evidence-${{ github.run_id }}-${{ matrix.image }}-${{ matrix.major }}
+          path: ${{ runner.temp }}/AntigravityAA-host-observer-upload/
+          if-no-files-found: warn
+          retention-days: 14
+
   host-startup-diagnostic:
     # 2026-10-22：启动停滞诊断独立于常规回归，不能计为两引擎完整连绿。
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.host_repetitions != '1'
