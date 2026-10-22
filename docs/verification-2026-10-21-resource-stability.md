@@ -118,6 +118,10 @@ e718587 的 push 39714938769、PR 39714943896 两次完整 Windows CI，以及�
 
 原受控 x86 DMP 的系统/线程上下文为 x64 收集器生成的 WOW64 形式；dotnet-dump 两种位数及 CDB 逐行命令都未得到可用的托管栈，不能凭工具退出 0 称成功。官方签名工具改用包范围提取，原整包下载超时保留；没有安装或改全局 SDK。另从原 0b587c2 的 inner x64 DMP 读到预期 HostWrapperOutput.Main/Thread.Sleep，只证明内层在等待，不是外层根因。相关原日志、签名清单和 wow64-dump-architecture-audit.json 在本轮根目录。
 
+8604179 的独立 lint 两次通过，PR 39720788867 完整成功；push 39720783516 的真实扫描器通过，却在 PS5 人为停滞的取证元测试失败。原 5 秒收集器退出已确认，零字节 DMP 最后阶段为 handles-ready，没有 native-returned；该界限还包含首次原生库加载，不能径直称为 MiniDumpWriteDump 内部死锁，更不能说 JSON 修复消除了此独立故障。完整日志与原 artifact 在 ci-8604179；故障源仅 322 字节，不是生产 SelfTest。
+
+针对 #34 的原 SelfTest 停顿，在原 15 秒失败成立后、原持有者停止目标之前，复用有界只读栈工具，再执行原转储。其独立读栈进程至多等待 5 秒并单独收尾，原 SelfTest 循环及 15 秒判定逐字未变；取证失败仍不能遮盖原失败。两个引擎的新增断言先因缺少 selftest.callstack.json 失败，接入后均读到受控 Start-Sleep 60，原失败、MDMP、身份、两流和退出断言都通过，耗时约 18 秒，原 35 秒元测试外限保留。读栈启动失败与退出 1 的两项真实进程故障对照也保留有效 MDMP、活目标及最后原持有者退出确认，见 selftest-callstack-reader-faults；这是提高现场信息，并非原 SelfTest 根因已定位。 修后完整 npm test 通过（host-wrapper 48/48），7 个功能/运行文件起点哈希一致，正式测试 VSIX 八项、编码及函数边界检查通过；最终本地回执为 selftest-callstack-final-local-validation.json。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。

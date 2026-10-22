@@ -80,6 +80,36 @@ function Save-ScannerTimeoutEvidence {
         $functionAst = [Management.Automation.Language.Parser]::ParseInput($definition[0].Extent.Text, $UtilityPath, [ref]$tokens, [ref]$errors)
         if ($errors.Count) { throw 'Owned dump utility parse failed' }
         . ($functionAst.GetScriptBlock())
+        # 2026-10-22：原十五秒失败已成立，先复用只读栈工具观察同一持有目标；工具失败不跳过原转储和回收。
+        $reader = $null; $readerStarted = $false
+        $readerRecord = [ordered]@{ Pid = $null; TimedOut = $false; ExitConfirmed = $false; ExitCode = $null; Stdout = ''; Stderr = ''; Error = '' }
+        try {
+            $readerSource = [IO.Path]::Combine([IO.Path]::GetDirectoryName($UtilityPath), 'read-owned-callstack.ps1')
+            $readerStart = [Diagnostics.ProcessStartInfo]::new()
+            $readerStart.FileName = [IO.Path]::Combine($env:ProgramW6432, 'PowerShell\7\pwsh.exe')
+            $readerStart.Arguments = '-NoProfile -NonInteractive -OutputFormat Text -File "' + $readerSource + '" -TargetPid ' + $Target.Id + ' -StartTicks "' + $identity.StartTicks + '" -ExpectedImage "' + $identity.Image + '" -ExpectedParentId ' + $PID + ' -OutputFile "' + [IO.Path]::Combine($record.Directory, 'selftest.callstack.json') + '"'
+            $readerStart.UseShellExecute = $false; $readerStart.CreateNoWindow = $true
+            $readerStart.RedirectStandardOutput = $true; $readerStart.RedirectStandardError = $true
+            $reader = [Diagnostics.Process]::new(); $reader.StartInfo = $readerStart
+            if (-not $reader.Start()) { throw 'Owned SelfTest stack reader did not start' }
+            $readerStarted = $true; $readerRecord.Pid = $reader.Id
+            $readerOut = $reader.StandardOutput.ReadToEndAsync(); $readerErr = $reader.StandardError.ReadToEndAsync()
+            $readerRecord.TimedOut = -not $reader.WaitForExit(5000)
+        }
+        catch { $readerRecord.Error = $_.Exception.GetBaseException().GetType().FullName + ':' + $_.Exception.GetBaseException().Message }
+        finally {
+            if ($null -ne $reader) {
+                if ($readerStarted) {
+                    try { if (-not $reader.HasExited) { $reader.Kill() }; $readerRecord.ExitConfirmed = $reader.WaitForExit(1000); if ($readerRecord.ExitConfirmed) { $readerRecord.ExitCode = $reader.ExitCode } }
+                    catch { $readerRecord.Error += ';stop:' + $_.Exception.GetType().FullName }
+                    try { if ($readerOut.Wait(1000)) { $readerRecord.Stdout = $readerOut.GetAwaiter().GetResult() }; if ($readerErr.Wait(1000)) { $readerRecord.Stderr = $readerErr.GetAwaiter().GetResult() } }
+                    catch { $readerRecord.Error += ';streams:' + $_.Exception.GetType().FullName }
+                }
+                try { $reader.Dispose() } catch { $readerRecord.Error += ';dispose:' + $_.Exception.GetType().FullName }
+            }
+            try { [IO.File]::WriteAllText([IO.Path]::Combine($record.Directory, 'selftest.reader.json'), ($readerRecord | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false)) }
+            catch { $record.Error += ';stack-record:' + $_.Exception.GetType().FullName }
+        }
         Save-HostTimeoutDump $Target $ExpectedImage (Join-Path $record.Directory 'selftest.dmp') -CollectorEngine $CollectorEngine -ExecutableCollector:$ExecutableCollector
     }
     catch { $record.Error = $_.Exception.GetBaseException().GetType().FullName + ':' + $_.Exception.GetBaseException().Message }

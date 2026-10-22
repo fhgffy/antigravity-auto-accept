@@ -333,7 +333,18 @@ for (const [index, engine] of engines.entries()) {
                 assert.equal(fs.readFileSync(dumpFile).subarray(0, 4).toString('ascii'), 'MDMP',
                     JSON.stringify({ status: result.status, stdout: result.stdout, stderr: result.stderr })); // 2026-10-22：真实采集失败保留收集器原两流，不能只剩空头断言。
                 assert.equal(fs.readFileSync(path.join(detail.DumpDirectory, 'source.ps1'), 'utf8'), fs.readFileSync(scriptFile, 'utf8'));
-                for (const name of ['identity.json', 'source.ps1', 'selftest.dmp', 'selftest.dmp.phases.log', 'streams.json']) selfTestFiles.push(path.join(detail.DumpDirectory, name));
+                // 2026-10-22：原15秒失败后在停止目标前读出注入等待语句，保留同一PID/创建身份及有界读栈退出。
+                const stack = JSON.parse(fs.readFileSync(path.join(detail.DumpDirectory, 'selftest.callstack.json'), 'utf8'));
+                assert.equal(stack.Pid, record.Pid);
+                assert.equal(stack.StartTicks, record.StartTicks);
+                assert.equal(stack.Error, '');
+                assert.ok(stack.Stacks.some(runspace => runspace.Name === 'Runspace1' && runspace.Frames.some(frame => frame.PositionText === 'Start-Sleep -Seconds 60')));
+                const reader = JSON.parse(fs.readFileSync(path.join(detail.DumpDirectory, 'selftest.reader.json'), 'utf8'));
+                assert.equal(reader.TimedOut, false);
+                assert.equal(reader.ExitConfirmed, true);
+                assert.equal(reader.ExitCode, 0);
+                assert.equal(reader.Stderr, '');
+                for (const name of ['identity.json', 'source.ps1', 'selftest.dmp', 'selftest.dmp.phases.log', 'streams.json', 'selftest.callstack.json', 'selftest.reader.json']) selfTestFiles.push(path.join(detail.DumpDirectory, name));
                 selfTestDirectories.push(detail.DumpDirectory);
             } else {
                 assert.match(result.stderr, /SelfTest failed:/);
