@@ -178,11 +178,14 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: host-child-timeout-${{ github.run_id }}-${{ matrix.major }}${{ inputs.artifact_suffix }} # 2026-10-22：同次矩阵按样本隔离失败旁证。
+          # 2026-10-23：同步自测失败回执覆盖托管临时根与默认临时根，不扩大到其他进程。
           path: |
             ~\AppData\Local\Temp\AntigravityAA-HostBinary-*\*
             ~\AppData\Local\Temp\AntigravityAA-HostWrapper-*\*
             ~\AppData\Local\Temp\AntigravityAA-ScannerTimeout-*\*
             ~\AppData\Local\Temp\AntigravityAA-DumpCollector-*\*
+            ${{ runner.temp }}/AntigravityAA-LifecycleTimeout-*/*
+            ~\AppData\Local\Temp\AntigravityAA-LifecycleTimeout-*\*
           if-no-files-found: warn
           retention-days: 14
       # 2026-10-22：先保留原失败产物，再以一分钟预算上传可选ETL，避免大诊断挡住原证据。

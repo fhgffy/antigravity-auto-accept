@@ -552,15 +552,39 @@ test('真实 PowerShell 启动协议通过扫描器自测且 stderr 为空', { s
     const encodedIndex = args.indexOf('-EncodedCommand');
     assert.notEqual(encodedIndex, -1);
     args[encodedIndex + 1] = Buffer.from(`${getScannerCommand(spawned)} -SelfTest`, 'utf16le').toString('base64');
+    /* 2026-10-23：仅在原同步调用返回后失败时保存其原件，不增加进程、预热或修改原截止时间。 */
+    const startedUtc = new Date().toISOString(), started = process.hrtime.bigint();
     const result = require('node:child_process').spawnSync(spawned.command, args, {
         windowsHide: true,
         encoding: 'utf8',
         timeout: 20000,
     });
-    assert.ifError(result.error);
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /___SELFTEST_DONE___:passed=[1-9][0-9]*/);
-    assert.equal(result.stderr, '');
+    const returnedUtc = new Date().toISOString(), durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+    try {
+        assert.ifError(result.error);
+        assert.equal(result.status, 0, result.stderr);
+        assert.match(result.stdout, /___SELFTEST_DONE___:passed=[1-9][0-9]*/);
+        assert.equal(result.stderr, '');
+    } catch (error) {
+        try {
+            const directory = fs.mkdtempSync(path.join(process.env.RUNNER_TEMP || require('node:os').tmpdir(), 'AntigravityAA-LifecycleTimeout-'));
+            const receipt = {
+                SpawnSyncReturned: true, PreKillCapture: false, StreamsAreNodeDecodedUtf8: true,
+                StartedUtc: startedUtc, ReturnedUtc: returnedUtc, DurationMs: durationMs,
+                Command: spawned.command, Args: args,
+                Pid: result.pid ?? null, Status: result.status ?? null, Signal: result.signal ?? null,
+                Error: result.error ? Object.fromEntries(['name', 'message', 'stack', 'code', 'errno', 'syscall', 'path']
+                    .map(name => [name, result.error[name] ?? null])) : null,
+                Stdout: result.stdout ?? null, Stderr: result.stderr ?? null,
+            };
+            fs.writeFileSync(path.join(directory, 'receipt.json'), JSON.stringify(receipt, null, 2), 'utf8');
+            fs.writeFileSync(path.join(directory, 'stdout.log'), result.stdout ?? '', 'utf8');
+            fs.writeFileSync(path.join(directory, 'stderr.log'), result.stderr ?? '', 'utf8');
+        } catch (diagnosticError) {
+            console.error('Lifecycle failure evidence could not be written:', diagnosticError);
+        }
+        throw error;
+    }
 });
 /* 2026-10-07：授信、展示配置和管道故障不能覆盖用户停止意图或中断宿主。 */
 test('用户停止后授予工作区信任仍保持 OFF', () => {

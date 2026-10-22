@@ -283,6 +283,20 @@ VM执行真实callback截获spawn，原实现2红/1绿，候选3绿；实际普�
 
 完整npm session27081 exit0，21输入全程不变；repository9/publication56/lifecycle38/host-wrapper57、scanner184、host-process每引擎131、mouse每引擎198、concurrency22。真实VSCE及包校验session85867均exit0、28输入不变，8项包完成标记已核对；本机原包release/antigravity-auto-accept-5.3.13-scanner-stall-jit-local.vsix的SHA256为f0e7d932890436286dc5a5712ddc6d28f22bac48d6ca32efbeb61200ffba887a。evidence/scanner-stall-jit-final-local-validation.json记录独立字节/CRC复核；仍未发布，C仍待新head原普通CI与新无仪器完整20组，不把上述本地门当云端稳定性通过。
 
+### 2026-10-23：真实启动20秒原失败与两种诊断的证据边界
+
+【已跑验证】e071bc1原push与两个lint成功，原PR在真实launcher SelfTest case30超时20030.3226ms，原20000ms断言未改；当时后续scanner/host/人工stall测试均未开始。七份原执行日志已归档，失败job未生成任何故障资产，PID/阶段及部分两流没有保留。repository此前确有同步csc编译，但已结束，源码与日志均不支持“测试多文件并发竞争”的推断。ci-native-x86-jit-e071bc1/final-summary.json及ordinary-e071-pr-failure-fast-read/job-original.log保留原失败；不能继续把已移出的桌面编译当作本次原因。
+
+【已跑验证】同源只读observer原39863045944的20个实际case均成功，两例为10.665/14.108秒，脚本栈只定位到完整复合调用，不能拆分读文件/ScriptBlock创建/执行。同源原生两引擎39864334015也成功，实际目标分别424.403/4799.038ms；两个ETL均0lost。cache-only同创建身份、逐线程生命周期与文件区间并集复核：较慢目标PID2512首线程6236实际IO并集3190.8493ms，其中同样本SMA.ni文件2669.6815ms；较快PID4516对应工作线程该文件115.0965ms。这些是成功样本的实际IO，不能追认原20秒超时的根因。两种诊断全部C计数0，原断言/期限、默认环境与生产源未改，没有CI重跑。
+
+证据在lifecycle-e071-original-39863045944/actual-case30-readback.json、two-engine-native-e071bc16c744e615f5d8bd9fd416e9be00dd39a6-windows-2022-cloud-39864334015及lifecycle-e071-offline-two-engine-parent-readback.json。大体积派生ETLX在E盘独占目录，原ETL/ZIP仍在F盘；没有删除失败样本或复写原分析。原20秒原因仍未知，不把微软诊断用CLR开关未经产品成本验证就设为默认。
+
+【已读源码、已跑聚焦验证】Issue38最小诊断修复保留实际spawnSync、默认环境/缓冲和20000ms，原四条成功断言逐字不变；只在返回后断言失败时保存原PID、status/signal、显式Error字段、完整返回字符串及调用区间。成功不落盘、不新增进程/仪器，失败写文件出错仍抛同一个原异常；RUNNER_TEMP及默认临时根的独占目录纳入原失败上传。null/空串及UTF-8解码字符串边界明确，不再对旧PID做任何操作。它没有增加kill前现场能力，也未证明或修复20秒启动根因。
+
+真实回调的VM先红后绿，五类失败×两个根、中文emoji/CRLF/LF、目录及第一/第二/第三文件写失败均验证；成功零写，两个删除取证/上传的私有变异均红。一次测试脚手架误判原args位置的首次输出单独保留，不算实现红例。原38项实际lifecycle全通过、case30为586.5983ms。原件及三份源SHA在work/lifecycle-original-failure-receipt-controls/final-receipt.json，SHA256为91036909f8bc8e3b0cb2b6e781580906c1d932423dbc4d570ce7c72e6b088540；完整npm、包及新head普通CI/完整20组仍待，不用聚焦门替代。
+
+【已跑完整本地验证】本次npm session69389 exit0，21输入全程不变：repository12/publication56/lifecycle38/host-wrapper57，scanner184、host-process每引擎131、mouse每引擎198、concurrency22，SelfTest87。VSCE和原VSIX验证session58593均exit0，28输入不变，8项CRC/manifest/运行字节独立回读通过；本机包SHA256为0ffb0539ca91f3d5f7d6d6e6769f8242d5a443a7f69b030a9dd86b4d49aee017。包的8项内容与前候选相同，仅外层ZIP打包字节不同；本地包不是将来main发布原包。evidence/lifecycle-failure-receipt-final-local-validation.json绑定源码、原日志和包。独立审查本次三文件未见P0–P3；生产PS/TS/JS源未改，旧原生验收复用范围不变。仍须新提交的原普通CI与无仪器完整20组，历史20秒原因未知、所有原失败继续保留。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。

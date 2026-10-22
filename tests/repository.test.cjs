@@ -45,6 +45,132 @@ test('working diff has no whitespace errors', () => {
     execFileSync('git', ['diff', '--cached', '--check'], { cwd: root, stdio: 'pipe' });
 });
 
+/* 2026-10-23：执行真实生命周期自测回调，只替代同步返回与文件边界，不启动CLR或提前读取目标模块。 */
+function captureLifecycleFailure(result, variables = {}, writeFailure) {
+    const callbacks = [], writes = [], directories = [], errors = [], calls = [], assertionErrors = [], cleanups = [];
+    const environment = Object.freeze({ AAA_LIFECYCLE_SENTINEL: 'unchanged', ...variables });
+    const environmentBefore = JSON.stringify(environment), realEnvironmentBefore = Object.entries(process.env);
+    const recordedAssert = new Proxy(assert, { get: (target, name) => {
+        const original = target[name];
+        return ['ifError', 'equal', 'match'].includes(name) ? (...args) => {
+            try { return original(...args); } catch (error) { assertionErrors.push(error); throw error; }
+        } : original;
+    } });
+    let ticks = 0n, thrown;
+    const modules = {
+        'node:assert/strict': recordedAssert,
+        'node:fs': { ...fs,
+            mkdtempSync: prefix => {
+                directories.push(prefix);
+                if (writeFailure === 'directory') throw new Error('diagnostic directory rejected');
+                return prefix + 'owned';
+            },
+            writeFileSync: (file, data, encoding) => {
+                if (writeFailure === 'write' || (writeFailure === 'write-second' && writes.length === 1)
+                    || (writeFailure === 'write-third' && writes.length === 2)) throw new Error('diagnostic write rejected');
+                writes.push({ file, data, encoding });
+            },
+            unlinkSync: file => cleanups.push(file), rmdirSync: file => cleanups.push(file), rmSync: file => cleanups.push(file),
+        },
+        'node:test': (name, options, callback) => callbacks.push({ name, callback: callback || options }),
+        'node:child_process': { spawnSync: (command, args, options) => { calls.push({ command, args, options }); return result; } },
+    };
+    require('node:vm').runInNewContext(fs.readFileSync(path.join(__dirname, 'extension.test.cjs'), 'utf8'), {
+        require: name => Object.hasOwn(modules, name) ? modules[name] : require(name),
+        __dirname, Buffer,
+        process: { platform: 'win32', env: environment, hrtime: { bigint: () => { ticks += 1250000000n; return ticks; } } },
+        console: { error: (...args) => errors.push(args) },
+    }, { filename: 'extension.test.cjs', timeout: 5000 });
+    const selected = callbacks.filter(item => item.name === '真实 PowerShell 启动协议通过扫描器自测且 stderr 为空');
+    assert.equal(selected.length, 1);
+    try { selected[0].callback(); } catch (error) { thrown = error; }
+    assert.equal(calls.length, 1, 'one unchanged synchronous launcher invocation');
+    assert.equal(calls[0].command, 'powershell.exe');
+    assert.deepEqual(JSON.parse(JSON.stringify(calls[0].options)), { windowsHide: true, encoding: 'utf8', timeout: 20000 });
+    assert.deepEqual(Array.from(calls[0].args).slice(0, 7), ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-ExecutionPolicy', 'Bypass', '-EncodedCommand']);
+    assert.equal(calls[0].args.length, 8);
+    const command = Buffer.from(calls[0].args[7], 'base64').toString('utf16le');
+    assert.match(command, / -SelfTest$/);
+    assert.equal(JSON.stringify(environment), environmentBefore);
+    assert.deepEqual(Object.entries(process.env), realEnvironmentBefore);
+    return { directories, writes, errors, calls, thrown, assertionErrors, cleanups };
+}
+
+/* 2026-10-23：成功路径零落盘；原超时、启动失败及原四项断言失败都保留同步返回原件与同一个断言异常。 */
+test('real lifecycle failures retain the original synchronous result without changing launcher defaults', () => {
+    const success = { pid: 4516, status: 0, signal: null, stdout: '___SELFTEST_DONE___:passed=87\r\n', stderr: '' };
+    const passed = captureLifecycleFailure(success);
+    assert.equal(passed.thrown, undefined);
+    assert.equal(passed.assertionErrors.length, 0);
+    assert.deepEqual(passed.directories, []);
+    assert.deepEqual(passed.writes, []);
+    assert.deepEqual(passed.errors, []);
+    assert.deepEqual(passed.cleanups, []);
+    const timeout = Object.assign(new Error('spawnSync powershell.exe ETIMEDOUT'), {
+        code: 'ETIMEDOUT', errno: -4039, syscall: 'spawnSync powershell.exe', path: 'powershell.exe',
+    });
+    const missing = Object.assign(new Error('spawnSync powershell.exe ENOENT'), { code: 'ENOENT', errno: -4058, syscall: 'spawnSync powershell.exe', path: 'powershell.exe' });
+    for (const result of [
+        { ...success, error: timeout, status: null, signal: 'SIGTERM', stdout: '部分输出🙂\r\n', stderr: '部分错误🚩\n' },
+        { error: missing, pid: 0, status: null, signal: null, stdout: null, stderr: null },
+        { ...success, status: 3 }, { ...success, stderr: 'unexpected error\n' }, { ...success, stdout: 'missing done\n' },
+    ]) {
+        for (const variables of [{}, { RUNNER_TEMP: path.join(root, 'runner-temp-control') }]) {
+            const actual = captureLifecycleFailure(result, variables);
+            assert.equal(actual.thrown, actual.assertionErrors[0], 'diagnostics must rethrow the identical original assertion error');
+            assert.ok(actual.thrown);
+            assert.deepEqual(actual.errors, []);
+            assert.deepEqual(actual.cleanups, []);
+            assert.deepEqual(actual.directories, [path.join(variables.RUNNER_TEMP || os.tmpdir(), 'AntigravityAA-LifecycleTimeout-')]);
+            assert.equal(actual.writes.length, 3);
+            const byName = Object.fromEntries(actual.writes.map(item => [path.basename(item.file), item]));
+            const receipt = JSON.parse(byName['receipt.json'].data);
+            assert.equal(receipt.SpawnSyncReturned, true);
+            assert.equal(receipt.PreKillCapture, false);
+            assert.equal(receipt.StreamsAreNodeDecodedUtf8, true);
+            assert.equal(receipt.DurationMs, 1250);
+            assert.ok(Number.isFinite(Date.parse(receipt.StartedUtc)) && Date.parse(receipt.ReturnedUtc) >= Date.parse(receipt.StartedUtc));
+            assert.equal(receipt.Command, actual.calls[0].command);
+            assert.deepEqual(receipt.Args, Array.from(actual.calls[0].args));
+            for (const field of ['pid', 'status', 'signal', 'stdout', 'stderr']) {
+                assert.equal(receipt[field[0].toUpperCase() + field.slice(1)], result[field] ?? null);
+            }
+            assert.deepEqual(receipt.Error, result.error ? Object.fromEntries(
+                ['name', 'message', 'stack', 'code', 'errno', 'syscall', 'path'].map(name => [name, result.error[name] ?? null])) : null);
+            for (const stream of ['stdout', 'stderr']) assert.equal(byName[stream + '.log'].data, result[stream] ?? '');
+            for (const item of actual.writes) {
+                assert.equal(item.encoding, 'utf8');
+                assert.equal(path.dirname(item.file), actual.directories[0] + 'owned');
+            }
+        }
+    }
+});
+
+/* 2026-10-23：取证目录或两流写入失败只能额外报告，不能掩盖原测试失败或改变退出语义。 */
+test('lifecycle diagnostic write failures preserve the original assertion exception', () => {
+    for (const [failure, retained] of [['directory', 0], ['write', 0], ['write-second', 1], ['write-third', 2]]) {
+        const actual = captureLifecycleFailure({ pid: 42, status: 1, signal: null, stdout: '', stderr: 'original failure' }, {}, failure);
+        assert.equal(actual.thrown, actual.assertionErrors[0]);
+        assert.ok(actual.thrown);
+        assert.equal(actual.errors.length, 1);
+        assert.match(actual.errors[0].join(' '), /Lifecycle failure evidence could not be written/);
+        assert.equal(actual.directories.length, 1);
+        assert.deepEqual(actual.cleanups, []);
+        assert.deepEqual(actual.writes.map(item => path.basename(item.file)), ['receipt.json', 'stdout.log'].slice(0, retained));
+        if (retained) assert.equal(JSON.parse(actual.writes[0].data).Stderr, 'original failure');
+    }
+});
+
+/* 2026-10-23：独占失败目录必须由原失败上传步骤同时覆盖托管临时根和本机默认临时根。 */
+test('normal failure upload includes owned lifecycle synchronous result receipts', () => {
+    const workflow = fs.readFileSync(path.join(root, '.github/workflows/windows-validation.yml'), 'utf8');
+    const upload = workflow.slice(workflow.indexOf('      - name: Preserve owned host child timeout diagnostics'),
+        workflow.indexOf('      - name: Preserve native startup trace'));
+    assert.match(upload, /if: failure\(\)/);
+    assert.ok(upload.includes('${{ runner.temp }}/AntigravityAA-LifecycleTimeout-*/*'));
+    assert.ok(upload.includes('~\\AppData\\Local\\Temp\\AntigravityAA-LifecycleTimeout-*\\*'));
+});
+
 /* 2026-10-23：执行真实诊断回调到进程边界即停止，不运行编译、PowerShell或清理钩子，避免提前暖读Framework。 */
 function captureDiagnosticEnvironment(engine, variables = {}) {
     const parentEnvironment = Object.freeze({ WINDIR: process.env.WINDIR, SystemRoot: process.env.SystemRoot,
