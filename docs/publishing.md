@@ -4,11 +4,17 @@
 
 ## 自动入口与发布输入
 
-现有 Windows validation 工作流保留 Windows PowerShell 5.1 和 PowerShell 7 两个测试作业。两个测试通过后，package 作业生成 VSIX，执行 validate-vsix，并上传包含 VSIX 与 SHA-256 文件的同次构建产物。
+Windows validation 通过同提交的 windows-validation.yml 复用 Windows PowerShell 5.1 和 PowerShell 7 两个完整测试作业。两个测试通过后，其 package 作业生成 VSIX、执行 validate-vsix，并上传包含 VSIX 与 SHA-256 文件的同次构建产物；外层发布等待整个 validation 成功。默认空 artifact 后缀保留既有原包名称。
 
-publish 作业只接受本仓库 main 的 push，依赖 package 成功。PR、fork、开发分支和手动 workflow_dispatch 不进入发布。主分支不会因后续 push 取消已经开始的工作流；同一并发组保留一条运行中工作流和最多一条等待中工作流，后续 push 可以替换尚未开始的等待项，不能保证每个中间提交都执行。
+publish 作业只接受本仓库 main 的 push，依赖 validation（两引擎及 package）成功。PR、fork、开发分支和手动 workflow_dispatch 不进入发布。主分支不会因后续 push 取消已经开始的工作流；同一并发组保留一条运行中工作流和最多一条等待中工作流，后续 push 可以替换尚未开始的等待项，不能保证每个中间提交都执行。
 
 发布下载名称带完整 github.sha 的当前 run 产物。重新编译同一 SHA 仅用于检查归档运行字节，不重新打包。校验失败不会创建标签、上传 Release 或访问商店。
+
+## 完整稳定性验收（2026-10-22）
+
+现有 Windows validation 的 complete_stability 选项仅手动触发，默认 false；普通 push/PR 不运行完整矩阵。二十组分别调用同一个只读验证流程，每组两个独立引擎成功后才独立打包；每张 runner 都重新检出同提交并按原步骤执行。原十五秒 SelfTest、五秒转储、步骤和作业期限均保留。矩阵不进入发布、不接收商店 Secrets；失败不会触发其他组取消，也不会自动重跑。每组加唯一 artifact 后缀避免同一运行的上传冲突。
+
+应逐组核对两个 Test 和 Verified VSIX 三个实际作业均成功，并保存同一 head、原日志及任何失败。二十次 SelfTest 或其他单边界重复不等于二十组完整 CI；新增矩阵也不证明既有停顿根因已修复。
 
 ## GitHub Release 与重跑
 

@@ -11,6 +11,11 @@ on:
         type: choice
         default: '1'
         options: ['1', '10', '20']
+      # 2026-10-22：复用main已有手动入口，分支合并前也能执行完整二十组，而非先发布新工作流。
+      complete_stability:
+        description: 'Run 20 complete two-engine and verified-package samples; no publication'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -228,161 +233,28 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  test:
-    name: Test (${{ matrix.label }})
-    runs-on: windows-latest
-    timeout-minutes: 15
-    # 2026-10-07：作业默认值支持矩阵上下文，步骤 shell 字段不能直接使用矩阵表达式。
-    defaults:
-      run:
-        shell: ${{ matrix.shell }}
+  # 2026-10-22：同提交复用完整两引擎与打包门，默认空后缀保持现有main发布产物名称。
+  validation:
+    name: Validate Windows
+    uses: ./.github/workflows/windows-validation.yml
+
+  # 2026-10-22：仅显式手动选项运行完整矩阵，普通push/PR不增加负担，不接收发布凭据。
+  stability:
+    name: Complete CI ${{ matrix.iteration }}
+    if: github.event_name == 'workflow_dispatch' && inputs.complete_stability
     strategy:
       fail-fast: false
+      max-parallel: 10
       matrix:
-        include:
-          - label: Windows PowerShell 5.1
-            shell: powershell
-            executable: powershell.exe
-            major: 5
-          - label: PowerShell 7
-            shell: pwsh
-            executable: pwsh.exe
-            major: 7
-    steps:
-      # 2026-10-07：采用官方 Node 24 运行时 Actions，测试项目仍使用 Node 22。
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version: '22'
-          cache: npm
-      - name: Verify selected engine
-        run: |
-          if ($PSVersionTable.PSVersion.Major -ne ${{ matrix.major }}) { throw 'Unexpected PowerShell engine' }
-          Write-Output "PowerShell=$($PSVersionTable.PSVersion) edition=$($PSVersionTable.PSEdition)"
-      - name: Install locked dependencies
-        run: npm ci
-      - name: Compile and typecheck
-        run: |
-          npm run compile
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run typecheck
-      - name: Validate repository and extension lifecycle
-        run: |
-          npm run test:repository
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          npm run test:lifecycle
-      # 2026-10-07：执行真实发布脚本的离线边界回归，PR 不联网或使用发布凭据。
-      - name: Offline release and store publication regression
-        run: node --test tests/publish-release.test.cjs
-      # 2026-10-22：取证EXE事先按原十五秒编译上限准备，原自测十五秒与取证五秒均不增加。
-      - name: Prepare bounded dump collector
-        run: |
-          $prepared = node tests/prepare-dump-collector.cjs
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $collector = $prepared | ConvertFrom-Json
-          [IO.File]::AppendAllText($env:GITHUB_ENV, ('AAA_TEST_DUMP_COLLECTOR=' + $collector.path + [Environment]::NewLine), [Text.UTF8Encoding]::new($false))
-      - name: Scanner regression on one engine
-        run: |
-          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/scanner.test.ps1'))
-          $tokens = $null
-          $parseErrors = $null
-          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
-          if ($parseErrors.Count -gt 0) { throw 'Scanner test parse errors' }
-          & ($testAst.GetScriptBlock()) -PowerShellEngines @('${{ matrix.executable }}') -TimeoutCollectorPath $env:AAA_TEST_DUMP_COLLECTOR
-      # 2026-10-16：先注入真实四十五秒停滞，验证失败诊断和回收；成功标记不能使超时变绿。
-      - name: Host wrapper timeout diagnostics and failure boundaries
-        env:
-          HOST_WRAPPER_ENGINE: ${{ matrix.executable }}
-        run: npm run test:host-wrapper
-      # 2026-10-07：实际查询自有跨位数进程路径，退出、权限及缓冲边界只替原生依赖。
-      - name: Host process identity across architectures
-        run: |
-          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/host-process.test.ps1'))
-          $tokens = $null
-          $parseErrors = $null
-          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
-          if ($parseErrors.Count -gt 0) { throw 'Host process test parse errors' }
-          $hostEngines = @('${{ matrix.executable }}')
-          if ($PSVersionTable.PSVersion.Major -eq 5) {
-            $hostEngines += Join-Path $env:WINDIR 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
-          }
-          & ($testAst.GetScriptBlock()) -PowerShellEngines $hostEngines
-      # 2026-10-07：直接回放生产物理方法，系统输入边界用内存替身，CI 不点击桌面。
-      - name: Mouse input interference without desktop clicks
-        run: |
-          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/mouse-helper.test.ps1'))
-          $tokens = $null
-          $parseErrors = $null
-          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
-          if ($parseErrors.Count -gt 0) { throw 'Mouse helper test parse errors' }
-          # 2026-10-07：PS5 作业同时验证 x86 原生 INPUT 布局，不能用 x64 结构大小替代。
-          $mouseEngines = @('${{ matrix.executable }}')
-          if ($PSVersionTable.PSVersion.Major -eq 5) {
-            $mouseEngines += Join-Path $env:WINDIR 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
-          }
-          & ($testAst.GetScriptBlock()) -PowerShellEngines $mouseEngines
-      - name: Concurrent scanner handoff without desktop clicks
-        run: |
-          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/scanner-concurrency.test.ps1'))
-          $tokens = $null
-          $parseErrors = $null
-          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
-          if ($parseErrors.Count -gt 0) { throw 'Concurrency test parse errors' }
-          & ($testAst.GetScriptBlock()) -PowerShellEngines @('${{ matrix.executable }}')
-
-      # 2026-10-22：只上传本测试独占前缀的失败子进程二进制与转储，不收集用户进程或整个临时目录。
-      - name: Preserve owned host child timeout diagnostics
-        if: failure()
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: host-child-timeout-${{ github.run_id }}-${{ matrix.major }}
-          path: |
-            ~\AppData\Local\Temp\AntigravityAA-HostBinary-*\*
-            ~\AppData\Local\Temp\AntigravityAA-HostWrapper-*\*
-            ~\AppData\Local\Temp\AntigravityAA-ScannerTimeout-*\*
-            ~\AppData\Local\Temp\AntigravityAA-DumpCollector-*\*
-          if-no-files-found: warn
-          retention-days: 14
-
-  package:
-    name: Verified VSIX
-    needs: test
-    runs-on: windows-latest
-    timeout-minutes: 15
-    steps:
-      # 2026-10-07：采用官方 Node 24 运行时 Actions，测试项目仍使用 Node 22。
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/setup-node@v7.0.0
-        with:
-          node-version: '22'
-          cache: npm
-      - name: Install locked dependencies
-        run: npm ci
-      - name: Package extension
-        run: npm run package
-      - name: Verify packaged runtime and metadata
-        id: vsix
-        run: |
-          $manifest = Get-Content -LiteralPath package.json -Raw | ConvertFrom-Json
-          $vsix = "$($manifest.name)-$($manifest.version).vsix"
-          & ./tests/validate-vsix.ps1 -VsixPath $vsix
-          $hash = (Get-FileHash -LiteralPath $vsix -Algorithm SHA256).Hash.ToLowerInvariant()
-          [IO.File]::WriteAllText((Join-Path $PWD "$vsix.sha256"), "$hash  $vsix`n", [Text.UTF8Encoding]::new($false))
-          "path=$vsix" >> $env:GITHUB_OUTPUT
-      - name: Upload verified installable package
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: antigravity-auto-accept-${{ github.sha }}
-          path: |
-            ${{ steps.vsix.outputs.path }}
-            ${{ steps.vsix.outputs.path }}.sha256
-          if-no-files-found: error
-          retention-days: 14
+        iteration: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    uses: ./.github/workflows/windows-validation.yml
+    with:
+      artifact_suffix: -stability-${{ matrix.iteration }}
 
   # 2026-10-07：只发布本仓库主分支同次绿色构建的原包，分支和 PR 不取得发布入口。
   publish:
     name: Release and extension stores
-    needs: package
+    needs: validation # 2026-10-22：完整共享验证成功后才开放原发布入口。
     if: >-
       github.repository == 'fhgffy/antigravity-auto-accept' &&
       github.event_name == 'push' &&

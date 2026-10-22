@@ -130,6 +130,10 @@ e718587 的 push 39714938769、PR 39714943896 两次完整 Windows CI，以及�
 
 这批六文件新诊断做了一次独立首次窄审：未发现有依据的 P0–P3 新缺陷；另独立检查三个实际引擎的语法、六文件编码/换行、JSON 转义以及差异边界。该结论不覆盖旧运行优化、WCT、云端根因或整个分支的合并门槛，未追加修复复审。记录在 work/diagnostic-module-boundary-first-review.md。
 
+b2876f4 的 push/PR 与两个 lint 均通过，手动 39724780097 亦完整成功：四原 Node 全文及四固定 x86 控制通过，四组 SelfTest 各 20 次，最大 725/1379/754/1272ms；各二十次编译最大 156/182/163/193ms。八 artifact、原日志和逐 JSON summary 在 manual-b2876f4-39724780097。实际 2022/7 的 slow7816 只得到空 Runspace1 帧，原例约 9692ms 最终成功；不能将其当作定位栈。固定头串行控制器已有四次完整绿，随后为共享完整矩阵主动停止新派发；退出 1 的原因是自设 stop flag，不是测试失败，全部结果在 ci-series-b2876f4 保留。
+
+新增 #37 的完整矩阵将原 test/package job 移入唯一只读 reusable workflow；结构深比较确认除两 artifact 名称加可选后缀之外，所有 job/step 期限、步骤正文和断言保持原样。普通 ci 调用同提交该流程，publish 仍在外层，仅 needs 改为整体 validation；全部发布步骤相同。现有 CI 手动 complete_stability 选项的二十组分别通过两引擎后打包，独立 artifact 后缀、fail-fast=false，不传凭据、不进入发布。两个门检查先红后绿，当前四份 workflow 的 actionlint 通过；最终固定源码完整 npm test 已通过（publication 56/56、host-wrapper 48/48），十二个功能/配置文件起点哈希一致，正式测试 VSIX 八项通过。新配置首次窄审无具体 P0–P3；后续默认分支入口修正按官方说明由作者自审，矩阵对象只多显式手动条件，未追加复审。原本新建独立手动 workflow 在默认分支注册前无法分支派发，现改用原有 ci.yml 的默认 false 选项，入口一红两绿、最终四 workflow 语义检查通过。实际云端矩阵尚待完成，不预先计二十次成功。最终本地回执见 complete-ci-matrix-final-local-validation.json。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。
