@@ -230,7 +230,7 @@ for (const [index, engine] of engines.entries()) {
                 + "$capture=@($ast.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Save-ScannerTimeoutEvidence'},$true)); "
                 + "if($capture.Count -eq 1){$captureAst=[Management.Automation.Language.Parser]::ParseInput($capture[0].Extent.Text,"
                 + quote(path.join(__dirname, 'scanner.test.ps1')) + ",[ref]$tokens,[ref]$errors); . ([scriptblock]::Create($captureAst.Extent.Text.Replace('function Save-ScannerTimeoutEvidence {','function Save-ObservedTimeoutEvidence {'))); "
-                + "$scannerDumpTestRoot=" + quote(__dirname) + "; function Save-ScannerTimeoutEvidence($Target,$ExpectedImage,$SourcePath){Save-ObservedTimeoutEvidence $Target $ExpectedImage $SourcePath -UtilityPath (Join-Path $scannerDumpTestRoot 'host-process.test.ps1') -CollectorEngine "
+                + "$scannerDumpTestRoot=" + quote(__dirname) + "; function Save-ScannerTimeoutEvidence($Target,$ExpectedImage,$SourcePath,$CollectorEngine,[switch]$ExecutableCollector){[Console]::WriteLine('___PREPARED_COLLECTOR_FORWARD___:'+([ordered]@{Engine=$CollectorEngine;Native=$ExecutableCollector.IsPresent}|ConvertTo-Json -Compress)); Save-ObservedTimeoutEvidence $Target $ExpectedImage $SourcePath -UtilityPath (Join-Path $scannerDumpTestRoot 'host-process.test.ps1') -CollectorEngine "
                 + quote(diagnosticCollector) + " -ExecutableCollector}}; "
                 + ". ([scriptblock]::Create($definition[0].Extent.Text.Replace('function Start-TestProcess(', 'function Start-ObservedChild('))); "
                 + "function Start-TestProcess($Executable,$Command){$child=Start-ObservedChild $Executable $Command; "
@@ -243,6 +243,7 @@ for (const [index, engine] of engines.entries()) {
                 + "try {$child.Dispose()} catch {$cleanup.DisposeError=$_.Exception.GetType().FullName}; "
                 + "try {[Console]::WriteLine('___SCANNER_SELFTEST_OBSERVER_CLEANUP___:'+($cleanup|ConvertTo-Json -Compress))} catch {};throw $failure}}; "
                 + "$engines=@((Get-Command " + quote(mode === 'ledger-failure' ? fixture : engine) + ").Source); $escapedScannerPath=" + quote(scriptFile.replace(/'/g, "''")) + "; "
+                + "$TimeoutCollectorPath=" + quote(diagnosticCollector) + "; "
                 + "$ExpectedSelfTestCount=95; $checks=0; $bootstrapEncoding='$ProgressPreference=''SilentlyContinue'';[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);'; "
                 + "try {. ([scriptblock]::Create($loop[0].Extent.Text))} catch {[Console]::Error.WriteLine($_.Exception.Message);exit 1}";
             const started = Date.now();
@@ -304,6 +305,12 @@ for (const [index, engine] of engines.entries()) {
                 const detail = JSON.parse(line.slice('___SCANNER_SELFTEST_TIMEOUT___:'.length));
                 assert.equal(detail.Pid, record.Pid);
                 assert.equal(detail.ExitConfirmed, true);
+                // 2026-10-22：CI事先准备的独立EXE须穿过实际超时入口，失败后不重新启动PowerShell和编译。
+                const forwardedLine = result.stdout.split(/\r?\n/).find(value => value.startsWith('___PREPARED_COLLECTOR_FORWARD___:'));
+                assert.ok(forwardedLine, 'prepared collector forwarding recorded');
+                const forwarded = JSON.parse(forwardedLine.slice('___PREPARED_COLLECTOR_FORWARD___:'.length));
+                assert.equal(forwarded.Engine, diagnosticCollector);
+                assert.equal(forwarded.Native, true);
                 assert.equal(detail.StdoutComplete, true);
                 assert.equal(detail.StderrComplete, true);
                 // 2026-10-21：真实超时必须保留子进程启动、源码读取与解析阶段，不能只剩空输出。

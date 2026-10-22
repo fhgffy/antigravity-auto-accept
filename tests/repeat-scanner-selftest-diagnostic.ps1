@@ -1,5 +1,5 @@
 # 2026-10-22：仅手动诊断重复真实SelfTest包装循环；每次保持十五秒和严格原断言，首次失败即停止。
-param([ValidateSet(5,7)][int]$ExpectedMajor, [string]$Engine, [ValidateRange(1,20)][int]$Repetitions = 20, [Parameter(Mandatory=$true)][string]$EvidenceDirectory)
+param([ValidateSet(5,7)][int]$ExpectedMajor, [string]$Engine, [ValidateRange(1,20)][int]$Repetitions = 20, [Parameter(Mandatory=$true)][string]$EvidenceDirectory, [string]$TimeoutCollectorPath = '')
 $ErrorActionPreference = 'Stop'
 if ($PSVersionTable.PSVersion.Major -ne $ExpectedMajor) { throw 'Unexpected SelfTest diagnostic caller' }
 $EvidenceDirectory = [IO.Path]::GetFullPath($EvidenceDirectory)

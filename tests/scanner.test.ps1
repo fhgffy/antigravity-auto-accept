@@ -1,6 +1,6 @@
 # 2026-10-05：解析实际扫描器并运行无点击回归，独立互斥名称不干扰真实 IDE。
 # 2026-10-06：旧源码副本可指定原自测数量，使红灯证据落在行为缺陷而非数量变化。
-param([string[]]$PowerShellEngines = @('powershell.exe', 'pwsh.exe'), [string]$ScannerSourcePath = '', [int]$ExpectedSelfTestCount = 95)
+param([string[]]$PowerShellEngines = @('powershell.exe', 'pwsh.exe'), [string]$ScannerSourcePath = '', [int]$ExpectedSelfTestCount = 95, [string]$TimeoutCollectorPath = '')
 
 $ErrorActionPreference = 'Stop'
 # 2026-10-06：允许只读旧源码副本复现红灯，避免回滚共享工作区中的修复。
@@ -129,7 +129,10 @@ $selfTestBlock = [scriptblock]::Create($selfTestSource)
         if ($timedOut) {
             $diagnostic = [ordered]@{ Pid = $process.Id; ExitConfirmed = $false; StdoutComplete = $false; StderrComplete = $false; Stdout = $null; Stderr = $null; StopError = ''; ReadError = ''; DisposeError = '' }
             # 2026-10-22：先保留线程现场，再由原Process持有者回收；成功标记不能改变已经成立的超时。
-            $capture = Save-ScannerTimeoutEvidence $process $engine $escapedScannerPath.Replace("''", "'")
+            # 2026-10-22：CI预编译工具在原失败成立后直接取证；未提供时仍保留现有本地最佳努力路径。
+            $collectorArguments = @{}
+            if ($TimeoutCollectorPath) { $collectorArguments = @{ CollectorEngine = $TimeoutCollectorPath; ExecutableCollector = $true } }
+            $capture = Save-ScannerTimeoutEvidence $process $engine $escapedScannerPath.Replace("''", "'") @collectorArguments
             $diagnostic.DumpDirectory = $capture.Directory
             $diagnostic.CollectionError = $capture.Error
             try {
