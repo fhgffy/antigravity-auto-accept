@@ -161,6 +161,16 @@ PSModulePath 另作单变量 Node 桥接对照：继承 PS7 环境的 WinPS 选�
 
 首次五文件窄审发现P1：新测试对共享系统映像的收尾不能仅凭PID/路径。已用独占复制夹具先复现，再要求创建时间字符串并持有Process句柄后同时核对身份；缺失/错误创建时间必须拒绝且目标仍活，由原ChildProcess所有者最终回收。cleanup-creation-identity-red/green.log保留红绿；此前完整测试因修复后源码变化已作废。修复后重新完整npm通过：publication56/lifecycle38/host-wrapper53、mouse两引擎各188、concurrency22，17个源码/配置哈希全程相同；测试VSIX八项通过，actionlint及diff检查通过。最终回执 native-x86-budget-final-local-validation.json；观察器实际控制DMP也经x86 CDB读到Sleep/ProcessRecord（native-x86-observer-green-cdb.log）。正常CI、共享完整核心、运行字节、原测试主体及全部截止与d2相同。无修复复审循环，首审报告 work/native-x86-budget-first-review.md。
 
+### 原生 x86 观察原结果及独立寄存器旁证
+
+【已跑验证】2b22aaf 的四次普通CI原运行全绿、8份执行日志归档ci-2b22aaf；随后唯一手动39747161643未开完整矩阵/生命周期选项，20个host观察18成功/2失败，4个启动诊断和3个普通验证作业成功，无取消，共27份执行日志。三个失败后步骤也没有把作业改绿。原ZIP SHA/CRC及成员路径均核验；首次长路径归档在Windows MAX_PATH失败后，同次ZIP改用 F:\CodexTests\AntigravityAA\cloud-x86-39747161643\数字产物ID 提取，映射在short-artifact-locations.json。恢复只读归档，不是重跑CI；旧不完整目录/错误也保留。
+
+两个真实失败都未放宽：windows-latest/7/5新增native32 positive的原5秒DMP为0，库及导出成功后无native-returned；windows-latest/7/2原scanner强制timeout案例的目标DMP与备用收集器自身最小DMP均0，备用工具1309ms超时且退出已确认。后一现场使只换另一个DbgHelp进程仍不够这一限制可见，#36具体等待位置仍未知。另一个实际x86启动slow5528最终14.25秒成功；原生Intel上下文经微软x86 CDB和匹配4.8.9363 DAC可读，线程0位于GlobalConfigReadInt、ServicePointManager配置、Runspace及ConsoleHost创建链。它是慢但成功现场，不能外推成二十五秒失败的根因；完整日志cloud-x86-slow-5528-cdb.log保留非托管线程错误。
+
+【已读源码、已跑验证】新增候选只在已判原5秒失败后的自有收集器最小栈工具中，先用kernel32保存同位数CONTEXT、至多一页栈和模块表，再尝试原最小转储；不依赖DbgHelp，既有1.5秒附加预算不变。对每条线程先核对归属、暂停一层，在finally恰好恢复这一层后才写旁证；至多16条/400ms循环，不声称覆盖全部线程。原目标完整Write函数字节、0x1124、原截止、JSON及失败断言未改。布局和暂停要求对照[微软CONTEXT](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-context)、[x86布局](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-context-r2)和[GetThreadContext](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getthreadcontext)。
+
+原collector-stall三个调用者先因缺.tsv旁证红，再3/3绿，仍要求有效最小MDMP及原耗时小于8秒。独立真实x64/x86工具控制分别515/547ms，在原1.5秒预算内返回；16条上下文分别1232/716字节，寄存器IP可对应ntdll模块，目标仍活并由原Popen句柄持有者最后退出。证据 collector-raw-context-red/green.log、collector-raw-context-bitness-controls/summary.json。原native32案例也转发同一x86工具，失败时采它自身旁证，不延长原期限。首次窄审未确认P0-P2；P3为线程自然退出可能截断旁证的源码假设，未作故障注入，明确保留为非阻塞限制（无END不得接受为完整控制）。首审报告work/collector-raw-context-first-review.md，无修复复审。新完整npm通过publication56/lifecycle38/host-wrapper53、两引擎mouse各188、concurrency22；17份源码/配置未变，VSIX八项通过，编码/diff/原期限和Write字节检查通过，回执collector-raw-context-final-local-validation.json。这些控制仍非云端根因修复。另24个原云端手动前缀均成功、最长100秒、无取消，生命周期scope本head未派发；manual-network-prefix-original-39747161643.json保留边界。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。

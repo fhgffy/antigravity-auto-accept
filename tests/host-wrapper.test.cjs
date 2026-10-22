@@ -369,7 +369,7 @@ for (const [index, engine] of diagnosticEngines.entries()) {
             const collectorPidFile = path.join(owned, stem + '-collector.pid');
             pidFiles.push(pidFile);
             if (scenario === 'collector-stall' || scenario === 'json-error-escaping') pidFiles.push(collectorPidFile);
-            selfTestFiles.push(diagnostic, diagnostic + '.phases.log', diagnostic + '.collector.dmp', diagnostic + '.collector.dmp.phases.log', diagnostic + '.collector.json'); // 2026-10-22：取证阶段旁证按本例明确文件收尾。
+            selfTestFiles.push(diagnostic, diagnostic + '.phases.log', diagnostic + '.collector.dmp', diagnostic + '.collector.dmp.phases.log', diagnostic + '.collector.dmp.context.tsv', diagnostic + '.collector.json'); // 2026-10-22：取证阶段旁证按本例明确文件收尾。
             const preserved = Buffer.from('existing-owned-dump-must-not-change');
             if (scenario === 'file-error') fs.writeFileSync(diagnostic, preserved, { flag: 'wx' });
             const hostPath = path.join(__dirname, 'host-process.test.ps1');
@@ -434,6 +434,15 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                         assert.equal(secondary.Written, true, secondary.Error);
                         assert.equal(secondary.TimedOut, false);
                         assert.equal(secondary.ExitConfirmed, true);
+                        // 2026-10-22：先有不依赖DbgHelp的原寄存器/栈旁证，最小转储自身超时也不能丢现场。
+                        const context = fs.readFileSync(diagnostic + '.collector.dmp.context.tsv', 'utf8').trim().split(/\r?\n/).map(line => line.split('\t'));
+                        assert.deepEqual(context[0].slice(0, 4), ['AAA_CONTEXT', '1', '8', String(secondary.Pid)]);
+                        assert.equal(context[0][4], secondary.StartTicks);
+                        assert.ok(context.some(row => row[0] === 'M' && Buffer.from(row[3], 'base64').toString('utf8').toLowerCase().endsWith('ntdll.dll')));
+                        const threads = context.filter(row => row[0] === 'T');
+                        assert.ok(threads.length > 0);
+                        assert.ok(threads.every(row => BigInt('0x' + row[2]) > 0n && BigInt('0x' + row[3]) > 0n && Buffer.from(row[4], 'base64').length === 1232 && Buffer.from(row[5], 'base64').length > 0));
+                        assert.equal(context.at(-1)[0], 'END');
                         const stack = fs.readFileSync(diagnostic + '.collector.dmp');
                         assert.equal(stack.toString('ascii', 0, 4), 'MDMP');
                         // 2026-10-22：系统会自动加入AVX上下文位0x200000；仍禁止完整目标转储的数据标志和句柄数据流。
@@ -467,7 +476,7 @@ test('native x86 collector preserves x86 dump context and owned target', () => {
     const dump = path.join(owned, 'native-x86-target.dmp');
     const ticksFile = path.join(owned, 'native-x86-target.startticks'); // 2026-10-22：共享系统映像的fallback必须带目标创建身份。
     const image = path.join(process.env.WINDIR, 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe');
-    pidFiles.push(pidFile); selfTestFiles.push(dump, dump + '.phases.log', ticksFile);
+    pidFiles.push(pidFile); selfTestFiles.push(dump, dump + '.phases.log', ticksFile, dump + '.collector.dmp', dump + '.collector.dmp.phases.log', dump + '.collector.dmp.context.tsv', dump + '.collector.json'); // 2026-10-22：原生x86失败也登记同位数收集器自身旁证。
     const build = spawnSync(process.execPath, [path.join(__dirname, 'prepare-dump-collector.cjs'), '--x86'], { encoding: 'utf8', windowsHide: true, timeout: 20000 });
     assert.ifError(build.error); assert.equal(build.status, 0, build.stderr);
     const prepared = JSON.parse(build.stdout);
@@ -482,7 +491,7 @@ test('native x86 collector preserves x86 dump context and owned target', () => {
         + "$s=[Diagnostics.ProcessStartInfo]::new();$s.FileName=" + quote(image) + ";$s.Arguments='-NoProfile -NonInteractive -OutputFormat Text -EncodedCommand " + Buffer.from(targetCommand, 'utf16le').toString('base64') + "';"
         + "$s.UseShellExecute=$false;$s.CreateNoWindow=$true;$s.RedirectStandardOutput=$true;$s.RedirectStandardError=$true;$child=[Diagnostics.Process]::new();$child.StartInfo=$s;"
         + "try{if(-not $child.Start()){throw 'Owned x86 target not started'};$ready=$child.StandardOutput.ReadLineAsync();$err=$child.StandardError.ReadToEndAsync();if(-not $ready.Wait(5000) -or $ready.Result -cne 'OWNED_NATIVE_X86_READY'){throw 'Owned x86 ready failed'};"
-        + "Save-HostTimeoutDump $child " + quote(image) + " " + quote(dump) + " -ExecutableCollector -CollectorEngine " + quote(prepared.path) + ";if($child.HasExited){throw 'Dump ended owned target'};[Console]::WriteLine('OWNED_NATIVE_X86_ALIVE')}"
+        + "Save-HostTimeoutDump $child " + quote(image) + " " + quote(dump) + " -ExecutableCollector -CollectorEngine " + quote(prepared.path) + " -CollectorStackTool " + quote(prepared.path) + ";if($child.HasExited){throw 'Dump ended owned target'};[Console]::WriteLine('OWNED_NATIVE_X86_ALIVE')}"
         + "finally{if(-not $child.HasExited){$child.Kill()};if(-not $child.WaitForExit(1000)){throw 'Owned x86 exit unconfirmed'};$child.Dispose()}";
     const result = spawnSync('pwsh.exe', ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 25000 });
     try {
