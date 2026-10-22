@@ -104,6 +104,8 @@ f41ee74 的 push 39706528061 再现真实 PS7 SelfTest 十五秒超时，且失�
 
 新功能首次窄审发现一个 P2：观察异常会提前中断原 Node，落盘失败会遮盖其原错误。真实 Node/文件 IO 红例分别复现；修正后查询故障时原测试继续二十秒并退出 0，原失败与落盘失败同时出现时优先保留原测试失败，诊断失败仍单列。修后 PS5、PS7 两个受控案例实际读出目标 Start-Sleep 语句、原 Node 均在原二十五秒内完成；读栈器错误创建时间、错误映像及错误父 PID 三个负例均拒绝、目标存活并由原持有者收尾。完整 npm test 再次通过（host-wrapper 42/42），文件与阶段回执在 host-callstack-repo-control-final-*、host-observer-fault-green-final.json、host-observer-reader-identity-negatives 和 host-observer-fixed-full-test.log。未做同范围修复复审。新云端观察仍待验证，原始 SelfTest 和宿主偶发超时根因未确认。
 
+afa92d0 的 push 39714135354 在创建任何作业前失败，GitHub 注释明确为新增 job 级 env 使用了该层不允许的 runner.temp；不是原测试超时，原失败与 jobs=[] 已保留。将该 env 移到允许 runner 上下文的实际步骤，本地固定版本 actionlint 复现一个语义错误后检查通过。另加独立 Workflow lint 工作流，在主 CI 文件无法创建作业时仍可检查全部工作流；工具固定官方版本及 SHA-256，权限只读，作业五分钟。此补充没有改动运行或测试脚本，已有完整 npm test 的功能源码字节未变；配置专项语义、YAML、Bash 语法及仓库检查另行执行。Ubuntu 新检查和修正后云端观察尚待通过，不能把本地 YAML 可解析称为 GitHub 配置可执行。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。

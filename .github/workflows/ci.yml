@@ -26,9 +26,6 @@ jobs:
     name: Host wrapper observer (${{ matrix.image }}, ${{ matrix.major }})
     runs-on: ${{ matrix.image }}
     timeout-minutes: 5
-    # 2026-10-22：只增加本作业npm旁证，不关审计、不改重试或安装期限。
-    env:
-      NPM_CONFIG_LOGS_DIR: ${{ runner.temp }}/AntigravityAA-npm-prefix-logs
     strategy:
       fail-fast: false
       matrix:
@@ -53,6 +50,9 @@ jobs:
           node-version: '22'
       # 2026-10-22：保留普通CI在宿主全文测试之前的实际验证顺序与单引擎扫描回归。
       - name: Same validation prefix before observed host wrapper
+        # 2026-10-22：runner上下文只在此步骤求值；仅新增npm旁证，不关审计或改变期限。
+        env:
+          NPM_CONFIG_LOGS_DIR: ${{ runner.temp }}/AntigravityAA-npm-prefix-logs
         run: |
           [Console]::WriteLine('___OBSERVED_NPM_CI_BOOTSTRAP___')
           npm ci --timing --loglevel=verbose
