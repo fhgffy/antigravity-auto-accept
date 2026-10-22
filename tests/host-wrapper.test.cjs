@@ -402,9 +402,18 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                 + "if($child.HasExited){throw 'Diagnostic ended live target'};[Console]::WriteLine('DUMP_TARGET_ALIVE')"
                 + "}finally{if(-not $child.HasExited){$child.Kill()};if(-not $child.WaitForExit(5000)){throw 'Owned diagnostic child exit unconfirmed'};$child.Dispose()}";
             const started = Date.now();
+            // 2026-10-23：仅为明确的x86诊断子进程绕开冷NGEN映像读取，父环境与其它引擎保持原样。
+            const childEnvironment = { ...process.env, AAA_HOST_WRAPPER_CASE: 'timeout', AAA_HOST_WRAPPER_PIDFILE: pidFile };
+            const expectedX86 = path.win32.normalize(path.join(process.env.WINDIR, 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'));
+            if (path.win32.normalize(engine).toLowerCase() === expectedX86.toLowerCase()) {
+                for (const key of Object.keys(childEnvironment)) {
+                    if (key.toUpperCase() === 'COMPLUS_ZAPDISABLE') delete childEnvironment[key];
+                }
+                childEnvironment.COMPlus_ZapDisable = '1';
+            }
             const result = spawnSync(engine, ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
                 cwd: root, encoding: 'utf8', windowsHide: true, timeout: 25000,
-                env: { ...process.env, AAA_HOST_WRAPPER_CASE: 'timeout', AAA_HOST_WRAPPER_PIDFILE: pidFile }
+                env: childEnvironment
             });
             try {
                 assert.ifError(result.error);

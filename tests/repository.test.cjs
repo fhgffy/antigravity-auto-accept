@@ -45,6 +45,80 @@ test('working diff has no whitespace errors', () => {
     execFileSync('git', ['diff', '--cached', '--check'], { cwd: root, stdio: 'pipe' });
 });
 
+/* 2026-10-23：执行真实诊断回调到进程边界即停止，不运行编译、PowerShell或清理钩子，避免提前暖读Framework。 */
+function captureDiagnosticEnvironment(engine, variables = {}) {
+    const parentEnvironment = Object.freeze({ WINDIR: process.env.WINDIR, SystemRoot: process.env.SystemRoot,
+        HOST_WRAPPER_ENGINE: engine, AAA_ENV_BOUNDARY_SENTINEL: 'keep', ...variables });
+    const parentBefore = JSON.stringify(parentEnvironment), realBefore = Object.entries(process.env);
+    const owned = path.join(root, 'tests', 'environment-capture-only');
+    const callbacks = [], stopped = new Error('diagnostic spawn captured');
+    let captured;
+    const modules = {
+        'node:assert/strict': assert, 'node:path': path, 'node:os': os,
+        'node:fs': { mkdtempSync: () => owned, realpathSync: { native: value => value } },
+        'node:test': { test: (name, callback) => callbacks.push({ name, callback }), before: () => {}, after: () => {} },
+        'node:child_process': { spawnSync: (image, args, options) => { captured = { image, args, options }; throw stopped; } }
+    };
+    require('node:vm').runInNewContext(fs.readFileSync(path.join(__dirname, 'host-wrapper.test.cjs'), 'utf8'), {
+        require: name => { assert.ok(Object.hasOwn(modules, name), 'unexpected diagnostic dependency: ' + name); return modules[name]; },
+        __dirname, Buffer, process: { env: parentEnvironment, execPath: process.execPath, platform: process.platform }
+    }, { filename: 'host-wrapper.test.cjs', timeout: 5000 });
+    const selected = callbacks.filter(item => item.name === engine + ': bounded x64 minidump success retains target');
+    assert.equal(selected.length, 1, 'capture exactly one real bounded diagnostic callback');
+    assert.throws(selected[0].callback, error => error === stopped);
+    assert.equal(JSON.stringify(parentEnvironment), parentBefore, 'simulated parent environment must remain unchanged');
+    assert.deepEqual(Object.entries(process.env), realBefore, 'real parent environment must remain unchanged');
+    assert.equal(captured.image, engine);
+    assert.deepEqual(Array.from(captured.args).slice(0, 5), ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand']);
+    assert.equal(captured.options.cwd, path.resolve(root));
+    assert.equal(captured.options.encoding, 'utf8');
+    assert.equal(captured.options.windowsHide, true);
+    assert.equal(captured.options.timeout, 25000);
+    return { environment: JSON.parse(JSON.stringify(captured.options.env)), parentEnvironment, owned };
+}
+
+/* 2026-10-23：缺少局部开关、遗留大小写冲突或误改父环境都会使实际启动参数失败。 */
+test('x86 diagnostic spawn selects one local Desktop CLR setting', { skip: process.platform !== 'win32' }, () => {
+    const image = path.win32.join(process.env.WINDIR, 'SysWOW64', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    for (const engine of [image, image.toUpperCase().replace(/\\/g, '/')]) {
+        for (const variables of [{}, { COMPLUS_ZAPDISABLE: '0' },
+            { COMPLUS_ZAPDISABLE: '0', COMPlus_ZapDisable: '0', complus_zapdisable: '0' }]) {
+            const actual = captureDiagnosticEnvironment(engine, variables);
+            const settings = Object.entries(actual.environment).filter(([name]) => /^complus_zapdisable$/i.test(name));
+            assert.deepEqual(settings, [['COMPlus_ZapDisable', '1']], 'x86 diagnostic must receive exactly one enabled CLR setting');
+            assert.equal(actual.environment.AAA_ENV_BOUNDARY_SENTINEL, 'keep');
+            assert.equal(actual.environment.AAA_HOST_WRAPPER_CASE, 'timeout');
+            assert.equal(actual.environment.AAA_HOST_WRAPPER_PIDFILE, path.join(actual.owned, 'diagnostic-0-success.pid'));
+        }
+    }
+});
+
+/* 2026-10-23：精确映像边界不能把同名程序、x64或pwsh的原环境也改成候选模式。 */
+test('other diagnostic images retain their original environment', { skip: process.platform !== 'win32' }, () => {
+    for (const engine of ['powershell.exe', 'pwsh.exe',
+        path.win32.join(process.env.WINDIR, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+        path.win32.join(root, 'lookalike', 'SysWOW64', 'WindowsPowerShell', 'v1.0', 'powershell.exe')]) {
+        const actual = captureDiagnosticEnvironment(engine, { COMPLUS_ZAPDISABLE: '0', COMPlus_ZapDisable: '2', complus_zapdisable: '3' });
+        assert.deepEqual(actual.environment, { ...actual.parentEnvironment, AAA_HOST_WRAPPER_CASE: 'timeout',
+            AAA_HOST_WRAPPER_PIDFILE: path.join(actual.owned, 'diagnostic-0-success.pid') });
+    }
+});
+
+/* 2026-10-23：把真实调用点给出的环境传入普通Node子进程及其后代，覆盖Windows重复键排序；不启动CLR。 */
+test('x86 diagnostic setting reaches a Windows Node child and descendant', { skip: process.platform !== 'win32' }, () => {
+    const image = path.win32.join(process.env.WINDIR, 'SysWOW64', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const actual = captureDiagnosticEnvironment(image, { COMPLUS_ZAPDISABLE: '0', COMPlus_ZapDisable: '0', complus_zapdisable: '0' });
+    const readSettings = '() => Object.entries(process.env).filter(([name]) => /^complus_zapdisable$/i.test(name)).map(([, value]) => value)';
+    const grandchild = 'process.stdout.write(JSON.stringify((' + readSettings + ')()));';
+    const child = "const { execFileSync } = require('node:child_process');const own=(" + readSettings + ")();"
+        + 'const grand=JSON.parse(execFileSync(process.execPath,[\'-e\',' + JSON.stringify(grandchild)
+        + '],{encoding:\'utf8\',windowsHide:true,timeout:5000}));process.stdout.write(JSON.stringify({own,grand}));';
+    const observed = JSON.parse(execFileSync(process.execPath, ['-e', child], {
+        encoding: 'utf8', windowsHide: true, timeout: 10000, env: actual.environment
+    }));
+    assert.deepEqual(observed, { own: ['1'], grand: ['1'] });
+});
+
 /* 2026-10-22：真实构建须忽略默认响应文件中的无关引用，保持原源文件和输出位数；不执行x86目标。 */
 test('diagnostic compiler ignores unrelated default response references', { skip: process.platform !== 'win32' }, () => {
     const actualCompiler = path.join(process.env.WINDIR, 'Microsoft.NET/Framework64/v4.0.30319');

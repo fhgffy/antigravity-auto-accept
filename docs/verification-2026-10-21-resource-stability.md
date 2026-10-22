@@ -1,6 +1,6 @@
 # 资源稳定性与发布验收记录（进行中）
 
-日期：2026-10-21 至 2026-10-22。证据等级分别为：已读源码、已跑验证；尚未确认的原因明确标作推测。
+日期：2026-10-21 至 2026-10-23。证据等级分别为：已读源码、已跑验证；尚未确认的原因明确标作推测。
 
 本轮运行版本合并为 5.3.13。当前公开版本仍为 5.3.12；5.3.13 尚未满足完整 CI 连续验证和发布闭环，不能据本报告当作已上线。
 
@@ -8,7 +8,7 @@
 
 - 正式基线 5.3.12 VSIX SHA-256：a62d7cc64dc4079b86d597f9182cc6465a601e3b3b26c90ff47c41cadaf06a4d。
 - 基线扫描器 SHA-256：b947655c5e16c21b16ba55c6712c710568539519ca7904c79400226902b163bf。
-- 最终运行扫描器 SHA-256：d21ec58ba044540cff6991ec94950d2770038ff515ca178c35efe230f47695ee。
+- 原生长测所用运行扫描器 SHA-256：d21ec58ba044540cff6991ec94950d2770038ff515ca178c35efe230f47695ee；当前候选 ea6f5c2cdea4fad40c76fc505504324066e90330e03689f2f83344847ae41832 只拆分自测依赖，正常 C# 与初始化顺序已逐字核对等价，不宣称对当前全文件重新长测。
 - 最终 TypeScript SHA-256：dc77196594441790fe2d719bdc8ed91bd5022eb9a7af0476cb4ce47040d01696；编译 JavaScript SHA-256：3328cb9898599e212a19460acddfa1036c0fc4266f7c09797c618f455a1fa9b1。
 - 原生验收副本只替换独占互斥、关闭 15 分钟回收并在动作完成后记 QPC；扫描器 SHA-256：8fd943e689cbbe324914a48e9733f45e9494c89bb3ca16f85191e4d48b87c0b7。推导和逆向恢复见 native-final-test-package-derivation.json。此测试包不发布。
 - IDE 2.5.5 完整测试副本的 EXE SHA-256：231d90772d0e26d4376e85bc35fb349c2341926cba84d800828791b33e1103ef。
@@ -244,6 +244,20 @@ sample13原编译进程748/parent9104/TID8364在14957.37ms被原owner结束，CP
 最小候选只把既有windows_2022两端默认改true，普通事件透传true、手动显式false仍选latest，stability透传不变；两runs-on、实际步骤正文、原期限/断言、发布、生产源均不改。无预热、系统解压、位数替换或防护变更。离线ETW工具另按PID/对象地址/创建时间及有限生命周期联合筛选，省略/错误创建时间的真实控制仍拒绝；2022内核512字符命令只匹配冻结源码唯一模板的实际前缀、Node创建身份和七原例顺序，绝不补造后缀。
 
 【已跑验证】默认候选完整本地session52234 exit0，21源全程不变；repository4/publication56/lifecycle38/host57、mouse每引擎198、concurrency22。session34194 VSIX8通过；hosted-default-2022-final-local-validation.json核对当前源和完整YAML仅三处既有映像选择差异。actionlint及真实语言派发静态门通过，本机无ShellCheck不称完整规则通过；首次窄审无确认P0–P3，无修复复审，work/hosted-default-first-review.md。普通新默认云端OS核对及无仪器完整20组仍待提交后原运行，不计前述仪器控制。
+
+### 2026-10-23：实际2022前置x86冷IO与局部JIT候选
+
+【已跑验证】3a的原push/PR双引擎和两lint均成功，八份原日志与实际2022映像在ci-3a0b77f。之后无仪器原39825767546虽20个矩阵组成功，控制组PS7的首次x86诊断仍在原25000ms前置超时，整体failure，C不通过；62份原执行日志、20个包及原失败ZIP均核SHA，未重跑。原两流为空、没有入口标记，不能把其它控制转储当其根因。complete-uninstrumented-3a0b77f43c93140f933768c0562d2a5a27fbaf8f-cloud-39825767546/original-failure-archive-readback.json。
+
+同源原生39830319666再次抓到CI9/PS7实际首次x86失败：PID3696/创建177445.9465ms/初始TID2000，原25000ms内单线程IO并集24306.5992ms、CPU196.2655ms；hard-fault23358.7325ms、disk947.8667ms。主要文件是32位SMA.ni.dll、clr.dll、mscorlib.ni.dll；匹配WOF数据流区间为0，不证明所有文件未压缩。cache-only栈多为module!?，不套用旧5484的CLR方法名。ETL SHA8d4eb5fd43f64cdd91f0f7cd3b0bcefcbe9bbfebb7d8d69ea347de534d38a111、0lost，确有conhost子进程但尚无fixture/collector；native2022-exact-x86-3696-created/original-budget-thread-analysis.json。
+
+原生矩阵整体completed/failure；其中CI7单条job记录仍in_progress，但22步骤、收尾日志及依赖包均结束，结论保留未知，不假作success。62日志、63原ZIP（42ETL/1故障/20包）的本机SHA/字节再核对、42份metadata摘要SHA及0lost回执在parent-archive-byte-readback-with-unsettled-job.json；控制器仍只读等待服务端结算，不阻塞独立工作。带仪器结果全部不计C。
+
+【已读源码、已跑局部验证；性能效果未验证】候选只改bounded诊断spawn的局部环境：精确规范化SysWOW64全路径，清该副本所有COMPlus_ZapDisable大小写变体，再放唯一值1；父环境、x64/pwsh/同名其它路径原样，原命令/七例顺序/25000ms/collector5000ms及断言全部逐字不变。官方Framework文档明确该诊断设置适用32/64位、改走JIT且可能变慢；不用CoreCLR设置外推，不改系统配置/缓存或产品运行源码。[微软原文](https://github.com/microsoft/dotnet/blob/2ab884e04a0a40c84dcb8782033b2191b7a94fd4/Documentation/testing-with-ryujit.md#L123-L156)。
+
+VM执行真实callback截获spawn，原实现2红/1绿，候选3绿；实际普通Node子/孙进程收到唯一1。删除变体清理、删除引擎判定的两个私有变异分别2红/1红，共享源原样；x86-ngen-environment-boundary-results.md及x86-ngen-env-mutations。此门没有启动PowerShell或预热CLR，不证明CLR实际采用或冷IO改善。设置会被fixture/collector继承；后续独立native-x86仍原默认NGEN，可能出现冷点迁移，所有原断言继续保留。下一步须新冻结head普通CI、两引擎原生机制对照及修复后新的无仪器完整20组。
+
+完整本地session6514 exit0、21源全程不变；repository7/publication56/lifecycle38/host57、mouse每引擎198、concurrency22。session89503 VSIX8通过，本机原包SHA487e0dbe5fb2514063fad0106fe4fa4b54e4ac2114dc3e45dfacf319c4502c9e；x86-ngen-final-local-validation.json。该结果不替代云端冷启动或C20。
 
 ## D：发布与文档（进行中）
 
