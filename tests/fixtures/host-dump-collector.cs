@@ -14,7 +14,12 @@ internal static class HostDumpCollector
         {
             /* 2026-10-22：附加模式只接受明确标志，仍核验同一持有进程的PID、创建时间和绝对路径。 */
             bool collectorStack = args.Length == 5 && args[4] == "--collector-stack";
+            /* 2026-10-22：可选编译的同位数工具为x86目标保留原生上下文；默认x64工具及身份核验不变。 */
+#if OWNED_X86_COLLECTOR
+            if (IntPtr.Size != 4 || (args.Length != 4 && !collectorStack)) { throw new InvalidOperationException("Expected x86 owned collector arguments"); }
+#else
             if (IntPtr.Size != 8 || (args.Length != 4 && !collectorStack)) { throw new InvalidOperationException("Expected x64 owned collector arguments"); }
+#endif
             HostChildDiagnostics.RecordPhase(args[3], "collector-entered"); // 2026-10-22：身份失败前的工具进入阶段单独保留。
             int pid = int.Parse(args[0], CultureInfo.InvariantCulture);
             long started = long.Parse(args[1], CultureInfo.InvariantCulture);

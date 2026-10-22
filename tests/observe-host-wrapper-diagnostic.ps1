@@ -1,6 +1,6 @@
 # 2026-10-22：独立观察原Node测试的自有PowerShell子进程，原spawnSync命令与二十五秒截止保持不变。
 # 2026-10-22：可选生命周期模式保留原二十秒同步命令，精确来源过滤且仅读栈，不作转储暂停。
-param([string]$Repository, [string]$NodePath, [string]$TestFile, [string]$Engine = 'powershell.exe', [ValidateRange(1,20)][int]$Repetitions = 1, [string]$EvidenceDirectory, [switch]$FullSuite, [switch]$RequireControlledCapture, [string]$SelfTestSourcePath = '')
+param([string]$Repository, [string]$NodePath, [string]$TestFile, [string]$Engine = 'powershell.exe', [ValidateRange(1,20)][int]$Repetitions = 1, [string]$EvidenceDirectory, [switch]$FullSuite, [switch]$RequireControlledCapture, [string]$SelfTestSourcePath = '', [string]$X86CollectorPath = '')
 $ErrorActionPreference = 'Stop'
 $Repository = [IO.Path]::GetFullPath($Repository)
 $EvidenceDirectory = [IO.Path]::GetFullPath($EvidenceDirectory)
@@ -87,7 +87,13 @@ foreach ($iteration in 1..$Repetitions) {
                                 $reader.Dispose()
                                 [IO.File]::WriteAllText((Join-Path $directory ('slow-'+$target.Id+'.reader.json')),($readerRecord|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
                             }
-                            if (-not $expectedSelfTestSource) { Save-HostTimeoutDump $target $fresh.ExecutablePath (Join-Path $directory ('slow-' + $target.Id + '.dmp')) } # 2026-10-22：生命周期模式不触发转储的短暂线程冻结。
+                            # 2026-10-22：已知SysWOW64目标可用同位数工具保留可读上下文；生命周期模式仍不转储。
+                            if (-not $expectedSelfTestSource) {
+                                $dumpPath = Join-Path $directory ('slow-' + $target.Id + '.dmp')
+                                if ($X86CollectorPath -and [String]::Equals($fresh.ExecutablePath,$allowed[2],[StringComparison]::OrdinalIgnoreCase)) {
+                                    Save-HostTimeoutDump $target $fresh.ExecutablePath $dumpPath -CollectorEngine $X86CollectorPath -ExecutableCollector -CollectorStackTool $X86CollectorPath
+                                } else { Save-HostTimeoutDump $target $fresh.ExecutablePath $dumpPath }
+                            }
                         } finally { if (-not $targetRegistered) { $target.Dispose() } }
                     }
                 }
@@ -123,6 +129,24 @@ foreach ($iteration in 1..$Repetitions) {
             if ($snapshot.Error -or @($frames | Where-Object PositionText -eq 'Start-Sleep -Seconds 20').Count -ne 1) { throw 'Controlled target statement absent from stack' }
             $receipt = [IO.File]::ReadAllText(($snapshots[0].FullName.Replace('.callstack.json', '.reader.json')), [Text.Encoding]::UTF8) | ConvertFrom-Json
             if ($receipt.TimedOut -or -not $receipt.ExitConfirmed -or $receipt.Stderr) { throw 'Controlled reader completion failed' }
+            # 2026-10-22：同位数控制必须得到Intel上下文，不能把可写的AMD64/WOW64头当成原生x86栈。
+            if ($X86CollectorPath -and -not $expectedSelfTestSource) {
+                $dumps = @(Get-ChildItem -LiteralPath $directory -Filter '*.dmp' -File)
+                if ($dumps.Count -ne 1) { throw 'Controlled native x86 dump missing or ambiguous' }
+                $bytes = [IO.File]::ReadAllBytes($dumps[0].FullName)
+                if ($bytes.Length -lt 32 -or [Text.Encoding]::ASCII.GetString($bytes,0,4) -cne 'MDMP') { throw 'Controlled native x86 dump header invalid' }
+                $count = [BitConverter]::ToUInt32($bytes,8); $streamDirectory = [BitConverter]::ToUInt32($bytes,12); $architecture = -1
+                if ([long]$streamDirectory + [long]$count * 12 -gt $bytes.Length) { throw 'Controlled dump directory out of bounds' }
+                for ($stream = 0; $stream -lt $count; $stream++) {
+                    $entry = $streamDirectory + $stream * 12
+                    if ([BitConverter]::ToUInt32($bytes,$entry) -eq 7) {
+                        $offset = [BitConverter]::ToUInt32($bytes,$entry+8)
+                        if ([long]$offset + 2 -gt $bytes.Length) { throw 'Controlled system information out of bounds' }
+                        $architecture = [BitConverter]::ToUInt16($bytes,$offset)
+                    }
+                }
+                if ($architecture -ne 0) { throw 'Controlled dump does not contain native Intel context' }
+            }
         }
         if ($observationErrors.Count) { throw 'Observer diagnostics failed after original Node completed' } # 2026-10-22：原测试成功时，观察失败本身仍须明确失败。
 

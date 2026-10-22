@@ -149,6 +149,18 @@ PSModulePath 另作单变量 Node 桥接对照：继承 PS7 环境的 WinPS 选�
 
 【已跑验证】本批最终完整 npm test 通过（publication 56、lifecycle 38、host-wrapper 51、mouse 两引擎各188、concurrency 22），16个功能/配置起点哈希完全相同，测试 VSIX 八项通过。旧 host 观察默认模式控制仍取得明确 Start-Sleep 20/有效DMP/原Node0，生命周期模式不产生DMP。附加工具不存在与自身停滞两个真实故障均保留原五秒超时、活目标、原所有者退出，耗时5119/6051ms；自身停滞的附加工具约1033ms确认回收。首个私有故障对照因遗漏夹具必需PIDFILE环境而无效，保留原记录，补齐后才计两项通过。CDB从最小控制DMP读到预期clr!Thread::UserSleep，只证明取证可读，不是云端根因。九个新源码/配置首次独立窄审无具体P0-P3，仅静态检查；服务在输出阶段容量错误后同一审查者只整理原报告，无修复复审。最终回执 collector-lifecycle-final-local-validation.json，报告 work/collector-lifecycle-first-review.md。
 
+### 第二个完整矩阵与原生 x86 取证
+
+【已跑验证】d2f3cd5 的四次普通 push/PR/lint 原始运行均成功，八份实际作业日志与 SHA 清单在 ci-d2f3cd5。唯一手动运行 39738725656 最终结论为 cancelled：二十组完整两引擎/包中十九组成功，样本18的PS7调用者失败；另有三个诊断作业撞五分钟上限取消。完整原始82份执行日志、原始ZIP及核验清单在 diagnostic-matrix-d2f3cd5-39738725656；没有重跑失败或把十九组计作二十组。
+
+样本18的原 x86 wrapper 在25024.9ms触发spawnSync原二十五秒截止，stdout/stderr均空，第一个DUMP_DIAGNOSTIC_ENTERED也未出现。只能界定为首次标记前或标记初始编码操作内的启动边界，不能归因尚未观测到的转储函数。生命周期诊断为17个作业成功、3个取消；取消中2个实际套件未启动，1个实际套件与后置控制均通过但总时限已到。一个实际慢进程的只读栈记录在目标退出后返回not running，原套件9564ms成功，此空栈不算根因现场。#33/#34/#36/#38仍未定位完整根因。
+
+【已读源码、已跑验证】旧x64工具取得WOW64转储不等于x86上下文可分析。新可选--x86仅用原64位csc准备同位数工具，不在原目标前运行32位进程；默认x64和原0x1124写入参数、五秒限时、身份保护不变。真实控制先因SystemInfo architecture9红，修复后原生Intel0绿；x86 CDB从独占Sleep控制读到StartSleepCommand.Sleep/ProcessRecord和托管管道，部分非托管线程的clrstack错误如实保留。真实观察器控制原Node0、两流完整、空清理错误且DMP为Intel0。证据 native-x86-collector-red/green.log、native-x86-observer-red/green、x86-native-stack-cdb-control.log和x86-native-managed-cdb-control.log；这些只证明取证能力。下一轮先取启动现场，不盲重开完整二十组。
+
+三个手动诊断作业的npm请求默认等待五分钟，与整个作业五分钟上限冲突（#39）；普通push打包的npm ci也曾约五分五秒后成功，原上游请求身份仍未知。使用云端同版npm10.9.9/Node22.23.3的回环控制：审计延迟使原1800ms外层失败，单请求400ms后同一安装1248ms成功且Bulk/Quick都仍尝试；必需tarball返回503仍844ms退出1。首次两个Python原型因配置路径重复及未建立预期请求而无效，全部保留。候选仅收紧三个手动作业到单请求10秒/不内部重试/记录timing，保留审计、必需下载失败、原五分钟和普通CI；静态配置先红后绿，实际云端门仍待验。证据 npm-audit-node-loopback-required-boundary.log、manual-network-budget-red/green.log。
+
+首次五文件窄审发现P1：新测试对共享系统映像的收尾不能仅凭PID/路径。已用独占复制夹具先复现，再要求创建时间字符串并持有Process句柄后同时核对身份；缺失/错误创建时间必须拒绝且目标仍活，由原ChildProcess所有者最终回收。cleanup-creation-identity-red/green.log保留红绿；此前完整测试因修复后源码变化已作废。修复后重新完整npm通过：publication56/lifecycle38/host-wrapper53、mouse两引擎各188、concurrency22，17个源码/配置哈希全程相同；测试VSIX八项通过，actionlint及diff检查通过。最终回执 native-x86-budget-final-local-validation.json；观察器实际控制DMP也经x86 CDB读到Sleep/ProcessRecord（native-x86-observer-green-cdb.log）。正常CI、共享完整核心、运行字节、原测试主体及全部截止与d2相同。无修复复审循环，首审报告 work/native-x86-budget-first-review.md。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。

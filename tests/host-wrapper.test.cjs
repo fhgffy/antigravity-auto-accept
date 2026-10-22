@@ -51,19 +51,21 @@ after(() => {
 });
 
 // 2026-10-16：外层看门狗失败后，先核对登记 PID 的独占 EXE 路径，再通过同一 Process 对象回收。
-function stopOwnedFixture(pidFile) {
+function stopOwnedFixture(pidFile, expectedImage = fixture, expectedStartTicks = null) { // 2026-10-22：共享映像必须同时持有创建身份。
     if (!fs.existsSync(pidFile)) return;
+    if (expectedImage !== fixture) assert.match(String(expectedStartTicks), /^[1-9][0-9]{0,18}$/, 'Shared process creation identity required'); // 2026-10-22：缺少创建身份不得进入共享进程回收。
     const pid = Number(fs.readFileSync(pidFile, 'utf8'));
     assert.ok(Number.isSafeInteger(pid) && pid > 0, 'valid owned fixture PID');
     const command = "$ErrorActionPreference='Stop'; $ownedProcess=Get-Process -Id ([int]$env:AAA_HOST_WRAPPER_CLEANUP_PID) -ErrorAction SilentlyContinue; "
-        + "if($null -eq $ownedProcess){exit 0}; try { if(-not $ownedProcess.HasExited) { "
+        + "if($null -eq $ownedProcess){exit 0}; try { [void]$ownedProcess.Handle; if(-not $ownedProcess.HasExited) { "
         + "if(-not [String]::Equals($ownedProcess.MainModule.FileName,$env:AAA_HOST_WRAPPER_CLEANUP_EXE,[StringComparison]::OrdinalIgnoreCase)){throw 'Owned fixture path mismatch'}; "
+        + "if($env:AAA_HOST_WRAPPER_CLEANUP_START_TICKS -and $ownedProcess.StartTime.ToUniversalTime().Ticks -ne [long]$env:AAA_HOST_WRAPPER_CLEANUP_START_TICKS){throw 'Owned fixture creation time mismatch'}; "
         + "$ownedProcess.Kill(); if(-not $ownedProcess.WaitForExit(5000)){throw 'Owned fixture exit unconfirmed'} "
         + "} } finally { $ownedProcess.Dispose() }";
     const cleanup = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text',
         '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
         encoding: 'utf8', windowsHide: true, timeout: 10000,
-        env: { ...process.env, AAA_HOST_WRAPPER_CLEANUP_PID: String(pid), AAA_HOST_WRAPPER_CLEANUP_EXE: fixture }
+        env: { ...process.env, AAA_HOST_WRAPPER_CLEANUP_PID: String(pid), AAA_HOST_WRAPPER_CLEANUP_EXE: expectedImage, AAA_HOST_WRAPPER_CLEANUP_START_TICKS: expectedStartTicks === null ? '' : String(expectedStartTicks) }
     });
     assert.ifError(cleanup.error);
     assert.equal(cleanup.status, 0, cleanup.stderr);
@@ -457,3 +459,80 @@ for (const [index, engine] of diagnosticEngines.entries()) {
         });
     }
 }
+
+// 2026-10-22：原跨位数案例之后再验同位数取证，原x86启动命令不预热；必须得到可读x86上下文而非WOW64头。
+test('native x86 collector preserves x86 dump context and owned target', () => {
+    const quote = value => "'" + value.replace(/'/g, "''") + "'";
+    const pidFile = path.join(owned, 'native-x86-target.pid');
+    const dump = path.join(owned, 'native-x86-target.dmp');
+    const ticksFile = path.join(owned, 'native-x86-target.startticks'); // 2026-10-22：共享系统映像的fallback必须带目标创建身份。
+    const image = path.join(process.env.WINDIR, 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe');
+    pidFiles.push(pidFile); selfTestFiles.push(dump, dump + '.phases.log', ticksFile);
+    const build = spawnSync(process.execPath, [path.join(__dirname, 'prepare-dump-collector.cjs'), '--x86'], { encoding: 'utf8', windowsHide: true, timeout: 20000 });
+    assert.ifError(build.error); assert.equal(build.status, 0, build.stderr);
+    const prepared = JSON.parse(build.stdout);
+    selfTestFiles.push(prepared.path, path.join(path.dirname(prepared.path), 'build.json'));
+    selfTestDirectories.push(path.dirname(prepared.path));
+    const host = path.join(__dirname, 'host-process.test.ps1');
+    const targetCommand = "$ProgressPreference='SilentlyContinue';[IO.File]::WriteAllText(" + quote(pidFile) + ",$PID.ToString());$identity=[Diagnostics.Process]::GetCurrentProcess();try{[IO.File]::WriteAllText(" + quote(ticksFile) + ",$identity.StartTime.ToUniversalTime().Ticks.ToString([Globalization.CultureInfo]::InvariantCulture))}finally{$identity.Dispose()};[Console]::WriteLine('OWNED_NATIVE_X86_READY');Start-Sleep -Seconds 60";
+    const command = "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$p=" + quote(host) + ";$t=$null;$e=$null;"
+        + "$a=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($p,[Text.Encoding]::UTF8),$p,[ref]$t,[ref]$e);"
+        + "$f=@($a.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Save-HostTimeoutDump'},$true));if($f.Count -ne 1){throw 'Exact helper missing'};"
+        + "$a=[Management.Automation.Language.Parser]::ParseInput($f[0].Extent.Text,$p,[ref]$t,[ref]$e);. ($a.GetScriptBlock());"
+        + "$s=[Diagnostics.ProcessStartInfo]::new();$s.FileName=" + quote(image) + ";$s.Arguments='-NoProfile -NonInteractive -OutputFormat Text -EncodedCommand " + Buffer.from(targetCommand, 'utf16le').toString('base64') + "';"
+        + "$s.UseShellExecute=$false;$s.CreateNoWindow=$true;$s.RedirectStandardOutput=$true;$s.RedirectStandardError=$true;$child=[Diagnostics.Process]::new();$child.StartInfo=$s;"
+        + "try{if(-not $child.Start()){throw 'Owned x86 target not started'};$ready=$child.StandardOutput.ReadLineAsync();$err=$child.StandardError.ReadToEndAsync();if(-not $ready.Wait(5000) -or $ready.Result -cne 'OWNED_NATIVE_X86_READY'){throw 'Owned x86 ready failed'};"
+        + "Save-HostTimeoutDump $child " + quote(image) + " " + quote(dump) + " -ExecutableCollector -CollectorEngine " + quote(prepared.path) + ";if($child.HasExited){throw 'Dump ended owned target'};[Console]::WriteLine('OWNED_NATIVE_X86_ALIVE')}"
+        + "finally{if(-not $child.HasExited){$child.Kill()};if(-not $child.WaitForExit(1000)){throw 'Owned x86 exit unconfirmed'};$child.Dispose()}";
+    const result = spawnSync('pwsh.exe', ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 25000 });
+    try {
+        assert.ifError(result.error); assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, '');
+        assert.match(result.stdout, /OWNED_NATIVE_X86_ALIVE/);
+        const record = JSON.parse(result.stdout.split(/\r?\n/).find(line => line.startsWith('___HOST_CHILD_DUMP___:')).slice('___HOST_CHILD_DUMP___:'.length));
+        assert.equal(record.Written, true, record.Error); assert.equal(record.CollectorExited, true);
+        assert.equal(record.Pid, Number(fs.readFileSync(pidFile, 'utf8')));
+        assert.throws(() => process.kill(record.Pid, 0), { code: 'ESRCH' });
+        const bytes = fs.readFileSync(dump); assert.equal(bytes.toString('ascii', 0, 4), 'MDMP');
+        let architecture = null;
+        for (let n = 0; n < bytes.readUInt32LE(8); n++) {
+            const entry = bytes.readUInt32LE(12) + n * 12;
+            if (bytes.readUInt32LE(entry) === 7) architecture = bytes.readUInt16LE(bytes.readUInt32LE(entry + 8));
+        }
+        assert.equal(architecture, 0, 'same-bitness dump must use native Intel context');
+        assert.equal(bytes.readBigUInt64LE(24) & 0x1124n, 0x1124n);
+        assert.equal(JSON.parse(fs.readFileSync(path.join(path.dirname(prepared.path), 'build.json'), 'utf8')).platform, 'x86');
+    } catch (error) {
+        keepArtifacts = true; fs.writeFileSync(path.join(owned, 'native-x86-failure.json'), JSON.stringify({ status: result.status, stdout: result.stdout, stderr: result.stderr }));
+        try { stopOwnedFixture(pidFile, image, fs.existsSync(ticksFile) ? fs.readFileSync(ticksFile, 'utf8') : null); }
+        catch (cleanupError) { console.error('Owned native x86 cleanup refused: ' + cleanupError.message); }
+        throw error;
+    }
+});
+
+// 2026-10-22：用独占EXE安全模拟共享映像调用，错误创建身份不能回收仍由本测试持有的目标。
+test('cleanup rejects a mismatched creation identity before stopping a live target', async () => {
+    const { spawn } = require('node:child_process');
+    const image = path.join(owned, 'cleanup-identity-control.exe');
+    const pidFile = path.join(owned, 'cleanup-identity-control.pid');
+    fs.copyFileSync(fixture, image); selfTestFiles.push(image); pidFiles.push(pidFile);
+    const child = spawn(image, [], { windowsHide: true, stdio: ['ignore','pipe','pipe'], env: { ...process.env, AAA_HOST_WRAPPER_CASE: 'timeout', AAA_HOST_WRAPPER_PIDFILE: pidFile } });
+    const closed = new Promise(resolve => child.once('close', resolve));
+    child.stderr.on('data', () => {});
+    let failure;
+    try {
+        await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('Owned identity control readiness timeout')), 5000);
+            child.once('error', error => { clearTimeout(timer); reject(error); });
+            child.stdout.on('data', value => { if (value.toString().includes('HOST_WRAPPER_STDOUT:')) { clearTimeout(timer); resolve(); } });
+        });
+        assert.throws(() => stopOwnedFixture(pidFile, image), /Shared process creation identity required/);
+        assert.throws(() => stopOwnedFixture(pidFile, image, '1'), /creation time mismatch/);
+        assert.doesNotThrow(() => process.kill(child.pid, 0), 'mismatched creation identity must leave the owned target alive');
+    } catch (error) { keepArtifacts = true; failure = error; }
+    finally {
+        // 2026-10-22：无论回归断言如何，最后只由原ChildProcess持有者停止自己的控制目标。
+        if (child.exitCode === null) child.kill();
+        await closed;
+    }
+    if (failure) throw failure;
+});
