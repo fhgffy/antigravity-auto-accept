@@ -200,6 +200,10 @@ jobs:
     needs: test
     runs-on: ${{ inputs.windows_2022 && 'windows-2022' || 'windows-latest' }}
     timeout-minutes: 15
+    # 2026-10-22：动态runner表达式无法静态推断Windows默认语言；显式保留原pwsh及完整ShellCheck。
+    defaults:
+      run:
+        shell: pwsh
     steps:
       # 2026-10-07：采用官方 Node 24 运行时 Actions，测试项目仍使用 Node 22。
       - uses: actions/checkout@v7.0.1

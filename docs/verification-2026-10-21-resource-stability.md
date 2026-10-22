@@ -225,6 +225,14 @@ sample13原编译进程748/parent9104/TID8364在14957.37ms被原owner结束，CP
 
 静态门先红后绿、actionlint1.7.12成功、首次窄审无确认P0–P3。完整npm session46322 exit0、21源全程不变，repository4/publication56/lifecycle38/host57，mouse每引擎198、concurrency22、VSIX8；hosted-image-option-final-local-validation.json及work/hosted-image-option-first-review.md。云端2022对照尚未运行，不宣称该映像解决IO或C20。原99bd四CI均已终态才允许推送新候选，避免取消未完成结果；下一步仅显式单次原生诊断对照，不计完整连绿。
 
+### 2026-10-22：动态runner的打包语言声明
+
+【已跑验证】2020005的两份原lint失败，push39805867733/job119918783443在windows-validation.yml的PowerShell包校验正文报告SC1070/SC1133/SC2283。固定actionlint下载SHA通过；Windows原CI继续保留、不取消/重跑。此前本地关闭不可用ShellCheck的语义检查漏掉了实际语言派发，不能以该绿色结果外推全套云lint通过。Issue #42。
+
+最小修复只在package作业声明defaults.run.shell=pwsh，保留Windows原实际语言、所有步骤正文/期限与完整ShellCheck。真实actionlint配只记录原始输入的语言旁证先红后绿：误派PowerShell正文1→0，原Bash lint仍派发；旁证不运行ShellCheck规则，云端原SC失败与后续真实lint仍分别保留。evidence/actionlint-shell-language-{red,green}.json/log；运行源码不变，纯配置修复不另发版。
+
+【已跑验证】2020005原push/PR的两引擎及包均成功，两lint仍原失败，八份执行日志已核SHA归档ci-2020005/final-summary.json；没有取消/重跑。修复后完整本地session8229 exit0、21源全程不变，repository4/publication56/lifecycle38/host57，mouse每引擎198、concurrency22；session79171 VSIX8通过。explicit-package-shell-final-local-validation.json核对当前源/字节及只增加pwsh默认声明的完整YAML不变性；云端修复版真实ShellCheck仍待新原运行。
+
 ## D：发布与文档（进行中）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。
