@@ -13,6 +13,7 @@ internal static class HostDumpCollector
         try
         {
             if (IntPtr.Size != 8 || args.Length != 4) { throw new InvalidOperationException("Expected x64 owned collector arguments"); }
+            HostChildDiagnostics.RecordPhase(args[3], "collector-entered"); // 2026-10-22：身份失败前的工具进入阶段单独保留。
             int pid = int.Parse(args[0], CultureInfo.InvariantCulture);
             long started = long.Parse(args[1], CultureInfo.InvariantCulture);
             using (Process target = Process.GetProcessById(pid))
@@ -22,6 +23,7 @@ internal static class HostDumpCollector
                 {
                     throw new InvalidOperationException("Owned dump target identity changed");
                 }
+                HostChildDiagnostics.RecordPhase(args[3], "identity-verified"); // 2026-10-22：只有严格身份通过后才进入取证函数。
                 HostChildDiagnostics.Write(target, args[3]);
             }
             Console.WriteLine("___HOST_DUMP_WRITTEN___");

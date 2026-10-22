@@ -333,7 +333,7 @@ for (const [index, engine] of engines.entries()) {
                 assert.equal(fs.readFileSync(dumpFile).subarray(0, 4).toString('ascii'), 'MDMP',
                     JSON.stringify({ status: result.status, stdout: result.stdout, stderr: result.stderr })); // 2026-10-22：真实采集失败保留收集器原两流，不能只剩空头断言。
                 assert.equal(fs.readFileSync(path.join(detail.DumpDirectory, 'source.ps1'), 'utf8'), fs.readFileSync(scriptFile, 'utf8'));
-                for (const name of ['identity.json', 'source.ps1', 'selftest.dmp', 'streams.json']) selfTestFiles.push(path.join(detail.DumpDirectory, name));
+                for (const name of ['identity.json', 'source.ps1', 'selftest.dmp', 'selftest.dmp.phases.log', 'streams.json']) selfTestFiles.push(path.join(detail.DumpDirectory, name));
                 selfTestDirectories.push(detail.DumpDirectory);
             } else {
                 assert.match(result.stderr, /SelfTest failed:/);
@@ -356,7 +356,7 @@ for (const [index, engine] of diagnosticEngines.entries()) {
             const collectorPidFile = path.join(owned, stem + '-collector.pid');
             pidFiles.push(pidFile);
             if (scenario === 'collector-stall') pidFiles.push(collectorPidFile);
-            selfTestFiles.push(diagnostic);
+            selfTestFiles.push(diagnostic, diagnostic + '.phases.log'); // 2026-10-22：取证阶段旁证按本例明确文件收尾。
             const preserved = Buffer.from('existing-owned-dump-must-not-change');
             if (scenario === 'file-error') fs.writeFileSync(diagnostic, preserved, { flag: 'wx' });
             const hostPath = path.join(__dirname, 'host-process.test.ps1');
@@ -390,6 +390,9 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                     const dump = fs.readFileSync(diagnostic);
                     assert.equal(dump.toString('ascii', 0, 4), 'MDMP');
                     assert.ok(dump.readUInt32LE(8) > 0);
+                    // 2026-10-22：必须区分身份核验、文件/句柄准备、原生调用返回与关闭完成，零字节不再被猜作具体阶段。
+                    const phases = fs.readFileSync(diagnostic + '.phases.log', 'utf8').trim().split(/\r?\n/).map(line => line.split(' ')[1]);
+                    assert.deepEqual(phases, ['collector-entered', 'identity-verified', 'write-entered', 'file-opened', 'handles-ready', 'native-returned:0', 'complete']);
                 } else {
                     assert.equal(records[0].Written, false);
                     assert.ok(records[0].Error.length > 0);
