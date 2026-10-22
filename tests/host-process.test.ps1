@@ -381,6 +381,19 @@ if (-not [Environment]::Is64BitOperatingSystem) { throw 'Cross-bitness test requ
 # 2026-10-22：外部64位收集器只读取持有目标；固定五秒上限和独立回收，不能占满原45秒宿主截止时间。
 function Save-HostTimeoutDump {
     param([Diagnostics.Process]$Target,[string]$ExpectedImage,[string]$DumpPath,[string]$CollectorEngine='',[switch]$ExecutableCollector)
+    # 2026-10-22：此回执只有固定的字符串/整数/布尔字段，直接编码避免首次ConvertTo-Json自动加载阻塞取证收尾。
+    function ConvertTo-DumpJsonString([string]$Value) {
+        $text = [Text.StringBuilder]::new()
+        [void]$text.Append('"')
+        foreach ($character in $Value.ToCharArray()) {
+            $code = [int]$character
+            if ($code -eq 34 -or $code -eq 92) { [void]$text.Append('\'); [void]$text.Append($character) }
+            elseif ($code -lt 32 -or $code -ge 127) { [void]$text.Append('\u'); [void]$text.Append($code.ToString('x4',[Globalization.CultureInfo]::InvariantCulture)) }
+            else { [void]$text.Append($character) }
+        }
+        [void]$text.Append('"')
+        return $text.ToString()
+    }
     $record=[ordered]@{Pid=$Target.Id;Path=$DumpPath;Written=$false;TimedOut=$false;Error='';CollectorPid=$null;CollectorExited=$false}
     $collector=$null;$started=$false
     try {
@@ -410,7 +423,12 @@ function Save-HostTimeoutDump {
             if($started){try{if(-not $collector.get_HasExited()){$collector.Kill()};$record.CollectorExited=$collector.WaitForExit(1000)}catch{$record.Error+=';cleanup:'+ $_.Exception.GetType().FullName}}
             try{$collector.Dispose()}catch{$record.Error+=';dispose:'+ $_.Exception.GetType().FullName}
         }
-        try{[Console]::WriteLine('___HOST_CHILD_DUMP___:'+($record|ConvertTo-Json -Compress))}catch{}
+        # 2026-10-22：保留原JSON字段与null语义；字符串包含控制字符或UTF-16代理对也须按原文往返。
+        try {
+            $collectorPidJson = if ($null -eq $record.CollectorPid) { 'null' } else { $record.CollectorPid.ToString([Globalization.CultureInfo]::InvariantCulture) }
+            $json = '{"Pid":' + $record.Pid.ToString([Globalization.CultureInfo]::InvariantCulture) + ',"Path":' + (ConvertTo-DumpJsonString $record.Path) + ',"Written":' + $record.Written.ToString().ToLowerInvariant() + ',"TimedOut":' + $record.TimedOut.ToString().ToLowerInvariant() + ',"Error":' + (ConvertTo-DumpJsonString $record.Error) + ',"CollectorPid":' + $collectorPidJson + ',"CollectorExited":' + $record.CollectorExited.ToString().ToLowerInvariant() + '}'
+            [Console]::WriteLine('___HOST_CHILD_DUMP___:' + $json)
+        } catch { }
     }
 }
 

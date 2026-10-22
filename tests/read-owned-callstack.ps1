@@ -12,10 +12,11 @@ try {
  $connection.SetSessionOptions((New-PSSessionOption -OpenTimeout 1000 -OperationTimeout 1000 -CancelTimeout 1000))
  $rs=[Management.Automation.Runspaces.RunspaceFactory]::CreateRunspace($connection);$rs.Open()
  $ps=[PowerShell]::Create();$ps.Runspace=$rs
- [void]$ps.AddScript('Get-Runspace | ForEach-Object { [pscustomobject]@{Id=$_.Id;Name=$_.Name;Frames=@($_.Debugger.GetCallStack()|ForEach-Object{[pscustomobject]@{FunctionName=$_.FunctionName;ScriptName=$_.ScriptName;ScriptLineNumber=$_.ScriptLineNumber;PositionText=$_.Position.Text;CommandName=$_.InvocationInfo.MyCommand.Name}})} } | ConvertTo-Json -Depth 8')
+ # 2026-10-22：目标只用核心CLI XML传回快照，禁止为旁路读栈自动加载JSON模块干扰冷启动现场。
+ [void]$ps.AddScript('$PSModuleAutoLoadingPreference=''None''; $list=[Management.Automation.Runspaces.Runspace].GetProperty(''RunspaceList'',[Reflection.BindingFlags]''Static,NonPublic''); if($null -eq $list){throw ''Owned runtime RunspaceList unavailable''}; $snapshot=@(foreach($runspace in $list.GetValue($null)){[pscustomobject]@{Id=$runspace.Id;Name=$runspace.Name;Frames=@(foreach($frame in $runspace.Debugger.GetCallStack()){[pscustomobject]@{FunctionName=$frame.FunctionName;ScriptName=$frame.ScriptName;ScriptLineNumber=$frame.ScriptLineNumber;PositionText=$frame.Position.Text;CommandName=$frame.InvocationInfo.MyCommand.Name}})}}); [Management.Automation.PSSerializer]::Serialize($snapshot,8)')
  $pending=$ps.BeginInvoke();if(-not $pending.AsyncWaitHandle.WaitOne(2000)){throw 'Owned script stack read deadline expired'}
  $result=$ps.EndInvoke($pending);if($ps.HadErrors){throw ($ps.Streams.Error|Out-String)}
- $record.Stacks=($result -join [Environment]::NewLine)|ConvertFrom-Json
+ $record.Stacks=@([Management.Automation.PSSerializer]::Deserialize($result -join [Environment]::NewLine)) # 2026-10-22：本地重建同一快照结构。
 } catch {$record.Error=$_.Exception.GetBaseException().GetType().FullName+':'+$_.Exception.GetBaseException().Message}
 finally {
  if($null -ne $target){$target.Dispose()}

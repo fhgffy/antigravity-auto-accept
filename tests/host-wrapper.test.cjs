@@ -347,7 +347,7 @@ for (const [index, engine] of engines.entries()) {
 // 2026-10-22：各项诊断使用独立目标和原25秒上限，避免三次5秒收集器叠加耗尽同一个外层截止时间。
 const diagnosticEngines = [...new Set([...engines, path.join(process.env.WINDIR, 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe')])];
 for (const [index, engine] of diagnosticEngines.entries()) {
-    for (const scenario of ['success', 'file-error', 'collector-stall', 'identity-error']) {
+    for (const scenario of ['success', 'file-error', 'collector-stall', 'identity-error', 'json-unavailable', 'json-error-escaping']) {
         test(engine + ': bounded x64 minidump ' + scenario + ' retains target', () => {
             const quote = value => "'" + value.replace(/'/g, "''") + "'";
             const stem = 'diagnostic-' + index + '-' + scenario;
@@ -355,11 +355,14 @@ for (const [index, engine] of diagnosticEngines.entries()) {
             const pidFile = path.join(owned, stem + '.pid');
             const collectorPidFile = path.join(owned, stem + '-collector.pid');
             pidFiles.push(pidFile);
-            if (scenario === 'collector-stall') pidFiles.push(collectorPidFile);
+            if (scenario === 'collector-stall' || scenario === 'json-error-escaping') pidFiles.push(collectorPidFile);
             selfTestFiles.push(diagnostic, diagnostic + '.phases.log'); // 2026-10-22：取证阶段旁证按本例明确文件收尾。
             const preserved = Buffer.from('existing-owned-dump-must-not-change');
             if (scenario === 'file-error') fs.writeFileSync(diagnostic, preserved, { flag: 'wx' });
             const hostPath = path.join(__dirname, 'host-process.test.ps1');
+            // 2026-10-22：禁止JSON模块自动加载的真实子进程仍须完成取证回执，避免首次报告加载耗时突破原25秒。
+            const noJsonModule = scenario.startsWith('json-');
+            const dumpError = 'DUMP_ERROR:quote=" slash=\\ tab=\t cr=\r lf=\n 中文😀';
             const command = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); [Console]::WriteLine('DUMP_DIAGNOSTIC_ENTERED'); "
                 + "$hostPath=" + quote(hostPath) + ";$t=$null;$e=$null;$a=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($hostPath,[Text.Encoding]::UTF8),$hostPath,[ref]$t,[ref]$e);"
                 + "$f=@($a.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Save-HostTimeoutDump'},$true));if($f.Count -ne 1){throw 'Dump function missing'};"
@@ -367,9 +370,12 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                 + "$start=[Diagnostics.ProcessStartInfo]::new();$start.FileName=" + quote(fixture) + ";$start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true;"
                 + "$child=[Diagnostics.Process]::new();$child.StartInfo=$start;try{[void]$child.Start();$out=$child.StandardOutput.ReadLineAsync();$err=$child.StandardError.ReadToEndAsync();if(-not $out.Wait(5000)){throw 'Owned diagnostic child start timeout'};"
                 + "[Console]::WriteLine('DUMP_DIAGNOSTIC_CHILD_READY');$clock=[Diagnostics.Stopwatch]::StartNew();"
-                + (scenario === 'collector-stall' ? "$env:AAA_HOST_WRAPPER_PIDFILE=" + quote(collectorPidFile) + ";" : "")
+                + (noJsonModule ? "$null=Join-Path 'C:\\' 'module-probe';$PSModuleAutoLoadingPreference='None';if(Get-Module Microsoft.PowerShell.Utility){throw 'JSON module unexpectedly preloaded'};" : "")
+                + (scenario === 'collector-stall' || scenario === 'json-error-escaping' ? "$env:AAA_HOST_WRAPPER_PIDFILE=" + quote(collectorPidFile) + ";" : "")
+                + (scenario === 'json-error-escaping' ? "$env:AAA_HOST_WRAPPER_CASE='dump-json-error';" : "")
                 + "Save-HostTimeoutDump $child " + quote(scenario === 'identity-error' ? path.join(owned, 'unowned.exe') : fixture) + " " + quote(diagnostic)
-                + " -ExecutableCollector -CollectorEngine " + quote(scenario === 'collector-stall' ? fixture : diagnosticCollector) + ";"
+                + " -ExecutableCollector -CollectorEngine " + quote(scenario === 'collector-stall' || scenario === 'json-error-escaping' ? fixture : diagnosticCollector) + ";"
+                + (noJsonModule ? "if($PSModuleAutoLoadingPreference -cne 'None' -or (Get-Module Microsoft.PowerShell.Utility)){throw 'JSON module autoload guard changed'};" : "")
                 + "$clock.Stop();[Console]::WriteLine('DUMP_ELAPSED:'+$clock.ElapsedMilliseconds);"
                 + "if($child.HasExited){throw 'Diagnostic ended live target'};[Console]::WriteLine('DUMP_TARGET_ALIVE')"
                 + "}finally{if(-not $child.HasExited){$child.Kill()};if(-not $child.WaitForExit(5000)){throw 'Owned diagnostic child exit unconfirmed'};$child.Dispose()}";
@@ -385,7 +391,9 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                 const records = result.stdout.split(/\r?\n/).filter(line => line.startsWith('___HOST_CHILD_DUMP___:')).map(line => JSON.parse(line.slice('___HOST_CHILD_DUMP___:'.length)));
                 assert.equal(records.length, 1);
                 assert.equal(records[0].CollectorExited, true);
-                if (scenario === 'success') {
+                assert.equal(records[0].Path, diagnostic);
+                assert.equal(records[0].Pid, Number(fs.readFileSync(pidFile, 'utf8')));
+                if (scenario === 'success' || scenario === 'json-unavailable') {
                     assert.equal(records[0].Written, true, records[0].Error);
                     const dump = fs.readFileSync(diagnostic);
                     assert.equal(dump.toString('ascii', 0, 4), 'MDMP');
@@ -397,6 +405,7 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                     assert.equal(records[0].Written, false);
                     assert.ok(records[0].Error.length > 0);
                     if (scenario === 'file-error') assert.deepEqual(fs.readFileSync(diagnostic), preserved);
+                    if (scenario === 'json-error-escaping') assert.ok(records[0].Error.endsWith(dumpError), records[0].Error);
                     // 2026-10-22：错误绝对路径必须拒绝取证，且不能生成目标转储；原持有者仍负责目标退出。
                     if (scenario === 'identity-error') { assert.match(records[0].Error, /Owned dump target identity changed/); assert.equal(fs.existsSync(diagnostic), false); }
                     if (scenario === 'collector-stall') {
@@ -405,7 +414,7 @@ for (const [index, engine] of diagnosticEngines.entries()) {
                         assert.ok(elapsed >= 4900 && elapsed < 8000, 'fixed collector deadline and bounded stop: ' + elapsed);
                     }
                 }
-                for (const file of scenario === 'collector-stall' ? [pidFile, collectorPidFile] : [pidFile]) {
+                for (const file of scenario === 'collector-stall' || scenario === 'json-error-escaping' ? [pidFile, collectorPidFile] : [pidFile]) {
                     assert.throws(() => process.kill(Number(fs.readFileSync(file, 'utf8')), 0), { code: 'ESRCH' });
                 }
             } catch (error) {

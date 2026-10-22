@@ -102,9 +102,21 @@ f41ee74 的 push 39706528061 再现真实 PS7 SelfTest 十五秒超时，且失�
 
 新手动观察作业保留实际验证前缀和完整原 Node 测试，超过八秒才对本例父链、PID、创建时间与映像核对后的 PowerShell 进行旁路取证。独立读栈进程固定五秒，使用本机命名管道只读 GetCallStack，未发送断点或暂停命令，目标仍由原测试收尾；原有转储也保留。观察器自身另有一百八十秒总预算、作业五分钟预算，触发时是诊断失败，不能计作原流程成功或完整 CI。新增入口标记及本作业 npm verbose/timing 日志用于区分脚本入口与安装等待；没有关闭审计、改重试或增加原时限。
 
-新功能首次窄审发现一个 P2：观察异常会提前中断原 Node，落盘失败会遮盖其原错误。真实 Node/文件 IO 红例分别复现；修正后查询故障时原测试继续二十秒并退出 0，原失败与落盘失败同时出现时优先保留原测试失败，诊断失败仍单列。修后 PS5、PS7 两个受控案例实际读出目标 Start-Sleep 语句、原 Node 均在原二十五秒内完成；读栈器错误创建时间、错误映像及错误父 PID 三个负例均拒绝、目标存活并由原持有者收尾。完整 npm test 再次通过（host-wrapper 42/42），文件与阶段回执在 host-callstack-repo-control-final-*、host-observer-fault-green-final.json、host-observer-reader-identity-negatives 和 host-observer-fixed-full-test.log。未做同范围修复复审。新云端观察仍待验证，原始 SelfTest 和宿主偶发超时根因未确认。
+新功能首次窄审发现一个 P2：观察异常会提前中断原 Node，落盘失败会遮盖其原错误。真实 Node/文件 IO 红例分别复现；修正后查询故障时原测试继续二十秒并退出 0，原失败与落盘失败同时出现时优先保留原测试失败，诊断失败仍单列。修后两次固定 x86 目标的受控案例实际读出目标 Start-Sleep 语句、原 Node 均在原二十五秒内完成；读栈器错误创建时间、错误映像及错误父 PID 三个负例均拒绝、目标存活并由原持有者收尾。完整 npm test 再次通过（host-wrapper 42/42），文件与阶段回执在 host-callstack-repo-control-final-*、host-observer-fault-green-final.json、host-observer-reader-identity-negatives 和 host-observer-fixed-full-test.log。未做同范围修复复审。新云端观察仍待验证，原始 SelfTest 和宿主偶发超时根因未确认。
 
 afa92d0 的 push 39714135354 在创建任何作业前失败，GitHub 注释明确为新增 job 级 env 使用了该层不允许的 runner.temp；不是原测试超时，原失败与 jobs=[] 已保留。将该 env 移到允许 runner 上下文的实际步骤，本地固定版本 actionlint 复现一个语义错误后检查通过。另加独立 Workflow lint 工作流，在主 CI 文件无法创建作业时仍可检查全部工作流；工具固定官方版本及 SHA-256，权限只读，作业五分钟。此补充没有改动运行或测试脚本，已有完整 npm test 的功能源码字节未变；配置专项语义、YAML、Bash 语法及仓库检查另行执行。Ubuntu 新检查和修正后云端观察尚待通过，不能把本地 YAML 可解析称为 GitHub 配置可执行。
+
+e718587 的 push 39714938769、PR 39714943896 两次完整 Windows CI，以及独立 actionlint 的 push/PR 均成功；Ubuntu 侧实际下载、SHA 核验和 Bash 执行已完成。原日志和元数据在 ci-e718587。
+
+同头手动 39717129869 全部成功：四组原 Node 全文测试、四组固定 x86 控制读栈以及四组各二十次原 SelfTest/编译启动均通过。SelfTest 共 80/80，四组最大值分别为 670、1421、554、1396ms；这些重复仍不是二十次完整 CI。完整日志、八份 artifact 与 summary.json 在 manual-e718587-39717129869。
+
+该次真实 x86 包装器在启动超过八秒后，被读到停在 Save-HostTimeoutDump 最后回执的 ConvertTo-Json 语句；该例最终成功。此前 0b587c2 的失败已证明原生转储成功、外层未收尾，这次栈将一个实际慢点缩到报告路径；没有把成功例的栈冒充原失败那次的栈，也不能据此归因为 #34 的原 SelfTest 故障。该诊断边界单独登记 #35。
+
+回执仅有固定字段，现以无命令模块的编码保留同一 JSON、null、整数和布尔契约。禁止 JSON 模块自动加载的三个实际引擎各两例先因缺回执失败，修后六例通过，含引号、反斜杠、控制字符、中文和非 BMP 错误原文；原 25 秒外限、五秒收集、身份/退出/失败断言未变。完整 npm test 通过（host-wrapper 48/48），证据为 dump-json-autoload-red.log、dump-json-autoload-green.log、dump-json-full-test.log。
+
+旁路本身原先也会加载 Utility：禁自动加载的控制首先暴露 Get-Runspace 命令不可用，保留 red 与首次 green 失败。读栈改用核心运行时的只读 RunspaceList 属性和 CLI XML；没有设置断点、暂停或修改目标状态，不在目标加载 Utility。该内部只读属性已在实际 PS5/PS7 核对，缺失会明确失败，不作生产依赖。私有控制样本只替换原夹具的 executable 一行，分别对 PS7、PS5、x86 PS5 真实目标读到 Start-Sleep 语句，原 Node 及持有者正常退出；这与原固定 x86 控制的调用者标签分开。证据 dump-json-reader-final-PS7/PS5/PS5-x86，新的云端版本仍待验证。
+
+原受控 x86 DMP 的系统/线程上下文为 x64 收集器生成的 WOW64 形式；dotnet-dump 两种位数及 CDB 逐行命令都未得到可用的托管栈，不能凭工具退出 0 称成功。官方签名工具改用包范围提取，原整包下载超时保留；没有安装或改全局 SDK。另从原 0b587c2 的 inner x64 DMP 读到预期 HostWrapperOutput.Main/Thread.Sleep，只证明内层在等待，不是外层根因。相关原日志、签名清单和 wow64-dump-architecture-audit.json 在本轮根目录。
 
 ## D：发布与文档（进行中）
 
