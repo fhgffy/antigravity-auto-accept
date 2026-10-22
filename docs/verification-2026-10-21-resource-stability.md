@@ -251,13 +251,25 @@ sample13原编译进程748/parent9104/TID8364在14957.37ms被原owner结束，CP
 
 同源原生39830319666再次抓到CI9/PS7实际首次x86失败：PID3696/创建177445.9465ms/初始TID2000，原25000ms内单线程IO并集24306.5992ms、CPU196.2655ms；hard-fault23358.7325ms、disk947.8667ms。主要文件是32位SMA.ni.dll、clr.dll、mscorlib.ni.dll；匹配WOF数据流区间为0，不证明所有文件未压缩。cache-only栈多为module!?，不套用旧5484的CLR方法名。ETL SHA8d4eb5fd43f64cdd91f0f7cd3b0bcefcbe9bbfebb7d8d69ea347de534d38a111、0lost，确有conhost子进程但尚无fixture/collector；native2022-exact-x86-3696-created/original-budget-thread-analysis.json。
 
-原生矩阵整体completed/failure；其中CI7单条job记录仍in_progress，但22步骤、收尾日志及依赖包均结束，结论保留未知，不假作success。62日志、63原ZIP（42ETL/1故障/20包）的本机SHA/字节再核对、42份metadata摘要SHA及0lost回执在parent-archive-byte-readback-with-unsettled-job.json；控制器仍只读等待服务端结算，不阻塞独立工作。带仪器结果全部不计C。
+原生矩阵整体completed/failure；其中CI7单条job记录仍in_progress，但22步骤、收尾日志及依赖包均结束，结论保留未知，不假作success。62日志、63原ZIP（42ETL/1故障/20包）的本机SHA/字节再核对、42份metadata摘要SHA及0lost回执在parent-archive-byte-readback-with-unsettled-job.json；归档核对后仅结束本机自有Python读者31792，原GitHub运行未取消或重跑，单job未知状态继续保留。带仪器结果全部不计C。
 
 【已读源码、已跑局部验证；性能效果未验证】候选只改bounded诊断spawn的局部环境：精确规范化SysWOW64全路径，清该副本所有COMPlus_ZapDisable大小写变体，再放唯一值1；父环境、x64/pwsh/同名其它路径原样，原命令/七例顺序/25000ms/collector5000ms及断言全部逐字不变。官方Framework文档明确该诊断设置适用32/64位、改走JIT且可能变慢；不用CoreCLR设置外推，不改系统配置/缓存或产品运行源码。[微软原文](https://github.com/microsoft/dotnet/blob/2ab884e04a0a40c84dcb8782033b2191b7a94fd4/Documentation/testing-with-ryujit.md#L123-L156)。
 
 VM执行真实callback截获spawn，原实现2红/1绿，候选3绿；实际普通Node子/孙进程收到唯一1。删除变体清理、删除引擎判定的两个私有变异分别2红/1红，共享源原样；x86-ngen-environment-boundary-results.md及x86-ngen-env-mutations。此门没有启动PowerShell或预热CLR，不证明CLR实际采用或冷IO改善。设置会被fixture/collector继承；后续独立native-x86仍原默认NGEN，可能出现冷点迁移，所有原断言继续保留。下一步须新冻结head普通CI、两引擎原生机制对照及修复后新的无仪器完整20组。
 
 完整本地session6514 exit0、21源全程不变；repository7/publication56/lifecycle38/host57、mouse每引擎198、concurrency22。session89503 VSIX8通过，本机原包SHA487e0dbe5fb2514063fad0106fe4fa4b54e4ac2114dc3e45dfacf319c4502c9e；x86-ngen-final-local-validation.json。该结果不替代云端冷启动或C20。
+
+### 2026-10-23：后续native-x86冷点与局部JIT候选2
+
+【已跑验证】7a25fe0的原push/PR四个真实test job均在七个直接x86诊断成功后，失败于后续native-x86原5000ms READY；four-original-native-x86-ready-failures.json保留原日志和故障包，未重跑。原生39838490061为PS7成功、WinPS失败、包跳过；两日志、三原ZIP（两ETL/一故障）的SHA/CRC及两ETL 0lost已核对。实际失败PID7436创建后前5000ms的保守窗口内，线程IO并集4752.0933ms、CPU189.1071ms，加载13个NI模块；前置PID6348加载0个NI，属于另一进程。该窗口不是精确Wait起点，IO含非NI文件，不能把全部IO归为NI或宣称冷性能已修；work/x86-ngen-native-causal-result.md保留进程身份、区间和限制。
+
+【已读源码】候选2仅给native-x86实际目标及其两个自有collector设置局部JIT环境，并在真实进程核对环境值与已加载NI模块，增加jit-verified及原phase链断言；父进程和其它路径不扩散设置。原READY5000ms、外层25000ms、主collector5000ms、次collector1500ms、清理期限、位数、身份和既有断言均保留，三处改动只在测试/fixture，无生产源码变化。首次独立只读审查work/native-x86-jit-first-review.md未发现P0–P2；P3为未来非EXE的CollectorJit组合边界，当前无该调用，不能视作已修复。
+
+【已跑局部验证】目标和collector各有真实红/绿控制；最终四个私有变异结果均符合预期。两份保留次级运行记录独立回读通过、21源不变，但原私有控制器exit1如实保留：它误把详细JIT异常要求在Error，实际Error为失败分类，详情在Stderr；未重跑，不能将控制器写成exit0。证据为work/native-x86-jit-controls、native-x86-jit-mutants/summary.json及native-x86-jit-secondary-controls/retained-runtime-readback.json，均不证明云端冷启动或C。
+
+【已跑验证】完整npm exit0：repository7/publication56/lifecycle38/host57/scanner184、host-process每引擎131、mouse每引擎198、concurrency22；21源输入全程不变。evidence/native-x86-jit-full-test-result.json及原日志、full-test-start.json记录结果与三处候选源码SHA；当前源已与该快照逐项回读一致。
+
+【已跑本地包验证】真实VSCE及validate均exit0，VSIX八项CRC/字节SHA和28源码输入不变已核对，并对齐上述21源快照；release/antigravity-auto-accept-5.3.13-native-x86-jit-local.vsix的SHA256为79a97c2f645cb2c427338ade11d795e82b5419cc108f38fd110bdbef9d4547d3，版本5.3.13、publisher fhgffy。包回执为evidence/native-x86-jit-package-{result,byte-readback}.json；独立汇总evidence/native-x86-jit-final-local-validation.json的SHA256为c5f52c19fb5fa32a0fde0919d5e28c5dc7d81689fcc0d2161c785410a6297e9e。尚未发布；云端C仍待新head的普通CI、同head原生机制核对及新的无仪器完整20组，所有历史仪器样本不计C。
 
 ## D：发布与文档（进行中）
 

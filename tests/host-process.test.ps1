@@ -380,7 +380,8 @@ Assert-Host ($null -eq [MouseHelper]::GetProcessImagePath([uint32]4294967295)) '
 if (-not [Environment]::Is64BitOperatingSystem) { throw 'Cross-bitness test requires Windows x64' }
 # 2026-10-22：外部64位收集器只读取持有目标；固定五秒上限和独立回收，不能占满原45秒宿主截止时间。
 function Save-HostTimeoutDump {
-    param([Diagnostics.Process]$Target,[string]$ExpectedImage,[string]$DumpPath,[string]$CollectorEngine='',[switch]$ExecutableCollector,[string]$CollectorStackTool='') # 2026-10-22：仅失败后的可选旁路工具。
+    # 2026-10-23：默认不改收集器模式；原生x86控制显式要求真实EXE的JIT回执。
+    param([Diagnostics.Process]$Target,[string]$ExpectedImage,[string]$DumpPath,[string]$CollectorEngine='',[switch]$ExecutableCollector,[string]$CollectorStackTool='',[switch]$CollectorJit) # 2026-10-22：仅失败后的可选旁路工具。
     # 2026-10-22：此回执只有固定的字符串/整数/布尔字段，直接编码避免首次ConvertTo-Json自动加载阻塞取证收尾。
     function ConvertTo-DumpJsonString([string]$Value) {
         $text = [Text.StringBuilder]::new()
@@ -406,7 +407,10 @@ function Save-HostTimeoutDump {
         if($ExecutableCollector){
             if($ExpectedImage.Contains('"') -or $DumpPath.Contains('"')){throw 'Invalid owned collector path'}
             $start.Arguments=$Target.Id.ToString([Globalization.CultureInfo]::InvariantCulture)+' '+$Target.StartTime.ToUniversalTime().Ticks.ToString([Globalization.CultureInfo]::InvariantCulture)+' "'+$ExpectedImage+'" "'+$DumpPath+'"'
+            if($CollectorJit){$start.Arguments+=' --require-jit'} # 2026-10-23：该标志只交给自有EXE，不追加给EncodedCommand分支。
         }
+        # 2026-10-23：只改变本次自有收集器的启动环境，不向当前pwsh或其它测试进程传播。
+        if($CollectorJit){$start.EnvironmentVariables['COMPlus_ZapDisable']='1'}
         $start.UseShellExecute=$false;$start.CreateNoWindow=$true;$start.RedirectStandardOutput=$true;$start.RedirectStandardError=$true
         $collector=[Diagnostics.Process]::new();$collector.StartInfo=$start
         if(-not $collector.Start()){throw 'Dump collector did not start'}
@@ -424,6 +428,9 @@ function Save-HostTimeoutDump {
                     if($stackRecord.Image.Contains('"') -or $DumpPath.Contains('"')){throw 'Invalid owned stack path'}
                     $stackStart=[Diagnostics.ProcessStartInfo]::new();$stackStart.FileName=$CollectorStackTool
                     $stackStart.Arguments=$stackRecord.Pid.ToString([Globalization.CultureInfo]::InvariantCulture)+' '+$stackRecord.StartTicks+' "'+$stackRecord.Image+'" "'+$DumpPath+'.collector.dmp" --collector-stack'
+                    if($CollectorJit){$stackStart.Arguments+=' --require-jit'} # 2026-10-23：次级取证也必须验证相同运行模式。
+                    # 2026-10-23：次级自有收集器也使用同一局部模式，仍受原1.5秒独立预算约束。
+                    if($CollectorJit){$stackStart.EnvironmentVariables['COMPlus_ZapDisable']='1'}
                     $stackStart.UseShellExecute=$false;$stackStart.CreateNoWindow=$true;$stackStart.RedirectStandardOutput=$true;$stackStart.RedirectStandardError=$true
                     $secondary=[Diagnostics.Process]::new();$secondary.StartInfo=$stackStart
                     if(-not $secondary.Start()){throw 'Collector stack tool did not start'}

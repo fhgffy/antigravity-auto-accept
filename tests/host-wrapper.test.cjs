@@ -498,15 +498,20 @@ test('native x86 collector preserves x86 dump context and owned target', () => {
     selfTestFiles.push(prepared.path, path.join(path.dirname(prepared.path), 'build.json'));
     selfTestDirectories.push(path.dirname(prepared.path));
     const host = path.join(__dirname, 'host-process.test.ps1');
-    const targetCommand = "$ProgressPreference='SilentlyContinue';[IO.File]::WriteAllText(" + quote(pidFile) + ",$PID.ToString());$identity=[Diagnostics.Process]::GetCurrentProcess();try{[IO.File]::WriteAllText(" + quote(ticksFile) + ",$identity.StartTime.ToUniversalTime().Ticks.ToString([Globalization.CultureInfo]::InvariantCulture))}finally{$identity.Dispose()};[Console]::WriteLine('OWNED_NATIVE_X86_READY');Start-Sleep -Seconds 60";
+    // 2026-10-23：实际x86目标必须采用本例JIT配置且未加载NGEN映像，避免暖缓存掩盖局部设置漏传。
+    const targetCommand = "$ProgressPreference='SilentlyContinue';[IO.File]::WriteAllText(" + quote(pidFile) + ",$PID.ToString());$identity=[Diagnostics.Process]::GetCurrentProcess();try{[IO.File]::WriteAllText(" + quote(ticksFile) + ",$identity.StartTime.ToUniversalTime().Ticks.ToString([Globalization.CultureInfo]::InvariantCulture));"
+        + "if([Environment]::GetEnvironmentVariable('COMPlus_ZapDisable') -cne '1'){throw 'Owned x86 JIT setting missing'};foreach($module in $identity.Modules){if($module.ModuleName.EndsWith('.ni.dll',[StringComparison]::OrdinalIgnoreCase)){throw 'Owned x86 native image loaded'}}"
+        + "}finally{$identity.Dispose()};[Console]::WriteLine('OWNED_NATIVE_X86_READY');Start-Sleep -Seconds 60";
     const command = "$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';$p=" + quote(host) + ";$t=$null;$e=$null;"
         + "$a=[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($p,[Text.Encoding]::UTF8),$p,[ref]$t,[ref]$e);"
         + "$f=@($a.FindAll({param($n)$n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq 'Save-HostTimeoutDump'},$true));if($f.Count -ne 1){throw 'Exact helper missing'};"
         + "$a=[Management.Automation.Language.Parser]::ParseInput($f[0].Extent.Text,$p,[ref]$t,[ref]$e);. ($a.GetScriptBlock());"
         + "$s=[Diagnostics.ProcessStartInfo]::new();$s.FileName=" + quote(image) + ";$s.Arguments='-NoProfile -NonInteractive -OutputFormat Text -EncodedCommand " + Buffer.from(targetCommand, 'utf16le').toString('base64') + "';"
-        + "$s.UseShellExecute=$false;$s.CreateNoWindow=$true;$s.RedirectStandardOutput=$true;$s.RedirectStandardError=$true;$child=[Diagnostics.Process]::new();$child.StartInfo=$s;"
+        // 2026-10-23：只覆盖native-x86目标自己的环境，StringDictionary按名称忽略大小写，不修改outer pwsh或Node父环境。
+        + "$s.UseShellExecute=$false;$s.CreateNoWindow=$true;$s.RedirectStandardOutput=$true;$s.RedirectStandardError=$true;$s.EnvironmentVariables['COMPlus_ZapDisable']='1';$child=[Diagnostics.Process]::new();$child.StartInfo=$s;"
         + "try{if(-not $child.Start()){throw 'Owned x86 target not started'};$ready=$child.StandardOutput.ReadLineAsync();$err=$child.StandardError.ReadToEndAsync();if(-not $ready.Wait(5000) -or $ready.Result -cne 'OWNED_NATIVE_X86_READY'){throw 'Owned x86 ready failed'};"
-        + "Save-HostTimeoutDump $child " + quote(image) + " " + quote(dump) + " -ExecutableCollector -CollectorEngine " + quote(prepared.path) + " -CollectorStackTool " + quote(prepared.path) + ";if($child.HasExited){throw 'Dump ended owned target'};[Console]::WriteLine('OWNED_NATIVE_X86_ALIVE')}"
+        // 2026-10-23：JIT要求必须由真实收集器回执确认，不能依赖simple function接受未知参数。
+        + "Save-HostTimeoutDump $child " + quote(image) + " " + quote(dump) + " -ExecutableCollector -CollectorEngine " + quote(prepared.path) + " -CollectorStackTool " + quote(prepared.path) + " -CollectorJit;if($child.HasExited){throw 'Dump ended owned target'};[Console]::WriteLine('OWNED_NATIVE_X86_ALIVE')}"
         + "finally{if(-not $child.HasExited){$child.Kill()};if(-not $child.WaitForExit(1000)){throw 'Owned x86 exit unconfirmed'};$child.Dispose()}";
     const result = spawnSync('pwsh.exe', ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 25000 });
     try {
@@ -514,6 +519,9 @@ test('native x86 collector preserves x86 dump context and owned target', () => {
         assert.match(result.stdout, /OWNED_NATIVE_X86_ALIVE/);
         const record = JSON.parse(result.stdout.split(/\r?\n/).find(line => line.startsWith('___HOST_CHILD_DUMP___:')).slice('___HOST_CHILD_DUMP___:'.length));
         assert.equal(record.Written, true, record.Error); assert.equal(record.CollectorExited, true);
+        // 2026-10-23：既有完整取证阶段之外必须有真实JIT验证，整条switch漏传时暖缓存同样失败。
+        const phases = fs.readFileSync(dump + '.phases.log', 'utf8').trim().split(/\r?\n/).map(line => line.split(' ')[1]);
+        assert.deepEqual(phases, ['collector-entered', 'jit-verified', 'identity-verified', 'write-entered', 'file-opened', 'handles-ready', 'dbghelp-load-entered', 'dbghelp-load-returned:0', 'dbghelp-export-entered', 'dbghelp-export-returned:0', 'native-returned:0', 'complete']);
         assert.equal(record.Pid, Number(fs.readFileSync(pidFile, 'utf8')));
         assert.throws(() => process.kill(record.Pid, 0), { code: 'ESRCH' });
         const bytes = fs.readFileSync(dump); assert.equal(bytes.toString('ascii', 0, 4), 'MDMP');
