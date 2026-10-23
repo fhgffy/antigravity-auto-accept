@@ -353,3 +353,11 @@ PR #30 已关闭且未合并；此前审查头 1f607c1a968ae81c0dece35f2f2e7f699
 现有宿主入口新增一个聚合回归，VM 捕获当前文件的真实 callback，替代文件和进程边界，不运行 before/after 或编译外部目标。十五个控制覆盖退出竞争、无 close、同步/异步错误、原错误优先及记录失败；原八项红例和旧候选缺异步捕获的红例均保留。三个独立变异分别删除 close 截止、覆盖原错误、遗漏 unref，最终都被断言拒绝且自行退出。首次遗漏 unref 的私有变异曾由十二秒外控结束；测试替身也补了失败 finally 以释放自身模拟引用，保留该原失败，不将它算产品新故障。源与最终控制结果在本轮 work/host-wrapper-cleanup-boundary-controls/v2；完整本地与私有包输入/结果在 evidence/issue44-local-validation。
 
 【已跑本机暖缓存控制】原 SelfTest 以默认模块加载及禁止自动加载各执行一次，均通过87项、stderr为空，结束时未枚举到已加载命令模块。此对照只排除本机该路径的额外模块依赖，不排除云端模块发现读取，不解释历史二十秒超时，也未调整生产环境。work/selftest-module-autoload-20261023 保留两流、原源哈希与两个结果。本次只改测试及维护说明，不发新版本；C 的历史超时根因及修复后完整二十组仍未验证。
+
+### 2026-10-23：失败取证上传根修复（Issue46）
+
+【已读源码、已跑原云运行归档】同树的后续完整资格运行39880952885保留原结果：19组通过，Complete CI2的PowerShell7作业内case30仍以20031.4149ms发生spawnSync powershell.exe ETIMEDOUT；未取消或重跑。实际执行的62份原日志和20份原包均已归档核对，读取错误清零。该次上传动作把仓库根用作runner.temp中文件的根而拒绝，三份返回后取证文件未形成ZIP；不能据此判断是否已经输出DONE。归档恢复回执为evidence/complete-uninstrumented-01f25ac90543ca859a4e00f2c344fe3c937c0715-cloud-39880952885/read-recovery-20261023T021427931150Z/archive-recovery-final-receipt.json。历史超时原因仍未知，C计数仍为0。
+
+Issue46只处理上传链：五类自有诊断目录从实际临时根复制到单个独占上传根，按来源分区避免同名覆盖，保留原字节与原件；重解析成员拒绝，复制部分失败仍保存可用旁证并保持失败。原上传名称、保留期、测试期限和断言不变。实际文件红绿覆盖双引擎、三来源、同名与嵌套字节、排除前缀、锁文件、重解析和空集合，原始失败现场保留。首次本地长路径及夹具profile缓存清理失败另存，不冒充有效实现红例。
+
+【已跑聚焦验证】独立审查指出第一版会提前启动PowerShell、改变原生命周期冷启动条件，已撤销该测试位置：repository只读源码接线，真实控制追加在原测试序列末尾；cold-order-v2/focused-order-red.json与focused-order-green.json保留新次序红绿，后者2项通过。具体源与记录在work/lifecycle-timeout-upload-controls/cold-order-v2/frozen-delivery.json。完整本地、原云CI和失败分支的实际上传仍需分别验证；健康CI跳过上传不能算该链通过。本次仅测试与CI维护，不发新版本。

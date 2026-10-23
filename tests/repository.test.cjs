@@ -161,14 +161,34 @@ test('lifecycle diagnostic write failures preserve the original assertion except
     }
 });
 
-/* 2026-10-23：独占失败目录必须由原失败上传步骤同时覆盖托管临时根和本机默认临时根。 */
-test('normal failure upload includes owned lifecycle synchronous result receipts', () => {
+/* 2026-10-23：这里只读暂存契约与调用顺序，真实PowerShell控制放原生命周期序列末尾，避免提前暖读Framework。 */
+test('normal failure upload stages owned diagnostics after original tests', () => {
+    const stageScript = path.join(__dirname, 'stage-owned-timeout-diagnostics.ps1');
+    assert.ok(fs.existsSync(stageScript), 'Failure diagnostics need a real single-root staging script');
+    const controlFile = path.join(__dirname, 'timeout-diagnostics.test.cjs');
+    assert.ok(fs.existsSync(controlFile), 'Real staging controls must use a separate post-lifecycle entry');
     const workflow = fs.readFileSync(path.join(root, '.github/workflows/windows-validation.yml'), 'utf8');
-    const upload = workflow.slice(workflow.indexOf('      - name: Preserve owned host child timeout diagnostics'),
+    const stages = workflow.slice(workflow.indexOf('      - name: Stage owned host child timeout diagnostics'),
         workflow.indexOf('      - name: Preserve native startup trace'));
+    assert.match(stages, /id: timeout_diagnostics/);
+    assert.match(stages, /stage-owned-timeout-diagnostics\.ps1/);
+    const upload = stages.slice(stages.indexOf('      - name: Preserve owned host child timeout diagnostics'));
     assert.match(upload, /if: failure\(\)/);
-    assert.ok(upload.includes('${{ runner.temp }}/AntigravityAA-LifecycleTimeout-*/*'));
-    assert.ok(upload.includes('~\\AppData\\Local\\Temp\\AntigravityAA-LifecycleTimeout-*\\*'));
+    assert.ok(upload.includes('path: ${{ steps.timeout_diagnostics.outputs.path }}'));
+    assert.equal((upload.match(/^\s+path:/gm) || []).length, 1);
+    assert.doesNotMatch(upload, /AppData|LifecycleTimeout-\*|HostBinary-\*/);
+    assert.ok(upload.includes('name: host-child-timeout-${{ github.run_id }}-${{ matrix.major }}${{ inputs.artifact_suffix }}'));
+    assert.match(upload, /retention-days: 14/); assert.match(upload, /if-no-files-found: warn/);
+    assert.equal(manifest.scripts['test:timeout-diagnostics'], 'node --test tests/timeout-diagnostics.test.cjs');
+    const originalTestOrder = ['compile', 'typecheck', 'test:repository', 'test:publication', 'selftest', 'test:lifecycle',
+        'test:scanner', 'test:host', 'test:host-wrapper', 'test:mouse', 'test:concurrency'];
+    assert.equal(manifest.scripts.test, [...originalTestOrder, 'test:timeout-diagnostics'].map(name => 'npm run ' + name).join(' && '));
+    const controlStep = workflow.indexOf('      - name: Owned timeout diagnostics staging regression');
+    assert.ok(controlStep > workflow.indexOf('      - name: Concurrent scanner handoff without desktop clicks'));
+    assert.ok(controlStep < workflow.indexOf('      - name: Save native startup trace'));
+    const controlBlock = workflow.slice(controlStep, workflow.indexOf('      - name: Save native startup trace'));
+    assert.match(controlBlock, /run: npm run test:timeout-diagnostics/);
+    assert.doesNotMatch(controlBlock, /if:|continue-on-error:/);
 });
 
 /* 2026-10-23：执行真实诊断回调到进程边界即停止，不运行编译、PowerShell或清理钩子，避免提前暖读Framework。 */
