@@ -361,3 +361,17 @@ PR #30 已关闭且未合并；此前审查头 1f607c1a968ae81c0dece35f2f2e7f699
 Issue46只处理上传链：五类自有诊断目录从实际临时根复制到单个独占上传根，按来源分区避免同名覆盖，保留原字节与原件；重解析成员拒绝，复制部分失败仍保存可用旁证并保持失败。原上传名称、保留期、测试期限和断言不变。实际文件红绿覆盖双引擎、三来源、同名与嵌套字节、排除前缀、锁文件、重解析和空集合，原始失败现场保留。首次本地长路径及夹具profile缓存清理失败另存，不冒充有效实现红例。
 
 【已跑聚焦验证】独立审查指出第一版会提前启动PowerShell、改变原生命周期冷启动条件，已撤销该测试位置：repository只读源码接线，真实控制追加在原测试序列末尾；cold-order-v2/focused-order-red.json与focused-order-green.json保留新次序红绿，后者2项通过。具体源与记录在work/lifecycle-timeout-upload-controls/cold-order-v2/frozen-delivery.json。完整本地、原云CI和失败分支的实际上传仍需分别验证；健康CI跳过上传不能算该链通过。本次仅测试与CI维护，不发新版本。
+
+### 2026-10-23：真实故障上传完成与托管自测缓解候选（Issue48）
+
+【已跑验证】Issue46 的完整本地、原 push/PR 四个运行及双引擎故障上传控制已通过，PR47 合并为 main ee706c3。同次 main 原运行39895782465仍保留 case30 的20016.92ms超时；这次暂存与上传实际成功，ZIP内三份原件记录ETIMEDOUT/SIGTERM、PID2564、空的返回两流，未含kill前快照，不能解释内部停顿阶段。原3份执行日志与1ZIP归档完备；没有重跑或取消。见 evidence/main-ee706c-first-failure-120225797054/failure-readback.json，SHA256 be4577b795a7a85536e19fc3924da532dc6aa7fcbb00d66cfbe9ee38a9b50723。
+
+【已跑验证】一次有限双臂原生诊断39908980921保留原两次csc前置、38项生命周期、原命令与20000ms。两台全新VM实际同windows-2022/20261012.333.1、父PS7.6.6、Node22.23.3；各自返回SelfTest87、stderr空，完整38/38通过。仅实际WinPS子环境的单一SMA映像设置不同，原源码断言未改；基线API4829.8726ms、候选3463.5123ms。独立回读2份原执行日志、4份原ZIP的SHA/CRC/成员字节、两ETL零丢事件，额外仅push lint1job；该对照不含完整两引擎/后续进程/打包验收，C计数0。
+
+按原ZIP记录的实际子PID、直接父Node及创建区间唯一绑定：baseline1132首线程CPU并集156.0597ms、IO并集3945.7706ms，其中SMA NI文件3134.3189ms；selected1428首线程CPU646.7186ms、IO1329.0010ms，其中SMA IL文件729.8988ms。实际模块映射由14个NI变13个，移除的为SMA，其余13条NI路径集合相同。首线程类别区间独立重算一致，不把跨线程Totals、零base/rundown模块记录或load事件阶段当内部API时长。本机先前暖缓存578→1531ms的代价也保留。每臂n=1且旧失败来自343.1映像，不能据此断言普遍提速或历史20秒定因。
+
+原件与离线链见 evidence/selective-sma-cold-60369e8/final-control-summary.json（SHA256 52adbcf1c30b95e5dbee3da7a5ffad279b8c91baae24ad8677098daf6ce495f2）、independent-original-readback.json（c29f650c1ce97642565510428c2966e1b3e6a44a85a2e90cd74771b4bef9235e）及identity-readback/two-arm-offline-analysis-readback.json（1e245406b2c00b6d387e8fc1047ba1fb4dd0badb2ec167a1f7f3c2e4113cc1bb）。原4ZIP/2ETL派生前后摘要相同；每臂现有cache-only工具仅转换一次，输出全在F盘；仅临时远端分支清理，本地提交与原件保留。
+
+【已读源码，候选验证待完成】Issue48 仅为GitHub-hosted的真实launcher SelfTest调用克隆子环境、选择SMA加载方式；普通、本地、自托管的原options连env属性都不增加。生产源、版本、原20秒、原4条成功断言、87纯规则及失败回执保持。新纯Node回调控制在全部原测试后接线；完整本地npm/VSIX及独审已通过，新原push/PR/main及连续20组仍待，不据聚焦门提前记通过。后续scanner与host-wrapper仍用默认CLR及原15/20秒期限，必须检查是否转移冷点。Issue38的历史根因继续开放，本次CI/test变更不发新运行版本。
+
+【已跑完整本地验证】正式候选full-v2 session72818 exit0，81个仓库输入在测试及打包期间未变：repository12/publication56/lifecycle38/host-wrapper58/暂存1/新子环境回归4均通过，SelfTest87、scanner184、host-process两引擎各131、mouse各198、concurrency22。VSCE4.0.0及原VSIX验证均exit0；本机包SHA256为5e0d689c7c4215c4118994cc5468d3d291ab281618cda5c541e6485881be536b。原8成员CRC/来源检查通过，7成员逐字等于公开fd79原包，package.json只含test/test:timeout-diagnostics/test:lifecycle-env三个script属性差异，版本及其它字段相同。evidence/issue48-local-parent-proof.json的SHA256为d3423f9c6491117c4cc5a36356634bfc57e9b40fdee4118a2b771d1c78bb3bbe。首次完整门因新入口未同步严格接线契约而失败，原件在evidence/issue48-local-validation保留；仅补全原前缀后追加新入口的严格相等与位置断言，聚焦12/12过后才执行本次v2。本段状态文档在本地门结束后补入，测试代码与其余输入不再修改；普通云CI及后续完整资格仍待。

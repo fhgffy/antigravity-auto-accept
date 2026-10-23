@@ -182,13 +182,19 @@ test('normal failure upload stages owned diagnostics after original tests', () =
     assert.equal(manifest.scripts['test:timeout-diagnostics'], 'node --test tests/timeout-diagnostics.test.cjs');
     const originalTestOrder = ['compile', 'typecheck', 'test:repository', 'test:publication', 'selftest', 'test:lifecycle',
         'test:scanner', 'test:host', 'test:host-wrapper', 'test:mouse', 'test:concurrency'];
-    assert.equal(manifest.scripts.test, [...originalTestOrder, 'test:timeout-diagnostics'].map(name => 'npm run ' + name).join(' && '));
+    /* 2026-10-23：原测试前缀及暂存控制保持严格顺序，托管子环境纯Node控制只追加在末尾。 */
+    assert.equal(manifest.scripts['test:lifecycle-env'], 'node --test tests/lifecycle-hosted-env.test.cjs');
+    assert.equal(manifest.scripts.test, [...originalTestOrder, 'test:timeout-diagnostics', 'test:lifecycle-env'].map(name => 'npm run ' + name).join(' && '));
     const controlStep = workflow.indexOf('      - name: Owned timeout diagnostics staging regression');
     assert.ok(controlStep > workflow.indexOf('      - name: Concurrent scanner handoff without desktop clicks'));
     assert.ok(controlStep < workflow.indexOf('      - name: Save native startup trace'));
     const controlBlock = workflow.slice(controlStep, workflow.indexOf('      - name: Save native startup trace'));
     assert.match(controlBlock, /run: npm run test:timeout-diagnostics/);
     assert.doesNotMatch(controlBlock, /if:|continue-on-error:/);
+    const environmentStep = workflow.indexOf('      - name: Hosted lifecycle child environment boundaries');
+    assert.ok(environmentStep > controlStep);
+    assert.ok(environmentStep < workflow.indexOf('      - name: Save native startup trace'));
+    assert.match(workflow.slice(environmentStep, workflow.indexOf('      - name: Save native startup trace')), /run: npm run test:lifecycle-env/);
 });
 
 /* 2026-10-23：执行真实诊断回调到进程边界即停止，不运行编译、PowerShell或清理钩子，避免提前暖读Framework。 */

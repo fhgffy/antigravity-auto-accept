@@ -552,13 +552,18 @@ test('真实 PowerShell 启动协议通过扫描器自测且 stderr 为空', { s
     const encodedIndex = args.indexOf('-EncodedCommand');
     assert.notEqual(encodedIndex, -1);
     args[encodedIndex + 1] = Buffer.from(`${getScannerCommand(spawned)} -SelfTest`, 'utf16le').toString('base64');
+    /* 2026-10-23：仅GitHub托管VM的原自测子环境选定SMA原生映像加载设置，父环境及其它CLR设置保留。 */
+    const spawnOptions = { windowsHide: true, encoding: 'utf8', timeout: 20000 };
+    if (process.env.GITHUB_ACTIONS === 'true' && process.env.RUNNER_ENVIRONMENT === 'github-hosted') {
+        spawnOptions.env = { ...process.env };
+        for (const key of Object.keys(spawnOptions.env)) {
+            if (key.toLowerCase() === 'complus_disablenativeimageloadlist') delete spawnOptions.env[key];
+        }
+        spawnOptions.env.COMPLUS_DisableNativeImageLoadList = 'System.Management.Automation';
+    }
     /* 2026-10-23：仅在原同步调用返回后失败时保存其原件，不增加进程、预热或修改原截止时间。 */
     const startedUtc = new Date().toISOString(), started = process.hrtime.bigint();
-    const result = require('node:child_process').spawnSync(spawned.command, args, {
-        windowsHide: true,
-        encoding: 'utf8',
-        timeout: 20000,
-    });
+    const result = require('node:child_process').spawnSync(spawned.command, args, spawnOptions);
     const returnedUtc = new Date().toISOString(), durationMs = Number(process.hrtime.bigint() - started) / 1e6;
     try {
         assert.ifError(result.error);
