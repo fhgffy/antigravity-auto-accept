@@ -148,6 +148,39 @@ jobs:
       - name: Hosted lifecycle child environment boundaries
         run: npm run test:lifecycle-env
 
+      # 2026-10-24：新默认x86宿主复用完整扫描回归，只在原测试尾部追加，不预热首次生命周期自测。
+      - name: X86 scanner regression on the default host
+        if: matrix.major == 5
+        run: |
+          $x86Engine = Join-Path $env:SystemRoot 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+          $testCommand = @'
+          $ErrorActionPreference = 'Stop'
+          if ([IntPtr]::Size -ne 4) { throw 'Scanner regression requires a 32-bit host' }
+          $x86Engine = Join-Path $env:SystemRoot 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/scanner.test.ps1'))
+          $tokens = $null
+          $parseErrors = $null
+          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw 'Scanner test parse errors' }
+          & ($testAst.GetScriptBlock()) -PowerShellEngines @($x86Engine) -TimeoutCollectorPath $env:AAA_TEST_DUMP_COLLECTOR
+          if (-not $?) { throw 'Scanner regression failed' }
+          exit 0
+          '@
+          & $x86Engine -NoLogo -NoProfile -NonInteractive -Command $testCommand
+          exit $LASTEXITCODE
+
+      # 2026-10-24：原双轮互斥接管与退出回归同时覆盖x86；继续使用原脚本的空窗口树及截止时间。
+      - name: X86 concurrent scanner handoff without desktop clicks
+        if: matrix.major == 5
+        run: |
+          $x86Engine = Join-Path $env:SystemRoot 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/scanner-concurrency.test.ps1'))
+          $tokens = $null
+          $parseErrors = $null
+          $testAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw 'Concurrency test parse errors' }
+          & ($testAst.GetScriptBlock()) -PowerShellEngines @($x86Engine)
+
       # 2026-10-22：原步骤失败也保存ETW，所有原命令/断言/截止不变；跳过额外NGen符号生成的停录成本。
       - name: Save native startup trace
         if: ${{ always() && inputs.native_startup_trace }}

@@ -163,7 +163,15 @@ function startAutoClicker() {
         + `-ParentProcessId ${process.pid} -HostExecutablePath '${process.execPath.replace(/'/g, "''")}'`;
     let scannerProcess: child_process.ChildProcess;
     try {
-        scannerProcess = child_process.spawn('powershell.exe', [
+        /* 2026-10-24：x64 宿主优先使用系统 x86 PowerShell 降低等待者内存；仅接受本地绝对系统目录，缺失时保持原启动方式。 */
+        let powershellExecutable = 'powershell.exe';
+        const systemRoot = process.env.SystemRoot;
+        if (process.arch === 'x64' && systemRoot && /^[a-z]:[\\/]/i.test(systemRoot)
+            && !/[<>:"|?*\x00-\x1f]/.test(systemRoot.slice(2)) && !systemRoot.split(/[\\/]/).includes('..')) {
+            const systemPowerShell = path.win32.join(systemRoot, 'SysWOW64', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+            if (fs.existsSync(systemPowerShell)) { powershellExecutable = systemPowerShell; }
+        }
+        scannerProcess = child_process.spawn(powershellExecutable, [
             '-NoProfile',
             '-NonInteractive',
             '-OutputFormat', 'Text',

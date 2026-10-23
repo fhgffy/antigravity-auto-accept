@@ -188,13 +188,63 @@ test('normal failure upload stages owned diagnostics after original tests', () =
     const controlStep = workflow.indexOf('      - name: Owned timeout diagnostics staging regression');
     assert.ok(controlStep > workflow.indexOf('      - name: Concurrent scanner handoff without desktop clicks'));
     assert.ok(controlStep < workflow.indexOf('      - name: Save native startup trace'));
-    const controlBlock = workflow.slice(controlStep, workflow.indexOf('      - name: Save native startup trace'));
+    /* 2026-10-24：只检查原控制步骤自身，后续追加的架构条件不能被误归到这个无条件步骤。 */
+    const controlBlock = workflow.slice(controlStep, workflow.indexOf('      - name:', controlStep + 1));
     assert.match(controlBlock, /run: npm run test:timeout-diagnostics/);
     assert.doesNotMatch(controlBlock, /if:|continue-on-error:/);
     const environmentStep = workflow.indexOf('      - name: Hosted lifecycle child environment boundaries');
     assert.ok(environmentStep > controlStep);
     assert.ok(environmentStep < workflow.indexOf('      - name: Save native startup trace'));
-    assert.match(workflow.slice(environmentStep, workflow.indexOf('      - name: Save native startup trace')), /run: npm run test:lifecycle-env/);
+    const environmentBlock = workflow.slice(environmentStep, workflow.indexOf('      - name:', environmentStep + 1));
+    assert.match(environmentBlock, /run: npm run test:lifecycle-env/);
+    assert.doesNotMatch(environmentBlock, /if:|continue-on-error:/);
+});
+
+/* 2026-10-24：x86扫描与并发只追加在原测试之后，复用原入口及期限，不提前暖读生命周期首个WinPS。 */
+test('x86 scanner and concurrency CI coverage follows every original test step', () => {
+    const workflow = fs.readFileSync(path.join(root, '.github/workflows/windows-validation.yml'), 'utf8');
+    const environmentStep = workflow.indexOf('      - name: Hosted lifecycle child environment boundaries');
+    const traceStep = workflow.indexOf('      - name: Save native startup trace');
+    let previousStep = environmentStep;
+    for (const [name, file] of [
+        ['X86 scanner regression on the default host', 'scanner.test.ps1'],
+        ['X86 concurrent scanner handoff without desktop clicks', 'scanner-concurrency.test.ps1']
+    ]) {
+        const marker = '      - name: ' + name;
+        const step = workflow.indexOf(marker);
+        assert.ok(step > previousStep && step < traceStep, name + ' must follow the original tests');
+        assert.equal(workflow.indexOf(marker, step + marker.length), -1, name + ' must run once');
+        const block = workflow.slice(step, workflow.indexOf('      - name:', step + 1));
+        assert.match(block, /^        if: matrix\.major == 5\r?$/m);
+        assert.equal((block.match(/^        if:/gm) || []).length, 1);
+        assert.ok(block.includes("$x86Engine = Join-Path $env:SystemRoot 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'"));
+        assert.ok(block.includes("Join-Path $PWD 'tests/" + file + "'"));
+        assert.ok(block.includes('[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)'));
+        assert.match(block, /if \(\$parseErrors\.Count -gt 0\) \{ throw /);
+        assert.ok(block.includes('& ($testAst.GetScriptBlock()) -PowerShellEngines @($x86Engine)'));
+        if (file === 'scanner.test.ps1') {
+            // 2026-10-24：完整回归必须在真实x86父宿主运行，不能只把x86路径传给内部子测试。
+            const child = block.match(/^          \$testCommand = @'\r?\n([\s\S]*?)^          '@\r?$/m);
+            assert.ok(child, 'scanner regression requires an explicit child command');
+            assert.ok(child[1].includes("$ErrorActionPreference = 'Stop'"));
+            assert.ok(child[1].includes("if ([IntPtr]::Size -ne 4) { throw 'Scanner regression requires a 32-bit host' }"));
+            assert.ok(child[1].includes("$x86Engine = Join-Path $env:SystemRoot 'SysWOW64/WindowsPowerShell/v1.0/powershell.exe'"));
+            assert.ok(child[1].includes("Join-Path $PWD 'tests/scanner.test.ps1'"));
+            assert.ok(child[1].includes('[Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)'));
+            assert.match(child[1], /if \(\$parseErrors\.Count -gt 0\) \{ throw /);
+            assert.match(child[1], /& \(\$testAst\.GetScriptBlock\(\)\) -PowerShellEngines @\(\$x86Engine\) -TimeoutCollectorPath \$env:AAA_TEST_DUMP_COLLECTOR\r?\n          if \(-not \$\?\) \{ throw 'Scanner regression failed' \}\r?\n          exit 0\r?\n$/);
+            assert.match(block.slice(child.index + child[0].length), /^\r?\n          & \$x86Engine -NoLogo -NoProfile -NonInteractive -Command \$testCommand\r?\n          exit \$LASTEXITCODE\r?\n/);
+        }
+        assert.doesNotMatch(block, /continue-on-error:|timeout-minutes:|-Rounds\b|-ExpectedSelfTestCount\b|-ScannerSourcePath\b/);
+        previousStep = step;
+    }
+    for (const name of ['Scanner regression on one engine', 'Concurrent scanner handoff without desktop clicks']) {
+        const step = workflow.indexOf('      - name: ' + name);
+        assert.ok(step > 0 && step < environmentStep);
+        const block = workflow.slice(step, workflow.indexOf('      - name:', step + 1));
+        assert.ok(block.includes("-PowerShellEngines @('${{ matrix.executable }}')"));
+        assert.doesNotMatch(block, /SysWOW64|x86Engine|continue-on-error:|^        if:/m);
+    }
 });
 
 /* 2026-10-23：执行真实诊断回调到进程边界即停止，不运行编译、PowerShell或清理钩子，避免提前暖读Framework。 */

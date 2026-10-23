@@ -13,7 +13,8 @@ $instrumented = $source.Substring(0,$compile[0].Extent.StartOffset) + $sentinel 
 # 2026-10-21：等待阶段也不应为进程查询、构造互斥或休眠自动加载完整管理/工具模块。
 $waitingProtocol = "[Console]::WriteLine('___SCANNER_WAITING___')"
 if (($instrumented.Split(@($waitingProtocol),[StringSplitOptions]::None).Count - 1) -ne 1) { throw 'Exact waiting boundary missing' }
-$instrumented = $instrumented.Replace($waitingProtocol, $waitingProtocol + "; [Console]::WriteLine('___COLD_MODULES___:' + @(Get-Module -Name Microsoft.PowerShell.Management,Microsoft.PowerShell.Utility).Count); [Console]::WriteLine('___WAITING_APPROVAL_FUNCTIONS___:' + @(Get-Command -Name Invoke-BrowserPermissionCards -CommandType Function -ErrorAction SilentlyContinue).Count)")
+# 2026-10-24：只查当前会话函数，避免探针自动发现模块并改变冷等待状态。
+$instrumented = $instrumented.Replace($waitingProtocol, $waitingProtocol + "; [Console]::WriteLine('___COLD_MODULES___:' + @(Get-Module -Name Microsoft.PowerShell.Management,Microsoft.PowerShell.Utility).Count); [Console]::WriteLine('___WAITING_APPROVAL_FUNCTIONS___:' + [int]`$ExecutionContext.SessionState.InvokeProvider.Item.Exists('Function:\Invoke-BrowserPermissionCards', `$false, `$true))")
 # 2026-10-21：复用既有隐藏子进程与有界协议工具，不执行其回归主体，不启动任何桌面动作。
 $utilityPath = Join-Path $PSScriptRoot 'scanner.test.ps1'
 $utilityAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($utilityPath,[Text.Encoding]::UTF8),[ref]$tokens,[ref]$errors)

@@ -252,8 +252,8 @@ for (const [index, engine] of engines.entries()) {
                 + "if($capture.Count -eq 1){$captureAst=[Management.Automation.Language.Parser]::ParseInput($capture[0].Extent.Text,"
                 + quote(path.join(__dirname, 'scanner.test.ps1')) + ",[ref]$tokens,[ref]$errors); . ([scriptblock]::Create($captureAst.Extent.Text.Replace('function Save-ScannerTimeoutEvidence {','function Save-ObservedTimeoutEvidence {'))); "
                 + "$scannerDumpTestRoot=" + quote(__dirname) + "; function Save-ScannerTimeoutEvidence($Target,$ExpectedImage,$SourcePath,$CollectorEngine,[switch]$ExecutableCollector){[Console]::WriteLine('___PREPARED_COLLECTOR_FORWARD___:'+([ordered]@{Engine=$CollectorEngine;Native=$ExecutableCollector.IsPresent}|ConvertTo-Json -Compress)); Save-ObservedTimeoutEvidence $Target $ExpectedImage $SourcePath -UtilityPath (Join-Path $scannerDumpTestRoot 'host-process.test.ps1') -CollectorEngine "
-                + quote(diagnosticCollector) + " -ExecutableCollector}}; "
-                // 2026-10-23：仅人工超时的抽取启动函数在PSI编码后设置目标JIT，真实scanner及外层/收集器环境均不改。
+                + quote(diagnosticCollector) + " -ExecutableCollector" + (mode === 'timeout' ? ' -CollectorJit' : '') + "}}; " // 2026-10-24：只固定人工stall收集器模式，普通自测保留默认。
+                // 2026-10-24：人工stall目标与收集器分别使用局部JIT环境；真实scanner、外层及普通取证默认模式不变。
                 + "$observedDefinition=$definition[0].Extent.Text.Replace('function Start-TestProcess(', 'function Start-ObservedChild('); "
                 + (mode === 'timeout' ? "$launchBoundary=" + quote('    $start.StandardErrorEncoding = [Text.Encoding]::UTF8\r\n    $process = New-Object Diagnostics.Process')
                     + ";if($observedDefinition.Split([string[]]@($launchBoundary),[StringSplitOptions]::None).Length -ne 2){throw 'Exact stall launch boundary missing'};$observedDefinition=$observedDefinition.Replace($launchBoundary,"
@@ -363,6 +363,18 @@ for (const [index, engine] of engines.entries()) {
                 const dumpFile = path.join(detail.DumpDirectory, 'selftest.dmp');
                 assert.equal(fs.readFileSync(dumpFile).subarray(0, 4).toString('ascii'), 'MDMP',
                     JSON.stringify({ status: result.status, stdout: result.stdout, stderr: result.stderr })); // 2026-10-22：真实采集失败保留收集器原两流，不能只剩空头断言。
+                // 2026-10-24：人工stall须核真实收集器JIT守卫及完整转储阶段；传参本身不能证明生效。
+                const collectorLines = result.stdout.split(/\r?\n/).filter(value => value.startsWith('___HOST_CHILD_DUMP___:'));
+                assert.equal(collectorLines.length, 1, 'one real stall collector outcome');
+                const collector = JSON.parse(collectorLines[0].slice('___HOST_CHILD_DUMP___:'.length));
+                assert.equal(collector.Written, true);
+                assert.equal(collector.TimedOut, false);
+                assert.equal(collector.CollectorExited, true);
+                assert.equal(collector.Error, '');
+                const phases = fs.readFileSync(dumpFile + '.phases.log', 'utf8').trim().split(/\r?\n/).map(value => value.split(' ')[1]);
+                assert.deepEqual(phases, ['collector-entered', 'jit-verified', 'identity-verified', 'write-entered', 'file-opened',
+                    'handles-ready', 'dbghelp-load-entered', 'dbghelp-load-returned:0', 'dbghelp-export-entered',
+                    'dbghelp-export-returned:0', 'native-returned:0', 'complete'], 'stall collector JIT guard and complete dump phases');
                 assert.equal(fs.readFileSync(path.join(detail.DumpDirectory, 'source.ps1'), 'utf8'), fs.readFileSync(scriptFile, 'utf8'));
                 // 2026-10-22：原15秒失败后在停止目标前读出注入等待语句，保留同一PID/创建身份及有界读栈退出。
                 const stack = JSON.parse(fs.readFileSync(path.join(detail.DumpDirectory, 'selftest.callstack.json'), 'utf8'));
