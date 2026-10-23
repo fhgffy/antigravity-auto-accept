@@ -60,9 +60,15 @@ function createHarness(options = {}) {
     };
     const fakeProcess = {
         platform: options.platform || 'win32',
+        /* 2026-10-24：默认缺少 SystemRoot，保留原测试的 PATH 启动语义；仅新例显式给出架构和系统目录。 */
+        arch: options.arch ?? 'x64',
+        env: options.env ?? {},
         execPath: options.execPath || 'F:\\Antigravity IDE\\Antigravity IDE.exe',
         pid: 4321,
     };
+    /* 2026-10-24：扫描脚本存在性与系统程序分开模拟，不能让工作区同名文件充当系统 PowerShell。 */
+    const existsChecks = [];
+    const scannerPath = path.join(__dirname, '..', 'src', 'autoClicker.ps1');
     const childProcess = {
         spawn: (command, args, spawnOptions) => {
             if (options.spawnThrows) { throw new Error('spawn rejected'); }
@@ -89,14 +95,17 @@ function createHarness(options = {}) {
         require: name => {
             if (name === 'vscode') { return vscode; }
             if (name === 'child_process') { return childProcess; }
-            if (name === 'fs') { return { existsSync: () => options.scriptExists ?? true }; }
+            if (name === 'fs') { return { existsSync: candidate => {
+                existsChecks.push(candidate);
+                return candidate === scannerPath ? options.scriptExists ?? true : (options.existingPaths ?? []).includes(candidate);
+            } }; }
             return require(name);
         },
     };
     vm.runInNewContext(compiled, sandbox, { filename: sourcePath });
     exports.activate({ subscriptions: [], asAbsolutePath: relative => path.join(__dirname, '..', relative) });
     return {
-        children, logs, errors, info, status, timers, exports, fakeProcess,
+        children, logs, errors, info, status, timers, exports, fakeProcess, existsChecks,
         command: name => commands.get(`antigravity-auto-accept.${name}`)(),
         /* 2026-10-20：按到期顺序推进，回调创建的新计时器也遵守各自截止时间。 */
         advanceTime: milliseconds => {
@@ -711,4 +720,64 @@ test('用户停止或卸载后不会再输出死亡实例的尾部诊断', () =>
         assert.equal(harness.logs.length, logCount);
         assert.equal(harness.timers.size, 0);
     }
+});
+
+/* 2026-10-24：只改变真实扩展入口选出的系统程序；含空格系统目录也保持绝对路径，原参数、编码和隐藏管道选项逐项不变。 */
+test('Windows x64 等待者选择实际存在的系统 x86 PowerShell，原启动参数保持不变', () => {
+    const original = createHarness().children[0];
+    for (const systemRoot of ['C:\\Windows', 'D:\\Windows Root', 'C:/Windows']) {
+        const executable = path.win32.join(systemRoot, 'SysWOW64', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+        const harness = createHarness({ arch: 'x64', env: { SystemRoot: systemRoot }, existingPaths: [executable] });
+        assert.equal(harness.children.length, 1);
+        const spawned = harness.children[0];
+        assert.equal(spawned.command, executable);
+        assert.deepEqual(Array.from(spawned.args), Array.from(original.args));
+        assert.equal(JSON.stringify(spawned.options), JSON.stringify(original.options));
+        assert.equal(getScannerCommand(spawned), getScannerCommand(original));
+        assert.deepEqual(harness.existsChecks, [path.join(__dirname, '..', 'src', 'autoClicker.ps1'), executable]);
+        spawned.child.stdout.emit('data', Buffer.from('___SCANNER_WAITING___\n'));
+        harness.advanceTime(120000);
+        assert.equal(spawned.child.killCalls, 0);
+        assert.match(harness.status.text, /WAITING/);
+    }
+});
+
+/* 2026-10-24：无系统路径、相对/网络/设备路径和其它位数保持原行为；错误位置存在同名文件也不能选中。 */
+test('Windows x64 等待者缺失或非法系统目录、缺失程序及其它架构保持原启动', () => {
+    for (const systemRoot of [undefined, '', 'Windows', '.\\Windows', 'C:Windows', '\\Windows', '\\\\server\\Windows', '\\\\?\\C:\\Windows', 'C:\\Windows\\..\\workspace', 'C:\\bad\u0000root', 'C:\\bad|root']) {
+        const candidate = path.win32.join(systemRoot || '.', 'SysWOW64', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+        const harness = createHarness({ arch: 'x64', env: { SystemRoot: systemRoot }, existingPaths: [candidate] });
+        assert.equal(harness.children[0].command, 'powershell.exe', String(systemRoot));
+        assert.deepEqual(harness.existsChecks, [path.join(__dirname, '..', 'src', 'autoClicker.ps1')]);
+    }
+    const systemRoot = 'C:\\Windows';
+    const executable = path.win32.join(systemRoot, 'SysWOW64', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const workspaceOnly = createHarness({ arch: 'x64', env: { SystemRoot: systemRoot }, existingPaths: [path.join(__dirname, '..', 'powershell.exe')] });
+    assert.equal(workspaceOnly.children[0].command, 'powershell.exe');
+    assert.deepEqual(workspaceOnly.existsChecks, [path.join(__dirname, '..', 'src', 'autoClicker.ps1'), executable]);
+    for (const arch of ['arm64', 'ia32']) {
+        const harness = createHarness({ arch, env: { SystemRoot: systemRoot }, existingPaths: [executable] });
+        assert.equal(harness.children[0].command, 'powershell.exe');
+        assert.deepEqual(harness.existsChecks, [path.join(__dirname, '..', 'src', 'autoClicker.ps1')]);
+    }
+});
+
+/* 2026-10-24：选择系统 x86 路径不绕过原同步/异步错误处理，手动重启仍使用同一系统路径。 */
+test('Windows x64 等待者路径选择保留原进程错误与重启语义', () => {
+    const executable = 'C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe';
+    const options = { arch: 'x64', env: { SystemRoot: 'C:\\Windows' }, existingPaths: [executable] };
+    const harness = createHarness(options);
+    assert.equal(harness.children[0].command, executable);
+    harness.children[0].child.emit('error', new Error('ENOENT'));
+    harness.children[0].child.emit('exit', -1);
+    assert.equal(harness.errors.length, 1);
+    assert.match(harness.status.text, /OFF/);
+    assert.equal(harness.timers.size, 0);
+    harness.command('start');
+    assert.equal(harness.children.length, 2);
+    assert.equal(harness.children[1].command, executable);
+    const rejected = createHarness({ ...options, spawnThrows: true });
+    assert.equal(rejected.errors.length, 1);
+    assert.match(rejected.status.text, /OFF/);
+    assert.equal(rejected.timers.size, 0);
 });

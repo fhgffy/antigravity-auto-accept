@@ -63,7 +63,7 @@ function Start-TestProcess([string]$Executable, [string]$Command) {
 
 # 2026-10-22：原十五秒截止判定后才采集持有子进程；取证失败不能覆盖自测超时或跳过原回收。
 function Save-ScannerTimeoutEvidence {
-    param([Diagnostics.Process]$Target, [string]$ExpectedImage, [string]$SourcePath, [string]$UtilityPath = '', [string]$CollectorEngine = '', [switch]$ExecutableCollector)
+    param([Diagnostics.Process]$Target, [string]$ExpectedImage, [string]$SourcePath, [string]$UtilityPath = '', [string]$CollectorEngine = '', [switch]$ExecutableCollector, [switch]$CollectorJit) # 2026-10-24：默认关闭，只有人工stall夹具显式固定收集器模式。
     $record = [ordered]@{ Directory = ''; Error = '' }
     try {
         $record.Directory = Join-Path ([IO.Path]::GetTempPath()) ('AntigravityAA-ScannerTimeout-' + [Guid]::NewGuid().ToString('N'))
@@ -112,7 +112,7 @@ function Save-ScannerTimeoutEvidence {
             catch { $record.Error += ';stack-record:' + $_.Exception.GetType().FullName }
         }
         $stackTool = if ($ExecutableCollector) { $CollectorEngine } else { '' } # 2026-10-22：复用预编译工具，只在原取证超时后读收集器自身最小栈。
-        Save-HostTimeoutDump $Target $ExpectedImage (Join-Path $record.Directory 'selftest.dmp') -CollectorEngine $CollectorEngine -ExecutableCollector:$ExecutableCollector -CollectorStackTool $stackTool
+        Save-HostTimeoutDump $Target $ExpectedImage (Join-Path $record.Directory 'selftest.dmp') -CollectorEngine $CollectorEngine -ExecutableCollector:$ExecutableCollector -CollectorStackTool $stackTool -CollectorJit:$CollectorJit # 2026-10-24：复用自有收集器局部环境，不改变外层或真实scanner。
     }
     catch { $record.Error = $_.Exception.GetBaseException().GetType().FullName + ':' + $_.Exception.GetBaseException().Message }
     return [pscustomobject]$record
