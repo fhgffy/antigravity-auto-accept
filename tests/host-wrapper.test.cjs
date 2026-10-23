@@ -57,7 +57,8 @@ function stopOwnedFixture(pidFile, expectedImage = fixture, expectedStartTicks =
     if (expectedImage !== fixture) assert.match(String(expectedStartTicks), /^[1-9][0-9]{0,18}$/, 'Shared process creation identity required'); // 2026-10-22：缺少创建身份不得进入共享进程回收。
     const pid = Number(fs.readFileSync(pidFile, 'utf8'));
     assert.ok(Number.isSafeInteger(pid) && pid > 0, 'valid owned fixture PID');
-    const command = "$ErrorActionPreference='Stop'; $ownedProcess=Get-Process -Id ([int]$env:AAA_HOST_WRAPPER_CLEANUP_PID) -ErrorAction SilentlyContinue; "
+    // 2026-10-23：清理只依赖核心运行时，禁止为身份核对自动加载命令模块。
+    const command = "$ErrorActionPreference='Stop'; $PSModuleAutoLoadingPreference='None'; try{$ownedProcess=[Diagnostics.Process]::GetProcessById([int]$env:AAA_HOST_WRAPPER_CLEANUP_PID)}catch [ArgumentException]{exit 0}; "
         + "if($null -eq $ownedProcess){exit 0}; try { [void]$ownedProcess.Handle; if(-not $ownedProcess.HasExited) { "
         + "if(-not [String]::Equals($ownedProcess.MainModule.FileName,$env:AAA_HOST_WRAPPER_CLEANUP_EXE,[StringComparison]::OrdinalIgnoreCase)){throw 'Owned fixture path mismatch'}; "
         + "if($env:AAA_HOST_WRAPPER_CLEANUP_START_TICKS -and $ownedProcess.StartTime.ToUniversalTime().Ticks -ne [long]$env:AAA_HOST_WRAPPER_CLEANUP_START_TICKS){throw 'Owned fixture creation time mismatch'}; "
@@ -68,6 +69,18 @@ function stopOwnedFixture(pidFile, expectedImage = fixture, expectedStartTicks =
         encoding: 'utf8', windowsHide: true, timeout: 10000,
         env: { ...process.env, AAA_HOST_WRAPPER_CLEANUP_PID: String(pid), AAA_HOST_WRAPPER_CLEANUP_EXE: expectedImage, AAA_HOST_WRAPPER_CLEANUP_START_TICKS: expectedStartTicks === null ? '' : String(expectedStartTicks) }
     });
+    // 2026-10-23：外层启动或超时失败先保留原返回两流；取证写失败不能覆盖原异常。
+    if (cleanup.error) {
+        keepArtifacts = true;
+        try {
+            fs.writeFileSync(path.join(owned, `cleanup-failure-${pid}-${Date.now()}.json`), JSON.stringify({
+                TargetPid: pid, ExpectedImage: expectedImage, ExpectedStartTicks: expectedStartTicks,
+                CleanupPid: cleanup.pid, TimeoutMs: 10000, Status: cleanup.status, Signal: cleanup.signal,
+                Error: { code: cleanup.error.code, message: cleanup.error.message },
+                OutputEncoding: 'utf8', Stdout: cleanup.stdout, Stderr: cleanup.stderr
+            }));
+        } catch (error) { console.error('Owned fixture cleanup diagnostic write failed: ' + error.message); }
+    }
     assert.ifError(cleanup.error);
     assert.equal(cleanup.status, 0, cleanup.stderr);
     assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, 'failed test fixture exited');
@@ -645,3 +658,59 @@ for (const engine of engines) {
         assert.match(result.stdout, /OBSERVER_CONFIRMED_EXIT_RACE_HANDLED/);
     });
 }
+
+/* 2026-10-23：同一清理入口接收真实已退出PID；注入非PID消失异常证明其不能被吞掉。 */
+test('cleanup core lookup accepts an exited PID and propagates other lookup errors', () => {
+    const vm = require('node:vm');
+    const ended = spawnSync(process.execPath, ['-e', ''], { windowsHide: true, timeout: 5000 });
+    assert.ifError(ended.error); assert.equal(ended.status, 0);
+    const pidFile = path.join(owned, 'cleanup-exited-control.pid'); pidFiles.push(pidFile);
+    fs.writeFileSync(pidFile, String(ended.pid));
+    stopOwnedFixture(pidFile, process.execPath, '1');
+    const lookup = '$ownedProcess=[Diagnostics.Process]::GetProcessById([int]$env:AAA_HOST_WRAPPER_CLEANUP_PID)';
+    const scope = { Buffer, assert, fs, path, owned, fixture, process, keepArtifacts: false, console,
+        spawnSync: (engine, args, options) => {
+            const command = Buffer.from(args.at(-1), 'base64').toString('utf16le');
+            assert.equal(command.split(lookup).length, 2);
+            const injected = command.replace(lookup, "throw [InvalidOperationException]::new('OWNED_LOOKUP_SENTINEL')");
+            return spawnSync(engine, [...args.slice(0, -1), Buffer.from(injected, 'utf16le').toString('base64')], options);
+        }
+    };
+    const rejectLookup = vm.runInNewContext('(' + stopOwnedFixture.toString() + ')', scope);
+    assert.throws(() => rejectLookup(pidFile, process.execPath, '1'), /OWNED_LOOKUP_SENTINEL/);
+});
+
+/* 2026-10-23：模拟启动失败和诊断写失败，核对原错误优先及解码两流保留，不启动或停止任何目标。 */
+test('cleanup launch failure preserves output and remains primary if diagnostics cannot be written', () => {
+    const vm = require('node:vm');
+    for (const writeFails of [false, true]) {
+        const failure = Object.assign(new Error('OWNED_CLEANUP_TIMEOUT_SENTINEL'), { code: 'ETIMEDOUT' });
+        let saved = null; const reports = [];
+        const scope = { Buffer, assert, path, owned, fixture, keepArtifacts: false,
+            process: { env: {}, kill() { assert.fail('failed launch must not inspect or stop a target'); } },
+            console: { error(message) { reports.push(message); } },
+            fs: { existsSync: () => true, readFileSync: () => '12345', writeFileSync: (destination, text) => {
+                assert.equal(path.dirname(destination), owned);
+                if (writeFails) throw new Error('OWNED_WRITE_SENTINEL');
+                saved = JSON.parse(text);
+            } },
+            spawnSync: (engine, args, options) => {
+                assert.equal(options.timeout, 10000);
+                return { pid: 23456, status: null, signal: 'SIGTERM', error: failure,
+                    stdout: writeFails ? null : 'OWNED_CLEANUP_STDOUT', stderr: writeFails ? '' : 'OWNED_CLEANUP_STDERR' };
+            }
+        };
+        const failLaunch = vm.runInNewContext('(' + stopOwnedFixture.toString() + ')', scope);
+        assert.throws(() => failLaunch('owned.pid'), error => error.actual === failure);
+        assert.equal(scope.keepArtifacts, true);
+        if (writeFails) {
+            assert.equal(saved, null); assert.equal(reports.length, 1); assert.match(reports[0], /OWNED_WRITE_SENTINEL/);
+        } else {
+            assert.deepEqual(saved, { TargetPid: 12345, ExpectedImage: fixture, ExpectedStartTicks: null,
+                CleanupPid: 23456, TimeoutMs: 10000, Status: null, Signal: 'SIGTERM',
+                Error: { code: 'ETIMEDOUT', message: 'OWNED_CLEANUP_TIMEOUT_SENTINEL' }, OutputEncoding: 'utf8',
+                Stdout: 'OWNED_CLEANUP_STDOUT', Stderr: 'OWNED_CLEANUP_STDERR' });
+            assert.deepEqual(reports, []);
+        }
+    }
+});
