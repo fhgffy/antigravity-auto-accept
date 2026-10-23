@@ -396,3 +396,17 @@ Issue48 的托管子环境缓解已[记录结果并关闭](https://github.com/fh
 | F | 通过审查与可信版本对照，不合并外部 PR | 原完整 diff、英文审查、十次后台终端及宽/窄浏览器实测见 F；未运行不可信 PR |
 
 本表为当前验收结论，未将仍未验证的根因或明确失败的阈值改为完成。完整 A–F 审计索引还保存在测试根 `evidence/AF-current-audit-before-complete20-20261023.json`（该文件按写入时保留“二十组仍运行”的历史状态）；最新二十组终态以本节原件为准。
+
+### 2026-10-23：跳过空菜单维护与已节流诊断的无用读取
+
+【已读源码、已跑验证】[Issue51](https://github.com/fhgffy/antigravity-auto-accept/issues/51) 与 [PR52](https://github.com/fhgffy/antigravity-auto-accept/pull/52) 已完成红绿回归、独立审查并合并为 main `e5925c257d47129f5c1a8d8f9c339c70e2ecc91e`，与修复头 `a002b7c901950e9db6626845f47436612de3fc50` 整树相同。空待续办菜单不再额外读取窗口句柄；三类纯终端诊断在分类节流通过后才读取 UIA 属性。真实目标、可见性、输入保护、一次允许及到期交接继续走原实时检查。
+
+两引擎执行真实源 AST 的 21 项回归：旧源失败、候选通过；覆盖空/非空菜单、读取失败保留、到期诊断、异常不消耗分类时钟及调用者局部变量。本地完整 npm test、打包、VSIX 运行字节和编码检查通过。首次完整验证因深 TEMP 下未修改的诊断暂存测试失败，原件保留；仅换独占短 F 盘 TEMP 后，先同例再完整验证通过，没有放宽期限或断言。证据为 `work/hotpath-regression-20261023/results.json` 与 `work/hotpath-implementation-20261023/local-validation-v2`。
+
+原 push/PR 验证和 lint 四次 attempt 1 均成功，8 份原日志及 2 个原 artifact ZIP 已按元数据、SHA/CRC 和内件核对；4 个引擎作业均实际输出 21 项通过。PR 合成 merge 的父提交与树已核对；两个 VSIX 的 ZIP 元数据摘要不同，但 8 个内件字节完全相同。严格回执为 `evidence/ci-issue51-unused-uia-reads-a002b7c/strict-original/strict-original-readback.json`，SHA256 `3e5934b574f890a58e4b79ccb1bcf1b3efe992d3907fcf164dbdaf899f7f7d32`。这四次普通 CI 不另计为二十组完整资格。
+
+安装候选扫描器 SHA256 `8955c69b3b65f4df0c20e5da09a29e440927904cdaa5f81937c3e770b76e2bad`，私有 VSIX SHA256 `06fbaa4d8b99939a34bb9fba818821ce3f680c114d5158a0aae0531d33a80c72`。Computer Use 在自有隔离 IDE 中发起两次只读 Write-Output 请求：20:08:39、20:10:50 两张不同卡片分别只有一次自动提交，工具展开树显示对应实际输出。13 个登记进程退出后，独立查询确认不存在自有 IDE 或登记 PowerShell；保留两个非零子进程退出码和主进程关闭时 Flush timeout，不称全程无错误。回执 `work/hotpath-native-20261023/independent-native-result-review.json`，SHA256 `a75d892b368eca408fe2973b9a41f3e715f769354fac18f9dff28dc6e7df9572`。
+
+【已跑短时对照，不能外推小时验收】v5 托管与 COM 各五分钟分别增加约 7.988、3.930 MiB；v6 保留初始化但停止重复 UIA 查询仍增加约 1.988 MiB。外部计数器按 PID 与创建身份绑定；这些样本布局/查询路径不同，不能严格相减，也不能据此宣称 Windows 硬限制。详细数据位于 `work/memory-layer-counter-controls-20261023/uia-external-v5-findings.md`。原首小时 11.781MiB/h、等待者降低 24.5% 两项失败继续保留；本次未重新跑小时资源验收。
+
+本次运行修复准备合并发行 **5.3.14**；仅使用该版本 main CI 的原包。当前公开三渠道已核验的仍为 5.3.13；本地私有候选的旧版本号不用于覆盖发行，后续主分支、Release 与商店核验另记实收结果。
