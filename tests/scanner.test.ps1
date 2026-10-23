@@ -1605,4 +1605,9 @@ $replayTestPath = Join-Path $PSScriptRoot 'scanner-replay.test.ps1'
 $replayTestAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($replayTestPath,[Text.Encoding]::UTF8),$replayTestPath,[ref]$tokens,[ref]$parseErrors)
 if ($parseErrors.Count) { throw 'Replay regression parse failed' }
 & $replayTestAst.GetScriptBlock() -ScannerSourcePath $scannerPath
+# 2026-10-23：两引擎复用真实源码块验证空续办表及已节流诊断不再读取无用属性。
+$unusedReadsTestPath = Join-Path $PSScriptRoot 'scanner-unused-reads.test.ps1'
+$unusedReadsTestAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($unusedReadsTestPath,[Text.Encoding]::UTF8),$unusedReadsTestPath,[ref]$tokens,[ref]$parseErrors)
+if ($parseErrors.Count) { throw 'Unused reads regression parse failed' }
+& $unusedReadsTestAst.GetScriptBlock() -ScannerSourcePath $scannerPath
 Write-Output "___SCANNER_TEST_DONE___:passed=$checks"
