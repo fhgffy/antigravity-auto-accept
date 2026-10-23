@@ -558,7 +558,8 @@ test('cleanup rejects a mismatched creation identity before stopping a live targ
     const pidFile = path.join(owned, 'cleanup-identity-control.pid');
     fs.copyFileSync(fixture, image); selfTestFiles.push(image); pidFiles.push(pidFile);
     const child = spawn(image, [], { windowsHide: true, stdio: ['ignore','pipe','pipe'], env: { ...process.env, AAA_HOST_WRAPPER_CASE: 'timeout', AAA_HOST_WRAPPER_PIDFILE: pidFile } });
-    const closed = new Promise(resolve => child.once('close', resolve));
+    let closeConfirmed = false; // 2026-10-23：只有原持有对象的close事件才能确认本例退出。
+    const closed = new Promise(resolve => child.once('close', () => { closeConfirmed = true; resolve(); }));
     child.stderr.on('data', () => {});
     let failure;
     try {
@@ -573,10 +574,49 @@ test('cleanup rejects a mismatched creation identity before stopping a live targ
     } catch (error) { keepArtifacts = true; failure = error; }
     finally {
         // 2026-10-22：无论回归断言如何，最后只由原ChildProcess持有者停止自己的控制目标。
-        if (child.exitCode === null) child.kill();
-        await closed;
+        /* 2026-10-23：回收只使用原ChildProcess；退出竞争允许kill返回false，close确认仍有独立五秒截止。 */
+        let cleanupError, cleanupTimer;
+        // 2026-10-23：kill也可能异步报错，清理期保存同一child的首错，不能让已结算ready吞掉它。
+        const onCleanupError = error => { if (!cleanupError) cleanupError = error; };
+        child.on('error', onCleanupError);
+        try { if (child.exitCode === null) child.kill(); } catch (error) { cleanupError = error; }
+        try {
+            await Promise.race([closed, new Promise((resolve, reject) => {
+                cleanupTimer = setTimeout(() => reject(new Error('Owned identity control close timeout')), 5000);
+            })]);
+        } catch (error) { if (!cleanupError) cleanupError = error; }
+        finally {
+            clearTimeout(cleanupTimer);
+            if (!closeConfirmed) child.on('error', () => {}); // 2026-10-23：未close时保留错误接收者，防止迟到error覆盖原结果。
+            child.removeListener('error', onCleanupError);
+        }
+        if (cleanupError) {
+            keepArtifacts = true;
+            const releaseErrors = [];
+            /* 2026-10-23：未确认退出时释放本例管道和引用以结束Node等待，不把释放引用记作已回收目标。 */
+            for (const stream of [child.stdout, child.stderr]) {
+                try { stream.on('error', () => {}); stream.destroy(); } catch (error) { releaseErrors.push(error.message); }
+            }
+            try { child.unref(); } catch (error) { releaseErrors.push(error.message); }
+            try {
+                fs.writeFileSync(path.join(owned, 'cleanup-identity-control.cleanup.json'), JSON.stringify({
+                    Pid: child.pid, Image: image, ExitConfirmed: closeConfirmed, Error: cleanupError.message, ReleaseErrors: releaseErrors
+                }));
+            } catch (error) {
+                try { console.error('Owned identity cleanup report failed: ' + error.message); } catch {}
+            }
+            try { console.error('Owned identity cleanup failed: ' + cleanupError.message); } catch {}
+            if (!failure) failure = cleanupError;
+        }
     }
     if (failure) throw failure;
+});
+
+/* 2026-10-23：从本文件捕获同一回调验证回收失败边界，内存替身不增加真实编译或系统目标。 */
+test('owned identity cleanup callback has bounded failure and safe references', async () => {
+    const verifyCleanupControl = require('./fixtures/host-wrapper-cleanup-control.cjs');
+    const result = await verifyCleanupControl(__filename);
+    assert.equal(result.Cases.length, 15);
 });
 
 // 2026-10-22：CIM快照之后正常退出的自有候选不是观察器故障；真实旧调用必须先复现ArgumentException。
