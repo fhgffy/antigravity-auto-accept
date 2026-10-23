@@ -144,6 +144,10 @@ jobs:
       - name: Owned timeout diagnostics staging regression
         run: npm run test:timeout-diagnostics
 
+      # 2026-10-23：托管自测子环境用纯Node回调控制，放在全部原进程回归之后，避免预热首个WinPS。
+      - name: Hosted lifecycle child environment boundaries
+        run: npm run test:lifecycle-env
+
       # 2026-10-22：原步骤失败也保存ETW，所有原命令/断言/截止不变；跳过额外NGen符号生成的停录成本。
       - name: Save native startup trace
         if: ${{ always() && inputs.native_startup_trace }}
