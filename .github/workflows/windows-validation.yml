@@ -140,6 +140,10 @@ jobs:
           if ($parseErrors.Count -gt 0) { throw 'Concurrency test parse errors' }
           & ($testAst.GetScriptBlock()) -PowerShellEngines @('${{ matrix.executable }}')
 
+      # 2026-10-23：真实暂存控制在原生命周期及全部进程测试之后执行，不改变原首次冷启动的环境。
+      - name: Owned timeout diagnostics staging regression
+        run: npm run test:timeout-diagnostics
+
       # 2026-10-22：原步骤失败也保存ETW，所有原命令/断言/截止不变；跳过额外NGen符号生成的停录成本。
       - name: Save native startup trace
         if: ${{ always() && inputs.native_startup_trace }}
@@ -172,6 +176,17 @@ jobs:
           $code = $LASTEXITCODE
           [IO.File]::WriteAllText((Join-Path $root 'cancel-code.txt'), [string]$code, [Text.UTF8Encoding]::new($false))
           if ($code -ne 0 -and [IO.File]::Exists((Join-Path $root 'started.txt'))) { throw "Owned native trace cleanup unconfirmed: $code" }
+      # 2026-10-23：先把跨临时根的自有失败目录复制到单个独占上传根，复制失败仍保留原件与可用旁证。
+      - name: Stage owned host child timeout diagnostics
+        if: failure()
+        id: timeout_diagnostics
+        run: |
+          $path = [IO.Path]::GetFullPath((Join-Path $PWD 'tests/stage-owned-timeout-diagnostics.ps1'))
+          $tokens = $null
+          $parseErrors = $null
+          $stageAst = [Management.Automation.Language.Parser]::ParseInput([IO.File]::ReadAllText($path, [Text.Encoding]::UTF8), $path, [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { throw 'Timeout staging parse errors' }
+          & ($stageAst.GetScriptBlock())
       # 2026-10-22：只上传本测试独占前缀的失败子进程二进制与转储，不收集用户进程或整个临时目录。
       - name: Preserve owned host child timeout diagnostics
         if: failure()
@@ -179,13 +194,7 @@ jobs:
         with:
           name: host-child-timeout-${{ github.run_id }}-${{ matrix.major }}${{ inputs.artifact_suffix }} # 2026-10-22：同次矩阵按样本隔离失败旁证。
           # 2026-10-23：同步自测失败回执覆盖托管临时根与默认临时根，不扩大到其他进程。
-          path: |
-            ~\AppData\Local\Temp\AntigravityAA-HostBinary-*\*
-            ~\AppData\Local\Temp\AntigravityAA-HostWrapper-*\*
-            ~\AppData\Local\Temp\AntigravityAA-ScannerTimeout-*\*
-            ~\AppData\Local\Temp\AntigravityAA-DumpCollector-*\*
-            ${{ runner.temp }}/AntigravityAA-LifecycleTimeout-*/*
-            ~\AppData\Local\Temp\AntigravityAA-LifecycleTimeout-*\*
+          path: ${{ steps.timeout_diagnostics.outputs.path }}
           if-no-files-found: warn
           retention-days: 14
       # 2026-10-22：先保留原失败产物，再以一分钟预算上传可选ETL，避免大诊断挡住原证据。
