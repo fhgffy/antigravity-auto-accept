@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.13
+# 🚀 Antigravity Auto Accept v5.3.14
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -152,6 +152,13 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ## 📋 Changelog | 更新日志
 
 这里仅列用户可感知的运行变化；构建、自测和完整历史见[维护记录](docs/verification-2026-10-21-maintenance-archive.md)。
+
+### v5.3.14 — 减少扫描开销与等待窗口内存
+
+- 没有待处理浏览器菜单时，省去额外窗口属性读取；减少已节流终端诊断的重复查询。
+- Windows x64 优先使用可用的系统 32 位 Windows PowerShell，降低等待接管窗口的内存占用；其它环境保留原启动回退。
+- 保留一次允许、审批前实时复核和输入保护。
+- Skip redundant UIA reads and prefer the available system 32-bit PowerShell host on Windows x64, while preserving approval and input checks.
 
 ### v5.3.13 — 多窗口扫描资源优化
 

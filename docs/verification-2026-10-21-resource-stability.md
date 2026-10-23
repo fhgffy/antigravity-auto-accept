@@ -1,8 +1,8 @@
-# 资源稳定性与发布验收记录（5.3.13 已交付，完整二十组已通过）
+# 资源稳定性与发布验收记录（5.3.14 待发布，最终候选二十组已通过）
 
-日期：2026-10-21 至 2026-10-23。证据等级分别为：已读源码、已跑验证；尚未确认的原因明确标作推测。
+日期：2026-10-21 至 2026-10-24。证据等级分别为：已读源码、已跑验证；尚未确认的原因明确标作推测。
 
-2026-10-23 当前结论：5.3.13 已合并并完成 GitHub、Marketplace 和 Open VSX 三处公开原包核验。A/B 已验证的运行改善已交付；等待者内存和首小时增长阈值仍失败，正式包保留 15 分钟回收。托管自测缓解合并后，连续二十组完整两引擎及包验证已通过，另一个正常调用对照组也通过。历史二十秒超时的内部根因仍未证实，不能把稳定性通过当作因果定因；目标保持 active。下文历史记录保留各次当时状态，不覆盖原失败。
+2026-10-24 当前结论：【已跑验证】5.3.13 为最近完成 GitHub、Marketplace 和 Open VSX 三处公开原包核验的版本。新的系统 x86 宿主候选通过三扫描器长测的历史资源参考门、本机完整验证及同窗排队/其它应用前台补测的已覆盖子项；具体场景限制见末节。冻结 head `49f6caa` 的普通 push/PR 四次 CI 已通过，当前二十组 `40028519065` 已完整通过并核对原件；PR56 已合并，5.3.14 尚未发布。历史失败和根因未明的边界继续保留，不能用旧 head 的通过记录替代本轮；目标保持 active。
 
 ## 固定身份与证据位置
 
@@ -396,3 +396,64 @@ Issue48 的托管子环境缓解已[记录结果并关闭](https://github.com/fh
 | F | 通过审查与可信版本对照，不合并外部 PR | 原完整 diff、英文审查、十次后台终端及宽/窄浏览器实测见 F；未运行不可信 PR |
 
 本表为当前验收结论，未将仍未验证的根因或明确失败的阈值改为完成。完整 A–F 审计索引还保存在测试根 `evidence/AF-current-audit-before-complete20-20261023.json`（该文件按写入时保留“二十组仍运行”的历史状态）；最新二十组终态以本节原件为准。
+
+### 2026-10-23：跳过空菜单维护与已节流诊断的无用读取
+
+【已读源码、已跑验证】[Issue51](https://github.com/fhgffy/antigravity-auto-accept/issues/51) 与 [PR52](https://github.com/fhgffy/antigravity-auto-accept/pull/52) 已完成红绿回归、独立审查并合并为 main `e5925c257d47129f5c1a8d8f9c339c70e2ecc91e`，与修复头 `a002b7c901950e9db6626845f47436612de3fc50` 整树相同。空待续办菜单不再额外读取窗口句柄；三类纯终端诊断在分类节流通过后才读取 UIA 属性。真实目标、可见性、输入保护、一次允许及到期交接继续走原实时检查。
+
+两引擎执行真实源 AST 的 21 项回归：旧源失败、候选通过；覆盖空/非空菜单、读取失败保留、到期诊断、异常不消耗分类时钟及调用者局部变量。本地完整 npm test、打包、VSIX 运行字节和编码检查通过。首次完整验证因深 TEMP 下未修改的诊断暂存测试失败，原件保留；仅换独占短 F 盘 TEMP 后，先同例再完整验证通过，没有放宽期限或断言。证据为 `work/hotpath-regression-20261023/results.json` 与 `work/hotpath-implementation-20261023/local-validation-v2`。
+
+原 push/PR 验证和 lint 四次 attempt 1 均成功，8 份原日志及 2 个原 artifact ZIP 已按元数据、SHA/CRC 和内件核对；4 个引擎作业均实际输出 21 项通过。PR 合成 merge 的父提交与树已核对；两个 VSIX 的 ZIP 元数据摘要不同，但 8 个内件字节完全相同。严格回执为 `evidence/ci-issue51-unused-uia-reads-a002b7c/strict-original/strict-original-readback.json`，SHA256 `3e5934b574f890a58e4b79ccb1bcf1b3efe992d3907fcf164dbdaf899f7f7d32`。这四次普通 CI 不另计为二十组完整资格。
+
+安装候选扫描器 SHA256 `8955c69b3b65f4df0c20e5da09a29e440927904cdaa5f81937c3e770b76e2bad`，私有 VSIX SHA256 `06fbaa4d8b99939a34bb9fba818821ce3f680c114d5158a0aae0531d33a80c72`。Computer Use 在自有隔离 IDE 中发起两次只读 Write-Output 请求：20:08:39、20:10:50 两张不同卡片分别只有一次自动提交，工具展开树显示对应实际输出。13 个登记进程退出后，独立查询确认不存在自有 IDE 或登记 PowerShell；保留两个非零子进程退出码和主进程关闭时 Flush timeout，不称全程无错误。回执 `work/hotpath-native-20261023/independent-native-result-review.json`，SHA256 `a75d892b368eca408fe2973b9a41f3e715f769354fac18f9dff28dc6e7df9572`。
+
+【已跑短时对照，不能外推小时验收】v5 托管与 COM 各五分钟分别增加约 7.988、3.930 MiB；v6 保留初始化但停止重复 UIA 查询仍增加约 1.988 MiB。外部计数器按 PID 与创建身份绑定；这些样本布局/查询路径不同，不能严格相减，也不能据此宣称 Windows 硬限制。详细数据位于 `work/memory-layer-counter-controls-20261023/uia-external-v5-findings.md`。原首小时 11.781MiB/h、等待者降低 24.5% 两项失败继续保留；本次未重新跑小时资源验收。
+
+本次运行修复准备合并发行 **5.3.14**；仅使用该版本 main CI 的原包。当前公开三渠道已核验的仍为 5.3.13；本地私有候选的旧版本号不用于覆盖发行，后续主分支、Release 与商店核验另记实收结果。
+
+### 2026-10-24：系统 x86 宿主的原生增量验收（5.3.14 待发布）
+
+【已读源码、已跑原生验证及原件复核】本轮运行绑定正式 scanner SHA256 `8955c69b3b65f4df0c20e5da09a29e440927904cdaa5f81937c3e770b76e2bad` 与正式 host SHA256 `a57c6db2e87f44731f40a4bd484d81c12644d7f2459f2d36721bc075487f8930`。host 在 Windows x64 上优先选择实际系统目录内的 x86 Windows PowerShell，缺失或不适用时保留原路径。以下为该候选的增量证据，不把上一节旧 head 的二十组通过或旧 M1–M5 结论直接移用于本轮；5.3.14 仍待最终验证与三渠道发布。
+
+新的 `generic-held-hour` 以三个已登记并持有的同代扫描器对象取样，初末核对身份，每 5 秒按绝对时刻调度；782 行完整样本、每条 722 个暖段样本，跳过槽数为 0。采样器与外监督器均实际 exit 0，存在完成回执，未发生超时或清理错误。每条均按最后一次读取开始减第一次暖段读取结束计算保守跨度，300 秒预热后的实际跨度如下；CPU 为单核百分比，OLS 由原始样本独立重算。
+
+| 扫描器角色 | 保守暖段跨度（秒） | CPU（单核 %） | 平均私有内存（MiB） | 私有内存 OLS（MiB/h） | 句柄首→末 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A 等待者 | 3604.986291 | 0.130 | 42.937 | -1.685 | 552→455 |
+| B 等待者 | 3604.986574 | 0.141 | 42.920 | -1.521 | 554→455 |
+| C owner | 3604.985799 | 3.342 | 54.313 | -0.020 | 634→561 |
+
+三条均通过原 `≤10 MiB/h` 门；两个等待者低于历史 `85.0520833 MiB × 60% = 51.03124998 MiB` 参考上限，owner 低于历史 `8.080527% ÷ 2 = 4.0402635%` 参考上限。历史 CPU 是旧静态场景约 142.51 秒的统计，历史等待者是进入 WAITING 后约 28.40 秒的 12 点统计；本轮为预热后约 3605 秒且含早、中、晚审批，窗口、UIA 树规模及采样时钟粒度也不同。因此这是低于历史参考阈值的实测，不能宣称同负载严格 A/B 的降幅。仅测三条扫描器，未测 helpers 或整个 IDE 总成本。长测私有包保持正式 host 原字节，仅对 scanner 替换私有互斥名并关闭 15 分钟回收；逆向恢复后逐字等于正式 scanner，原 8 成员及 6 个安装文件核对通过。该长测不证明生产回收路径。
+
+本次同一 B 窗口的 EARLY/MID/LATE 三张唯一终端卡各成功一次，成功日志从 04:07:05 至 05:11:12，相隔 3847 秒（秒级日志的保守下界 3846 秒）。展开后的原工具输出节点 3716、4358、4972 各包含精确 marker 和 CRLF；模型总结节点明确排除。这是原终端工具的 UIA 输出留证，不冒充直接子进程 stdout 管道，也不扩充为新的 30 卡延迟统计或其它应用前台证明。
+
+旧 `hour-8955-20261024/x86` 的 129 行记录继续保留为失败：暖段仅 3582.8349985 秒（59.7139 分钟），控制器因原截止期限 exit 1，缺少采样完成回执；预置的 `measurement-completed` 字段不构成成功。新方法独立采用内部 3960 秒、外监督 4000 秒的明确预算，没有改写旧期限、CI 超时或拼接旧、新 PID 曲线。
+
+【已跑原生子项，整组仍有边界】正式 host 的 `final-host-m1-m5` 审计记录 7 次实际终端工具输出、2 次浏览器 Allow Once 及本机 HTTP 200，共 9 次唯一成功，未见同 PID/HWND/卡片/目标摘要的重复成功；59 个已登记自有对象均确认退出。M1 单窗口、M3 多窗口不同目标、M4 跨窗口接管及 M5 原卡保留后恢复各有证据。M5 同时保留 7 条提交 Invoke 异常，不能称全过程无错或已证明最小化目标正常完成。这次较早会话未捕获文件审批卡，也未独立捕获浏览器与终端同时待批；其旧哨兵在审批后才取得前台，不用于后台结论。
+
+后续独立 `final-native-extra` 的 M2 审计通过 138 项只读断言：同一 IDE 窗口的两个会话均已排队待批，历史回访各仍待批，切换到相应会话后终端和浏览器各成功一次，分别有精确 marker 原工具输出和本机 HTTP 200。这不表示隐藏会话同时渲染或无需切换即可批准；另一次文件任务的实际发送仍为浏览器内容，已排除，不计文件审批通过。后台终端在自有哨兵保持前台的采样区间内成功一次，端点输入为空；不能反推任意输入场景均无影响。
+
+浏览器后台独立审计通过 160 项断言：窄栏会话宽 524px、卡宽 449px，在哨兵前台区间 114.0789886 秒内从 05:33:11 起延后处理，恢复 IDE 根窗口后于 05:36:30 批准一次；中间 IDE renderer 子窗口不算其它应用。宽栏会话宽 2166px，在哨兵保持前台的 317.3575905 秒区间内于 05:40:28 批准一次。两者均有对应 HTTP 200 和展开后新增的精确原工具文本（节点 16472/19863，offscreen=true），排除模型复述，不声称截图可见。前台/鼠标记录是 20ms 配置周期的变化日志，不能排除任意短暂事件。此会话还记录了 05:40:01–05:40:06 的生产 15 分钟回收、退出、重启至 READY；与关闭回收的长测分开计证。收尾 41 个登记的 IDE/PowerShell 对象均确认退出，部分退出码非零；哨兵和 Chrome 根进程 exit 0，本机 HTTP server 为持有对象强制停止的 -1，不写成全部 exit 0。
+
+【已跑云 CI 原件回读】冻结 head `b7ac4332d9528557bfb34a5f0095efb33d5a384b` 的原 push/PR 验证与 lint 四次运行均在 attempt 1 通过，8 份执行日志、2 个原包及正式运行字节已核对。但其后完整二十组运行 `40018317725` 的原结论为失败：19 个完整组通过，第 11 组 PowerShell 7 的 host-wrapper 子测 13 未取得有效 MDMP，原 collector 5 秒期限届满且目标/collector dump 为零字节；普通对照组仍通过。原 62 份执行日志、20 个原包和失败取证 ZIP 已保留，没有重跑掩盖。该轮未达到二十组全过；更早 `e8ea682` 的矩阵 `40013595132` 也保留原失败（17 个完整组，失败组 1/5/10）。空 dump 本身不能确定生产挂起或 NGEN 因果。
+
+Issue58 候选仅在测试中注入 timeout 的人工夹具使用 collector JIT，普通路径与生产运行字节保持。固定 12 个源码输入的完整本机原 `npm test`、workflow 原文的两个 x86 尾部步骤、打包及原 VSIX 校验均 exit 0；回执 Completed=true，测试/打包前后 host SHA 相同，包的 8 成员和 CRC 已核对。本机包版本仍为 5.3.13 的验证包，不等于发布 5.3.14。新冻结 head `49f6caa33253437bcf16297711c2621170275530` 的原 PR validation/lint `40027392277`/`40027392238` 与 push validation/lint `40027388263`/`40027388085` 均 attempt 1 成功；8 份原执行日志、2 个原 VSIX 的 8 成员与既有正式运行包逐字相同。新二十组 `40028519065` 的 attempt 1 已成功完成：20 个完整组与普通对照合计 63 个执行作业成功，另有 4 个预期可选跳过。63 份原日志、完整 attempt ZIP 及 21 个原包的 ZIP/CRC/8 成员字节均已核对；只派发一次，未重跑或取消。稳定性通过不证明历史云失败根因。PR56 已于 2026-10-23T22:00:33Z 合并为 main `2113fb68a8bb02bfc1fe2b6ca3bff18dca6261dc`；该 main 的独立 CI `40030758563` 当时仍在运行。
+
+以下路径相对主证据根，SHA256 均重新核对：
+
+- 长测原审计 `work/held-hour-audit-20261024/audit-final-01.json`：`3fe5a261a33d746e08616d556f56273600c860daa182bac888135e66a959b143`；独立重算 `work/held-hour-final-review-20261024/final-review.json`：`c63a8f72a28ac8dab66b44694a4dbd2e5a19dc5c74d2290e95bda6a997fdcc09`。
+- 三卡原输出审计 `work/native-x86-followup-20261024/sessions/generic-held-hour/evidence/early-mid-late-audit.json`：`295f86840ded16b7fef50be58151e9d4f8b8341101fbce9c283870fb6c4123f3`。
+- 旧失败长测 `work/hour-x86-analysis-20261024/final-resources-controller-failed-20261024.json`：`04b1a9b9c9c2ab47605e312f43f792a485ffdb8325989fe73a8692df8f3a149c`；原生子项审计 `work/review-hour-20261024/native-M1-M5-independent-audit.json`：`72c05185c563ec5e01428617d63f18d35bea73c680d29ce8fd7ddbe61921e761`。
+- b7 普通 CI `evidence/ci-x86-b7ac433-20261024/strict-original-readback.json`：`402f16de24c218d6661495e02190868b1a2535e0aba36279c49c2cf264e3440b`；二十组原失败回读 `evidence/ci-x86-b7ac433-20261024/matrix-final-original/strict-failed-original-readback.json`：`e0baa713656edafb7961b7740c43ba9a5f43f57f829d18cac3909145ad1432af`。
+- 本轮 M2/后台终端 `work/native-x86-followup-20261024/sessions/final-native-extra/evidence/m2-independent-audit.json`：`df68db5af25ae7db314c255fd357fcd4575aee7b8dff24bc067fb004ce7474cd`；窄/宽栏后台及收尾 `bg-browser-independent-audit.json`（同目录）：`5ffdc02157e91d39341573e5a6f2f679bd09f25c3da96236df52d9b39342060b`。
+- 本机完整链 `work/x86-issue58-validation-20261024/local-validation/receipt.json`：`fe79ef1c70f76dc7d1b465ecd1efaaddc7c37d19627014230dc9bdffb5433612`；49 普通 CI `evidence/ci-x86-49f6caa-20261024/strict-original-readback.json`：`b84584ff780f2ef95873b576a4551dbbe95d89230b731f67e293f6a42c11e0df`。
+- 最终二十组原件严审 `evidence/ci-x86-49f6caa-20261024/matrix-final-original/strict-final-readback.json`：`66173ee0442f993ec156c3c35ec2071e77380aab318c45700988dfa92d057f5c`。
+- e8 原失败矩阵 `evidence/ci-x86-e8ea682-20261024/matrix-final-original/strict-final-readback.json`：`f9b766725e67cb917881eaa66bcb5d62b61a4f576cc9392cd2848888c680a14d`。
+
+当前资源参考门、本机全链、同窗两会话排队及已覆盖的后台终端/宽栏浏览器有实证；窄栏后台安全等待，恢复根窗后一次完成。文件审批、M5 最小化期间的 Invoke 异常及未覆盖的输入/窗口组合仍保留边界；最终候选二十组完整 CI 已通过，5.3.14 发布提交复验和三渠道发布仍待完成，不将整体目标标为完成。
+
+### 2026-10-24：5.3.14 最终本机验证与合并后检查
+
+【已跑验证】PR56 合并后的 main 2113fb68a8bb02bfc1fe2b6ca3bff18dca6261dc 原 validation 40030758563、lint 40030758662 均通过，5 份原日志、2 个 attempt ZIP 和 1 个原包已核对；严格回执 evidence/ci-main-2113fb6-20261024/strict-main-original-readback.json 的 SHA256 为 f3ca2cca0778238d865a63eb3810d7930d8cb86a3e91da8ea81c600b4138b680。实际发布报告 RELEASE_PROCEED=false，原因是 5.3.13 已属其它提交，两店步骤跳过，没有覆盖旧标签或资产。
+
+5.3.14 最终本机链于 2026-10-23T22:10:48Z 实际 exit 0：原完整 npm test、工作流原文 x86 scanner 183 项及 concurrency 22 项、打包和原 VSIX 8 成员校验全部通过。12 个冻结源码输入保持，编译前、测试后和打包后 host 均为本节正式 a57c6d 摘要。回执 work/release-5.3.14-final-20261024/local-validation/receipt.json 的 SHA256 为 ff66328ecb39bcb4533cfb7b5a55e85ee5710d0e01afb93aab0ec63ac81a3e46，Completed=true；本机验证包 SHA256 为 2d381fdcd17422c09de43c593b2566c946098117875d86941557d164f49d1143，不作为最终上传原包。独立完整 diff 审查未发现阻断项；发布分支相对 main 仅 6 个版本/说明/验收文件，运行源码、测试及工作流未变。此段在本机门结束后补记，不改包输入。发布提交自身的云端 CI、合并后的正式 Release 与两商店公开核验仍待实际完成。
