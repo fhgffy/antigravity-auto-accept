@@ -1,14 +1,14 @@
-# 资源稳定性与发布验收记录（进行中）
+# 资源稳定性与发布验收记录（5.3.13 已交付，CI 根因待验证）
 
 日期：2026-10-21 至 2026-10-23。证据等级分别为：已读源码、已跑验证；尚未确认的原因明确标作推测。
 
-本轮运行版本合并为 5.3.13。当前公开版本仍为 5.3.12；5.3.13 尚未满足完整 CI 连续验证和发布闭环，不能据本报告当作已上线。
+2026-10-23 当前结论：5.3.13 已合并并完成 GitHub、Marketplace 和 Open VSX 三处公开原包核验。A/B 已验证的运行改善已交付；等待者内存和首小时增长阈值仍失败，正式包保留 15 分钟回收。C 的未知超时根因及修复后完整二十连绿仍未验证，验收计数为 0，目标保持 active。下文历史记录保留各次当时状态，不以本次交付覆盖原失败。
 
 ## 固定身份与证据位置
 
 - 正式基线 5.3.12 VSIX SHA-256：a62d7cc64dc4079b86d597f9182cc6465a601e3b3b26c90ff47c41cadaf06a4d。
 - 基线扫描器 SHA-256：b947655c5e16c21b16ba55c6712c710568539519ca7904c79400226902b163bf。
-- 原生长测所用运行扫描器 SHA-256：d21ec58ba044540cff6991ec94950d2770038ff515ca178c35efe230f47695ee；当前候选 ea6f5c2cdea4fad40c76fc505504324066e90330e03689f2f83344847ae41832 只拆分自测依赖，正常 C# 与初始化顺序已逐字核对等价，不宣称对当前全文件重新长测。
+- 原生长测所用运行扫描器 SHA-256：d21ec58ba044540cff6991ec94950d2770038ff515ca178c35efe230f47695ee；正式 5.3.13 扫描器 ea6f5c2cdea4fad40c76fc505504324066e90330e03689f2f83344847ae41832 只拆分自测依赖，正常 C# 与初始化顺序已逐字核对等价，不宣称对当前全文件重新长测。
 - 最终 TypeScript SHA-256：dc77196594441790fe2d719bdc8ed91bd5022eb9a7af0476cb4ce47040d01696；编译 JavaScript SHA-256：3328cb9898599e212a19460acddfa1036c0fc4266f7c09797c618f455a1fa9b1。
 - 原生验收副本只替换独占互斥、关闭 15 分钟回收并在动作完成后记 QPC；扫描器 SHA-256：8fd943e689cbbe324914a48e9733f45e9494c89bb3ca16f85191e4d48b87c0b7。推导和逆向恢复见 native-final-test-package-derivation.json。此测试包不发布。
 - IDE 2.5.5 完整测试副本的 EXE SHA-256：231d90772d0e26d4376e85bc35fb349c2341926cba84d800828791b33e1103ef。
@@ -71,7 +71,9 @@ native-final-M1-M5-summary.json 累计 47 次真实成功，43 次终端、4 次
 
 最终 C、可信 12 的 D 和自有前台哨兵均正常关闭，74 个登记进程按创建身份确认退出，见 final-native-normal-close.json。19 份插件日志完成哈希归档。隔离配置和 IDE 副本的递归清理被自动审批拒绝，只返回 blocked by policy；没有执行删除或改用其他删除方法，目录保留。
 
-## C：完整 CI 连续验证（未完成）
+## C：完整 CI 连续验证（未验证，验收计数 0）
+
+当前普通 CI 和 main 发行验证均已通过，具体原运行见 D；它们不等于根因修复后的二十组完整验收。两种有界诊断均未复现原二十秒故障，x64 收集器的原五秒故障原因亦未知。旁证保留修复不作为冷启动根因修复，不为求绿重跑原失败或创建无关候选。
 
 - e1cc04f 运行代码候选连续十次完整成功，第十一次 39642553316 在自有跨位数子进程十秒 READY 期限失败；尚未进入主程序阶段，原两流及阶段文件状态保留。不能将其归为 UIA 卡住。
 - 随后的 070e6cf 和 2e67eae 各保留一次原 Framework64 csc.exe 编译启动超时。独立专用诊断未复现实际停滞，没有真实挂起转储。
@@ -297,23 +299,34 @@ VM执行真实callback截获spawn，原实现2红/1绿，候选3绿；实际普�
 
 【已跑完整本地验证】本次npm session69389 exit0，21输入全程不变：repository12/publication56/lifecycle38/host-wrapper57，scanner184、host-process每引擎131、mouse每引擎198、concurrency22，SelfTest87。VSCE和原VSIX验证session58593均exit0，28输入不变，8项CRC/manifest/运行字节独立回读通过；本机包SHA256为0ffb0539ca91f3d5f7d6d6e6769f8242d5a443a7f69b030a9dd86b4d49aee017。包的8项内容与前候选相同，仅外层ZIP打包字节不同；本地包不是将来main发布原包。evidence/lifecycle-failure-receipt-final-local-validation.json绑定源码、原日志和包。独立审查本次三文件未见P0–P3；生产PS/TS/JS源未改，旧原生验收复用范围不变。仍须新提交的原普通CI与无仪器完整20组，历史20秒原因未知、所有原失败继续保留。
 
-## D：发布与文档（进行中）
+## D：发布与文档（5.3.13 三渠道交付已验证）
 
 README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发布状态。测试、CI 和证据文件按已有 .vscodeignore 排除。
 
-现有发布作业已准备 VSCE_PAT、OVSX_PAT 仓库 Secrets 的一次性说明；没有创建或读取凭据。未配置时沿用网页上传。用户已授权 Computer Use 浏览器，本轮只新建任务标签并记录实际为已有 Chrome 配置，不能称独立 Chrome 实例；没有操作用户原有标签。
+现有发布作业已准备 VSCE_PAT、OVSX_PAT 仓库 Secrets 的一次性说明；本轮没有创建或读取发布凭据。未配置的两个商店使用网页上传同一 main 原包，随后独立核验精确公开版本和实际下载字节；网页登录、上传接受与公开成功分别记录。
 
-通过合并门槛后，按 main 同次绿色构建的不可变 GitHub 原包上传两个商店，核对发布者 fhgffy、精确版本和三处公开下载 SHA。当前尚未发布 5.3.13，不能将已有登录会话或绿色跳过商店的作业写成上架成功。验证码仅通知一次，必须本人完成。
+【已跑验证，2026-10-23】PR #31 已合并为 main `8fafef26881693da8b7f80f9857cd758cc3ad060`，与最终候选树一致。候选 `41e705f` 的原 push/PR Windows CI 39868748323、39868754408 及两份 lint 39868748265、39868754372 全绿，八份实际执行日志重新核 SHA；证据为 `evidence/ci-native-x86-jit-41e705f/parent-original-eight-log-readback.json`，SHA-256 `5a9caa7a482522e24baad4a400dba7fe259d9580725f71bbfbb8b28884f05e35`。这些普通原运行不计作二十组完整验收。
 
-## E：仓库与经验整理（部分完成）
+合并后的 [main CI 39870150158](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/39870150158) 与 lint 39870150111 成功，五份原执行日志、同次原 ZIP 的 SHA/CRC 和 VSIX 八项内容已核对。原包为 81,087 字节，版本 `5.3.13`、发布者 `fhgffy`；三处实际下载 SHA-256 均为 `fd79b61bfd1b628709beb834f5bf873952553035fefba537745f77dcd51f1ccc`：
 
-已完成原生桌面验收、三渠道发布和经验维护技能，索引精简，旧流水归档，原 105 个主线及 53 个用户追加经验段全部保留。原工作区 lessons.md 未提交改动已备份并核对 SHA：285b8c0d546782441aa8855989b0de3270901a8e2112e8f06c083d26c098631b；本轮再次读取仍相同。
+- [GitHub Release v5.3.13](https://github.com/fhgffy/antigravity-auto-accept/releases/tag/v5.3.13)：标签指向上述 main，原资产摘要、下载字节及校验文件一致。`evidence/main-original-package-and-github-release-readback.json` 的 SHA-256 为 `b264ea97559eb44ea3a32e0fbaece192f9b91334109251ffb5d93e0c0faba4fb`。GitHub API 的 immutable 标志为 false；现有流程通过拒绝跨提交同版本和不覆盖既有资产保护原包。
+- Marketplace 与 Open VSX：2026-10-22 23:29:44/46 UTC 的精确公开查询、发布者/版本、实际下载 SHA 与临时文件清零全部通过；`evidence/public-stores-main-8faf-20261023-first/public-verification.json` 的 SHA-256 为 `b432d53aef3c1879afe94f5bad379c128c725bd270c6f72d273f9326a8d5391a`。核验只执行生产 CI 的两个公开读取函数，没有执行上传主体或读取发布凭据。
 
-17 个已关闭/合并 PR 的远端 codex 分支已按读回结果清理；#28 已回复关闭。PR #5 的有用发布链接吸收并致谢，待本轮合并后礼貌关闭。原工作区仍保留 c697936 和唯一 lessons 改动，尚未切 main；须等自有 PR 合并后重新检查状态再按授权整合。
+最终三渠道联合索引为 `evidence/three-channel-5.3.13-parent-readback.json`，SHA-256 `e3f9eb9a688d56b85dac5905a2fa2a40b10c72e6a45ba7c3f8a26ecb4ea48264`；它联合原发行、两商店、原包、备份和截图的回读。证据路径均相对于本报告所列主证据根。原生 M1–M5、两小时长测和资源指标沿用“固定身份与证据位置”所列源等价证据；本次未对最终全文件或发版后重新执行原生长测。
+
+本次只同步文档和经验，不增加版本，不覆盖既有标签或原包。后续同版本纯文档提交会由跨提交标签门跳过发布；该次跳过不替代本次原发行与公开包核验。
+
+## E：仓库与经验整理（本轮已验证完成）
+
+已完成原生桌面验收、三渠道发布和经验维护技能，索引精简，旧流水归档，原 105 个主线及 53 个用户追加经验段全部保留。原工作区当时未提交的 lessons.md 已先按原字节备份；备份 SHA-256 为 285b8c0d546782441aa8855989b0de3270901a8e2112e8f06c083d26c098631b，本轮再次回读备份仍相同。切换后的 main 规则索引与 Git 规范化 stash 的摘要分别记录，不将它们冒称为该原始文件字节。
+
+17 个已关闭/合并 PR 的远端 codex 分支已按读回结果清理；#28 已回复关闭。PR #5 仅将相对 Releases 下载地址改为绝对 GitHub Releases 链接；main 已包含该绝对地址，两个商店链接不能归因于该 PR。已[事实准确地致谢](https://github.com/fhgffy/antigravity-auto-accept/pull/5#issuecomment-6353671207)并关闭，未合并，head 仍为 `6b8d0f7a719859f7e05f7c226e96626d437187f7`。回执为 `evidence/pr5-close-after-main-8fafef2-20261023/final-receipt.json`，SHA-256 `fb71a0b73b69ab4f461de3fd6c722b4ae78e9d47581214abf0e866d4d55bc7b5`；首次旧归因检查失败保留，未发布错误外部评论。
+
+【已跑验证，2026-10-23】原工作区已按授权快进到上述 main 并保持干净，旧分支保留。原 lessons 的逐字节备份和仅含该路径的可恢复 stash 均保留；原字节 SHA-256 仍为 `285b8c0d546782441aa8855989b0de3270901a8e2112e8f06c083d26c098631b`，Git 规范化 blob 的摘要另列在回执中。未 reset、clean、强制覆盖或 pop/drop stash，忽略文件清单和其他 worktree 均未改变。`evidence/original-workspace-E-20261023-8fafef2/final-receipt.json` 的 SHA-256 为 `5200a00c802a37d7d53c14988cb5842d26dbb4eb19c9cdcffdbaac66c766d76e`。
 
 ## F：外部 PR #30（已给出结论）
 
-审查头 1f607c1a968ae81c0dece35f2f2e7f6991461c03 仍为 CHANGES_REQUESTED。未在宿主机运行或安装该 PR；只读累计 diff 后才批准其未改 workflow 的 fork CI，BOM 失败保留。
+PR #30 已关闭且未合并；此前审查头 1f607c1a968ae81c0dece35f2f2e7f6991461c03 的意见为 CHANGES_REQUESTED。未在宿主机运行或安装该 PR；只读累计 diff 后才批准其未改 workflow 的 fork CI，BOM 失败保留。
 
 已读源码：默认 true 与 opt-in 描述不符；CanUseForegroundUi 提前 return true 绕过输入空闲、长按及输入变化等保护，影响窄栏菜单调用点。物理点击自身的最终保护没有在累计最终 diff 中被删除，不能用中间提交替代最终差异。
 
@@ -331,4 +344,4 @@ README 更新日志只写运行体验变化，CODEX.md 保留一屏当前已发�
 
 原整分支审查的重要接管初始化缺口已经修复，七项未采纳建议的理由和代价在本轮 ledger.md 保留。新增诊断事件的一次独立窄范围审查确认跨位数转储及同步诊断回收问题，已用 x64 有界收集器修复；没有反复派复审。C# 名称条件构造器的专用变异回归仍是已说明的次要覆盖缺口，不冒充已经加入 CI。
 
-未完成：新修正后的二十次完整 CI、自有 PR 合并及 main CI、5.3.13 三渠道公开哈希核对、原工作区 main 整合、PR #5 关闭、最终发布回执。A/B 未达到的资源阈值与 CI 历史原因的不确定性必须保留到最终报告，不能因续测或发布省略。
+当前未完成：C 的未知启动/收集器超时根因及因果修复后的全新连续二十组完整 CI。目标保持 active；下一轮定位以新故障证据或可检验的因果假设为依据。已完成的运行交付与仓库整合不替代 C，A/B 未达到的资源阈值、原生验收复用范围和全部历史失败继续保留。
