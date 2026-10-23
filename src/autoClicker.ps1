@@ -950,16 +950,21 @@ function Test-LiveApprovalCard($Card, $ExpectedTarget = $null) {
 $script:lastApprovalDiagnosticTime = [DateTime]::MinValue
 $script:approvalDiagnosticTimes = @{}
 # 2026-10-06：候选、控件模式和动作结果分别节流，候选结构不能永久压住后续失败证据。
-function Write-ApprovalDiagnostic([string]$Message, [string]$Category = 'approval') {
+function Write-ApprovalDiagnostic([string]$Message, [string]$Category = 'approval', [scriptblock]$MessageFactory) { # 2026-10-23
     $now = [DateTime]::Now
     if ($Category -eq 'browser-candidate') {
         if (($now - $script:lastApprovalDiagnosticTime).TotalSeconds -lt 10) { return }
-        $script:lastApprovalDiagnosticTime = $now
     }
     else {
         if ($script:approvalDiagnosticTimes.ContainsKey($Category) -and ($now - $script:approvalDiagnosticTimes[$Category]).TotalSeconds -lt 10) { return }
-        $script:approvalDiagnosticTimes[$Category] = $now
     }
+    # 2026-10-23：节流通过后才读取纯诊断属性；构造失败仍交给调用者处理，不消耗该分类的日志机会。
+    if ($null -ne $MessageFactory) {
+        $Message = & $MessageFactory
+        $now = [DateTime]::Now
+    }
+    if ($Category -eq 'browser-candidate') { $script:lastApprovalDiagnosticTime = $now }
+    else { $script:approvalDiagnosticTimes[$Category] = $now }
     [Console]::WriteLine("___SCANNER_DIAGNOSTIC___:$Message")
 }
 
@@ -1276,8 +1281,11 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
             $stage = 'target-pattern'
             $target = @($card.FindAll([System.Windows.Automation.TreeScope]::Descendants, $editCondition) | Where-Object { $_.Current.Name -eq 'Edit permission target' })[0]
             try {
-                $valueAvailable = $target.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty)
-                Write-ApprovalDiagnostic "permission target value-pattern=$valueAvailable" 'permission-target-pattern'
+                # 2026-10-23：目标模式可用性只用于日志，按分类到期后再查询。
+                Write-ApprovalDiagnostic -Category 'permission-target-pattern' -MessageFactory {
+                    $valueAvailable = $target.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsValuePatternAvailableProperty)
+                    "permission target value-pattern=$valueAvailable"
+                }
             }
             catch { }
             $expectedTarget = @{ Id = ($target.GetRuntimeId() -join '.'); Value = $target.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value }
@@ -1285,9 +1293,12 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
             $eventContext = Get-ApprovalEventContext $WindowProcessId $WindowHandle $cardId $expectedTarget.Value
             # 2026-10-06：仅对已核验表单报告固定模式布尔值，候选日志不抢占滚动和错误诊断。
             try {
-                $selectionAvailable = $option.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty)
-                $scrollAvailable = $option.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty)
-                Write-ApprovalDiagnostic "permission option enabled=$($option.Current.IsEnabled) offscreen=$($option.Current.IsOffscreen) selection=$selectionAvailable scrollitem=$scrollAvailable" 'permission-candidate'
+                # 2026-10-23：只延后诊断读取，后续滚动、选择及提交复核仍读取实时状态。
+                Write-ApprovalDiagnostic -Category 'permission-candidate' -MessageFactory {
+                    $selectionAvailable = $option.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsSelectionItemPatternAvailableProperty)
+                    $scrollAvailable = $option.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty)
+                    "permission option enabled=$($option.Current.IsEnabled) offscreen=$($option.Current.IsOffscreen) selection=$selectionAvailable scrollitem=$scrollAvailable"
+                }
             }
             catch { }
             if ($option.Current.IsOffscreen) {
@@ -1336,9 +1347,12 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 if ($submit.Current.Name -notmatch '^(Submit|提交)(\s*[↵⏎])?$') { continue }
                 if (-not $submit.Current.IsEnabled) { continue }
                 try {
-                    $invokeAvailable = $submit.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty)
-                    $scrollAvailable = $submit.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty)
-                    Write-ApprovalDiagnostic "permission submit enabled=$($submit.Current.IsEnabled) offscreen=$($submit.Current.IsOffscreen) invoke=$invokeAvailable scrollitem=$scrollAvailable" 'permission-submit-pattern'
+                    # 2026-10-23：已节流的提交诊断不再查询控件；批准前的实时核验保持原路径。
+                    Write-ApprovalDiagnostic -Category 'permission-submit-pattern' -MessageFactory {
+                        $invokeAvailable = $submit.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsInvokePatternAvailableProperty)
+                        $scrollAvailable = $submit.GetCurrentPropertyValue([System.Windows.Automation.AutomationElement]::IsScrollItemPatternAvailableProperty)
+                        "permission submit enabled=$($submit.Current.IsEnabled) offscreen=$($submit.Current.IsOffscreen) invoke=$invokeAvailable scrollitem=$scrollAvailable"
+                    }
                 }
                 catch { }
                 # 2026-10-06：长表单只滚动同表单 Submit；顶部一次允许因本次滚动离屏时仍读取选中状态。
@@ -1598,7 +1612,8 @@ try {
         try {
             $windows = @(Get-ScannerWindows) # 2026-10-21：顶层元数据与实时根复核替代每轮托管 FindAll；失败仍走原路径。
             # 2026-10-20：完整窗口身份快照确认窗口关闭后才丢弃菜单记录，读取失败保留续办归属。
-            if ($null -ne $script:deferredBrowserMenus) {
+            # 2026-10-23：没有待续办菜单时无需额外读取窗口句柄；到期回收判断仍在此块之后执行。
+            if ($null -ne $script:deferredBrowserMenus -and $script:deferredBrowserMenus.Count -gt 0) {
                 $liveMenuWindowKeys = @{}
                 $liveMenuWindowSnapshotComplete = $true # 2026-10-20：身份读取失败不能作为窗口已关闭的依据。
                 foreach ($menuWindow in $windows) {
