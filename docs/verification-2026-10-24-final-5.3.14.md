@@ -10,7 +10,7 @@
 - 正式 host：`a57c6db2e87f44731f40a4bd484d81c12644d7f2459f2d36721bc075487f8930`；Windows x64 真实运行选择系统 x86 PowerShell，兼容回退保留。
 - [GitHub v5.3.14](https://github.com/fhgffy/antigravity-auto-accept/releases/tag/v5.3.14) 已公开，原 VSIX 为 82021 字节，SHA-256：`5a813c03f69a6dd970b84f9b6495fde1640eca2c7f4a22133a48360a0f254ae9`。
 - Marketplace 原包上传停在本人验证码，尚未核得该精确公开版本；已通知一次，不轮询验证码、不重复提交。
-- Open VSX 登录错误与[官方 OAuth 响应头修复](https://github.com/eclipse-openvsx/openvsx/pull/2381)吻合，但没有本次请求的服务端日志，不能宣称唯一根因。最新公开只读核对为 2026-10-24T00:57:24Z：[部署 PR](https://github.com/EclipseFdn/open-vsx.org/pull/14651)已合并，但公开服务版本仍 v1.2.0，不能把合并当成已部署。待部署与公开版本均更新后才作一次正常登录尝试。
+- Open VSX 登录错误与[官方 OAuth 响应头修复](https://github.com/eclipse-openvsx/openvsx/pull/2381)吻合，未取得原请求的服务端日志，不能宣称唯一根因。[部署 PR](https://github.com/EclipseFdn/open-vsx.org/pull/14651)合并后，2026-10-24T01:03:58Z 公开服务已核得 v1.2.1；随后一次正常既有账号登录成功，同一原包上传一次并进入 REVIEWING 队列。01:06:05Z 精确公开 API 仍 404，受理不等于公开字节一致。原件：`work/ovsx-oauth-followup-20261024/root-followup-07/result.json` 与 `evidence/release-5.3.14-public-followup-03-20261024/public-verification.json`。
 - 商店 CI 凭据尚未配置；步骤见[发布配置](publishing.md)。不创建凭据、不扩大权限，不把 CI 的 not-configured 当成商店成功。本次文档维护不另发版本或替换正式原包。
 
 ## A–F 当前结论
@@ -23,13 +23,13 @@
 | B 无回收小时 | 通过 | 同一批三扫描器的保守暖段跨度至少 3604.985 秒；私有内存斜率均低于 10 MiB/h，未拼接重启。 |
 | B 审批与原生 M1–M5 | 达原定义，边界保留 | 真实工具输出、唯一成功事件与窗口身份交叉核验；文件操作未触发权限卡时，文件审批记不适用。M5 的 7 条 Invoke 异常保留，未增设全过程零异常门。 |
 | C 完整 CI | 通过 | 最终运行候选二十组完整两引擎加打包，全部原件核验；历史失败保留，稳定性不等于历史停顿根因已证实。 |
-| D 三渠道发布 | GitHub 通过，两店待完成 | 不把已合并、Release 或绿色 CI 当成三店公开原包一致。 |
+| D 三渠道发布 | GitHub 通过，商店收尾中 | Open VSX 原包已受理，Marketplace 保留本人步骤；不把受理、Release 或绿色 CI 当成三处公开原包一致。 |
 | E 整理与主工作区 | 已执行，维护规则补充中 | 原主目录快进到验证过的主线且干净，用户暂存、备份和忽略路径保留；本次仅补精简规则和准确状态。 |
 | F 外部 PR | 审查与处理完成 | PR30 未合并，不采纳跳过输入/前台/离屏保护的实现；后台动作的有限支持已有独立回归和原生边界。 |
 
 ### 资源与审批证据
 
-严格 CPU 对照：`work/strict-cpu-final-20261024/strict-final-comparison-semantic-v8.json`，SHA-256 `ae69af6df3091f79b58ff98f2fe284342cfb3c9d531e8a8d4ba7ed082cb7a3ac`。最终配对为 baseline-08 与 candidate-02；A 长会话 577 节点、410 个列表项，B 空闲与 C 最小化各 147 节点。每臂保存全部 50 行，固定 60 秒预热后 38 点，owner 保守有效跨度分别 180.0856976 / 180.0894841 秒。仅三扫描器，正式宿主不改字节，扫描器仅私有互斥名，逆还原等于正式源；生产回收保留。准备脚本原工具实际 exit 0、两份固定间隔完整预检均先于计数请求；两臂分别 39 / 40 个登记进程全部确认退出，各 6 个非零子进程退出原样保留。
+严格 CPU 对照：`work/strict-cpu-final-20261024/strict-final-comparison-semantic-v8.json`，SHA-256 `ae69af6df3091f79b58ff98f2fe284342cfb3c9d531e8a8d4ba7ed082cb7a3ac`。独立纯文件审计：`work/strict-cpu-final-20261024/independent-final-audit.json`，SHA-256 `ba7a60a598facc9a026193cb0ab6c68d2a8e8f86ff795fd57d9314eed0e68de5`，重算通过。最终配对为 baseline-08 与 candidate-02；A 长会话 577 节点、410 个列表项，B 空闲与 C 最小化各 147 节点。每臂保存全部 50 行，固定 60 秒预热后 38 点，owner 保守有效跨度分别 180.0856976 / 180.0894841 秒。仅三扫描器，正式宿主不改字节，扫描器仅私有互斥名，逆还原等于正式源；生产回收保留。准备脚本原工具实际 exit 0、两份固定间隔完整预检均先于计数请求；两臂分别 39 / 40 个登记进程全部确认退出，各 6 个非零子进程退出原样保留。
 
 CPU 快照的全部节点属性、几何、状态和语义摘要前后及跨臂相等。新增 `viewEvidence` 诊断数组中的 A/B Profile 图标临时 RuntimeId 有变化，不称所有 UIA 身份恒定；每份数组仍逐项核对视图、数量、顺序、唯一性。旧分析器把新增诊断字段纳入整体字典相等而拒绝，原件及拒绝保留。独立新分析器 SHA-256 `5f215422b5b85317f265dc587ef863296afad5c4ed78d7f4382d6a50e449561c` 仅修正该 schema 契约，节点、CPU 门槛、固定窗口与退出检查未改，完整反向字节还原及两人独立负例验证通过。5 秒 Win32 端点不能排除任意更短窗口变化。
 
