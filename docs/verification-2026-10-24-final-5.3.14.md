@@ -1,0 +1,50 @@
+# 2026-10-24：5.3.14 验收与发布状态
+
+本页汇总正式运行源的当前结论；[历史阶段记录](verification-2026-10-21-resource-stability.md)保留每次原失败和当时结论，其中旧候选的“最终”指标不能代替本页版本。证据等级：下列运行和 CI 结论为已跑验证；机制归因的不足单独列出。目标仍 active。
+
+本机证据根记作 R：`F:\CodexTests\AntigravityAA\resource-stability-20261021`。证据路径相对 R；原件及失败未改写。
+
+## 正式源与发布
+
+- 正式 scanner：`8955c69b3b65f4df0c20e5da09a29e440927904cdaa5f81937c3e770b76e2bad`。
+- 正式 host：`a57c6db2e87f44731f40a4bd484d81c12644d7f2459f2d36721bc075487f8930`；Windows x64 真实运行选择系统 x86 PowerShell，兼容回退保留。
+- [GitHub v5.3.14](https://github.com/fhgffy/antigravity-auto-accept/releases/tag/v5.3.14) 已公开，原 VSIX 为 82021 字节，SHA-256：`5a813c03f69a6dd970b84f9b6495fde1640eca2c7f4a22133a48360a0f254ae9`。
+- Marketplace 原包上传停在本人验证码，尚未核得该精确公开版本；已通知一次，不轮询验证码、不重复提交。
+- Open VSX 登录错误与[官方 OAuth 响应头修复](https://github.com/eclipse-openvsx/openvsx/pull/2381)吻合，未取得原请求的服务端日志，不能宣称唯一根因。[部署 PR](https://github.com/EclipseFdn/open-vsx.org/pull/14651)合并后，2026-10-24T01:03:58Z 公开服务已核得 v1.2.1；随后一次正常既有账号登录成功，同一原包上传一次并进入 REVIEWING 队列。01:06:05Z 精确公开 API 仍 404，受理不等于公开字节一致。原件：`work/ovsx-oauth-followup-20261024/root-followup-07/result.json` 与 `evidence/release-5.3.14-public-followup-03-20261024/public-verification.json`。
+- 商店 CI 凭据尚未配置；步骤见[发布配置](publishing.md)。不创建凭据、不扩大权限，不把 CI 的 not-configured 当成商店成功。本次文档维护不另发版本或替换正式原包。
+
+## A–F 当前结论
+
+| 项目 | 结论 | 依据与限制 |
+| --- | --- | --- |
+| A 基线与内存定位 | 基线已测；唯一分配层归因未验证 | 托管、COM、缓存与无重复查询对照支持粗分层；可回收托管对象不能解释全部私有提交，重复 UIA 查询与额外增长有关联，不能据此认定 Windows/UIA 硬上限。 |
+| B CPU | 通过，降低 55.38% | 正式 5.3.12 与 5.3.14 同布局、完整节点语义匹配，owner 单核 6.376482% → 2.845257%；固定暖后有效窗均超过 180 秒，原工具失败保留。 |
+| B 等待内存 | 通过，降低 47.79% | 同源 WAITING、共同预热 300 秒、预定 14 对样本均覆盖至少 65.009 秒：84.00 → 43.85546875 MiB。 |
+| B 无回收小时 | 通过 | 同一批三扫描器的保守暖段跨度至少 3604.985 秒；私有内存斜率均低于 10 MiB/h，未拼接重启。 |
+| B 审批与原生 M1–M5 | 达原定义，边界保留 | 真实工具输出、唯一成功事件与窗口身份交叉核验；文件操作未触发权限卡时，文件审批记不适用。M5 的 7 条 Invoke 异常保留，未增设全过程零异常门。 |
+| C 完整 CI | 通过 | 最终运行候选二十组完整两引擎加打包，全部原件核验；历史失败保留，稳定性不等于历史停顿根因已证实。 |
+| D 三渠道发布 | GitHub 通过，商店收尾中 | Open VSX 原包已受理，Marketplace 保留本人步骤；不把受理、Release 或绿色 CI 当成三处公开原包一致。 |
+| E 整理与主工作区 | 已执行，维护规则补充中 | 原主目录快进到验证过的主线且干净，用户暂存、备份和忽略路径保留；本次仅补精简规则和准确状态。 |
+| F 外部 PR | 审查与处理完成 | PR30 未合并，不采纳跳过输入/前台/离屏保护的实现；后台动作的有限支持已有独立回归和原生边界。 |
+
+### 资源与审批证据
+
+严格 CPU 对照：`work/strict-cpu-final-20261024/strict-final-comparison-semantic-v8.json`，SHA-256 `ae69af6df3091f79b58ff98f2fe284342cfb3c9d531e8a8d4ba7ed082cb7a3ac`。独立纯文件审计：`work/strict-cpu-final-20261024/independent-final-audit.json`，SHA-256 `ba7a60a598facc9a026193cb0ab6c68d2a8e8f86ff795fd57d9314eed0e68de5`，重算通过。最终配对为 baseline-08 与 candidate-02；A 长会话 577 节点、410 个列表项，B 空闲与 C 最小化各 147 节点。每臂保存全部 50 行，固定 60 秒预热后 38 点，owner 保守有效跨度分别 180.0856976 / 180.0894841 秒。仅三扫描器，正式宿主不改字节，扫描器仅私有互斥名，逆还原等于正式源；生产回收保留。准备脚本原工具实际 exit 0、两份固定间隔完整预检均先于计数请求；两臂分别 39 / 40 个登记进程全部确认退出，各 6 个非零子进程退出原样保留。
+
+CPU 快照的全部节点属性、几何、状态和语义摘要前后及跨臂相等。新增 `viewEvidence` 诊断数组中的 A/B Profile 图标临时 RuntimeId 有变化，不称所有 UIA 身份恒定；每份数组仍逐项核对视图、数量、顺序、唯一性。旧分析器把新增诊断字段纳入整体字典相等而拒绝，原件及拒绝保留。独立新分析器 SHA-256 `5f215422b5b85317f265dc587ef863296afad5c4ed78d7f4382d6a50e449561c` 仅修正该 schema 契约，节点、CPU 门槛、固定窗口与退出检查未改，完整反向字节还原及两人独立负例验证通过。5 秒 Win32 端点不能排除任意更短窗口变化。
+
+严格等待内存：`work/strict-waiter-final-20261024/v2/independent-result-audit.json`，SHA-256 `7ec29e6706681a2cb6170c4a78c43832fdd1da74179003268820d3ac5e6a37a7`。私有副本仅替换互斥名，并在原等待循环后加入意外获锁即失败的保护；该保护实测未进入，不能称完整原字节。父进程与两等待者自然 exit 0，无 kill 或标准错误。
+
+无回收小时：`work/held-hour-final-review-20261024/final-review.json`。A/B 等待者斜率分别约 -1.685/-1.521 MiB/h，C owner 约 -0.020 MiB/h；owner 单核 3.342% 仅是该长测记录，不能与异负载历史基线算降幅。私有扫描器只改测试互斥和回收开关，逆还原逐字等于正式源；正式包保留回收。仅三条扫描器，不代表 helpers 或全 IDE 成本。
+
+审批延迟：`work/hour-x86-analysis-20261024/final-latency-20261024.json`。该 30 卡使用较早的私有 x86 启动 host，其字节不同于最终 generic host；scanner 逆还原仍为同一 8955 源，实际引擎、参数和协议相同，仅按同运行分支等价复用，不称最终整包直接重跑的 30 卡验收。30 卡 P95 保守上界 736.19603ms，低于基线下界 664.537545ms 加 200ms。另有早、中、晚三张真实卡原始输出，跨度 3847 秒，每张只成功一次；不把短于一小时的 30 卡观测拼成小时长测。
+
+M4 补证：`work/m4-iconic-followup-20261024/independent-result-audit.json`，SHA-256 `438cd71eb7a74b20c30ff5fc1ca974576c18281c7276a347f012aa79893f30a3`。同一 owner 最小化时，另两个可见窗口各一张卡处理一次，有独立原始工具输出；2963 个有效最小化身份端点、观察器运行 324.717 秒。100ms 端点不能排除更短变化，恢复动作无独立 false 回执；39 个登记进程均确认退出，其中 6 个非零子进程退出保留。
+
+### CI、发布与历史失败
+
+二十组完整 CI：运行 `40028519065`、attempt 1，63 个执行作业成功、4 个预期可选跳过；63 份原日志和 21 个包均核 ZIP/CRC/8 成员。原件：`evidence/ci-x86-49f6caa-20261024/matrix-final-original/strict-final-readback.json`。
+
+运行版发布提交 PR53 的 validation/lint 与合并 main a848e874 的复验、原包均通过：`evidence/ci-pr53-45e7e7e-20261024/strict-original-readback.json`、`evidence/ci-main-a848e87-20261024/strict-main-release-readback.json`。已有版本绑定保护阻止文档提交覆盖该 Release。
+
+CPU 工具的旧失败、窗口只读预检与新计数分开存于 `work/strict-cpu-final-20261024`。共享文件读、跨引擎模块路径、自动更新污染、树视图不一致、正常零候选日志误判及 candidate-01 的旧 Pane 尺寸变化均保留原件。baseline-07 因准备脚本终态确认顺序偏差仅作补充，不计最终配对；不删故障、不放宽 CPU/时长/全节点语义门。有效经验归入[原生桌面验收技能](../.agent/skills/native-desktop-acceptance/SKILL.md)，索引不重写流水。
