@@ -168,8 +168,9 @@ test('normal failure upload stages owned diagnostics after original tests', () =
     const controlFile = path.join(__dirname, 'timeout-diagnostics.test.cjs');
     assert.ok(fs.existsSync(controlFile), 'Real staging controls must use a separate post-lifecycle entry');
     const workflow = fs.readFileSync(path.join(root, '.github/workflows/windows-validation.yml'), 'utf8');
+    // 2026-10-25：按测试作业结束界定故障上传，避免已移除的采集步骤成为隐式哨兵。
     const stages = workflow.slice(workflow.indexOf('      - name: Stage owned host child timeout diagnostics'),
-        workflow.indexOf('      - name: Preserve native startup trace'));
+        workflow.indexOf('\n  package:'));
     assert.match(stages, /id: timeout_diagnostics/);
     assert.match(stages, /stage-owned-timeout-diagnostics\.ps1/);
     const upload = stages.slice(stages.indexOf('      - name: Preserve owned host child timeout diagnostics'));
@@ -187,14 +188,14 @@ test('normal failure upload stages owned diagnostics after original tests', () =
     assert.equal(manifest.scripts.test, [...originalTestOrder, 'test:timeout-diagnostics', 'test:lifecycle-env'].map(name => 'npm run ' + name).join(' && '));
     const controlStep = workflow.indexOf('      - name: Owned timeout diagnostics staging regression');
     assert.ok(controlStep > workflow.indexOf('      - name: Concurrent scanner handoff without desktop clicks'));
-    assert.ok(controlStep < workflow.indexOf('      - name: Save native startup trace'));
+    assert.ok(controlStep < workflow.indexOf('      - name: Stage owned host child timeout diagnostics'));
     /* 2026-10-24：只检查原控制步骤自身，后续追加的架构条件不能被误归到这个无条件步骤。 */
     const controlBlock = workflow.slice(controlStep, workflow.indexOf('      - name:', controlStep + 1));
     assert.match(controlBlock, /run: npm run test:timeout-diagnostics/);
     assert.doesNotMatch(controlBlock, /if:|continue-on-error:/);
     const environmentStep = workflow.indexOf('      - name: Hosted lifecycle child environment boundaries');
     assert.ok(environmentStep > controlStep);
-    assert.ok(environmentStep < workflow.indexOf('      - name: Save native startup trace'));
+    assert.ok(environmentStep < workflow.indexOf('      - name: Stage owned host child timeout diagnostics'));
     const environmentBlock = workflow.slice(environmentStep, workflow.indexOf('      - name:', environmentStep + 1));
     assert.match(environmentBlock, /run: npm run test:lifecycle-env/);
     assert.doesNotMatch(environmentBlock, /if:|continue-on-error:/);
@@ -204,7 +205,8 @@ test('normal failure upload stages owned diagnostics after original tests', () =
 test('x86 scanner and concurrency CI coverage follows every original test step', () => {
     const workflow = fs.readFileSync(path.join(root, '.github/workflows/windows-validation.yml'), 'utf8');
     const environmentStep = workflow.indexOf('      - name: Hosted lifecycle child environment boundaries');
-    const traceStep = workflow.indexOf('      - name: Save native startup trace');
+    // 2026-10-25：ETW退役后仍严格要求x86尾步先于真实故障暂存，不减少原行为断言。
+    const diagnosticsStep = workflow.indexOf('      - name: Stage owned host child timeout diagnostics');
     let previousStep = environmentStep;
     for (const [name, file] of [
         ['X86 scanner regression on the default host', 'scanner.test.ps1'],
@@ -212,7 +214,7 @@ test('x86 scanner and concurrency CI coverage follows every original test step',
     ]) {
         const marker = '      - name: ' + name;
         const step = workflow.indexOf(marker);
-        assert.ok(step > previousStep && step < traceStep, name + ' must follow the original tests');
+        assert.ok(step > previousStep && step < diagnosticsStep, name + ' must follow the original tests');
         assert.equal(workflow.indexOf(marker, step + marker.length), -1, name + ' must run once');
         const block = workflow.slice(step, workflow.indexOf('      - name:', step + 1));
         assert.match(block, /^        if: matrix\.major == 5\r?$/m);
