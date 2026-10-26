@@ -35,6 +35,8 @@ Current maintenance: **fhgffy**, with **Codex** assisting fixes and tests. See [
 
 Window process and cross-architecture verification: [docs/verification-2026-10-07-process.md](docs/verification-2026-10-07-process.md). Latest user-input interference verification: [docs/verification-2026-10-07-input.md](docs/verification-2026-10-07-input.md). Multi-window and CI verification: [docs/verification-2026-10-07.md](docs/verification-2026-10-07.md). Earlier runtime notes remain in [docs/verification-2026-10-05.md](docs/verification-2026-10-05.md). A result on one IDE version does not establish compatibility with every permission type or future release.
 
+IDE upgrade self-check and approval-type evidence boundaries / IDE 升级自检与审批类型证据边界：[Compatibility self-check](docs/ide-compatibility.md).
+
 ---
 
 ## ✨ How It Works | 工作原理

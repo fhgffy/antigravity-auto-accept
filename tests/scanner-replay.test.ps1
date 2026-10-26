@@ -40,15 +40,23 @@ function Test-ReplayConversation($Node){
     }
     return $false
 }
+# 2026-10-26：逐个冻结九种布局，新增、漏掉或替换任何原夹具都必须失败。
+$fixturePaths=@(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'fixtures\uia') -Filter '*.json' | Sort-Object Name)
+$expectedFixtureNames=@('agent-error-retry.json','browser-narrow.json','browser-wide.json','excluded.json','generic.json','mcp-one-time.json','read-url-one-time.json','terminal-outside-conversation.json','terminal.json')
+if((@($fixturePaths|ForEach-Object{$_.Name})-join',')-cne(@($expectedFixtureNames|Sort-Object)-join',')){throw 'Incomplete nine-layout replay set'}
 $checks=0
-foreach($fixturePath in @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'fixtures\uia') -Filter '*.json' | Sort-Object Name)){
+$targetChecks=0;$retryChecks=0 # 2026-10-26：单独核对动作前目标复验和错误按钮排除的覆盖数量。
+foreach($fixturePath in $fixturePaths){
     $fixture=Get-Content -LiteralPath $fixturePath.FullName -Raw -Encoding UTF8|ConvertFrom-Json
     if($fixture.provenance-notin@('native-sanitized','derived-regression')){throw 'Replay provenance missing'}
     $script:replayNodes=@{}
     foreach($row in $fixture.nodes){
         if($script:replayNodes.ContainsKey($row.key)){throw 'Duplicate replay node'}
-        $node=[pscustomobject]@{Key=[string]$row.key;ParentKey=[string]$row.parent;Current=[pscustomobject]@{Name=$row.name;AutomationId=$row.automationId;ControlType=[Windows.Automation.ControlType]::($row.type);IsEnabled=$row.enabled;IsOffscreen=$row.offscreen}}
+        # 2026-10-26：补齐真实目标复验需要的两个 UIA 查询接口，值与身份都来自脱敏图。
+        $node=[pscustomobject]@{Key=[string]$row.key;ParentKey=[string]$row.parent;RuntimeId=[int[]]@($row.runtimeId);Value=$row.value;Current=[pscustomobject]@{Name=$row.name;AutomationId=$row.automationId;ControlType=[Windows.Automation.ControlType]::($row.type);IsEnabled=$row.enabled;IsOffscreen=$row.offscreen}}
         $node|Add-Member ScriptMethod FindAll {param($scope,$condition) return @(Get-ReplayDescendants $this.Key $scope $condition)}
+        $node|Add-Member ScriptMethod GetRuntimeId {return $this.RuntimeId}
+        $node|Add-Member ScriptMethod GetCurrentPattern {param($pattern) if($pattern-ne[Windows.Automation.ValuePattern]::Pattern){throw 'Unsupported replay pattern'};return [pscustomobject]@{Current=[pscustomobject]@{Value=$this.Value}}}
         $script:replayNodes[$row.key]=$node
     }
     foreach($node in $script:replayNodes.Values){if($node.ParentKey-and-not$script:replayNodes.ContainsKey($node.ParentKey)){throw 'Missing replay parent'}}
@@ -57,10 +65,33 @@ foreach($fixturePath in @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'f
     $browser=($null-ne$card)-and(Test-ReplayConversation $card)-and(Test-LiveBrowserPermissionCard $card)
     $generic=@($script:replayNodes.Values|Where-Object{$_.Current.ControlType-eq[Windows.Automation.ControlType]::Button-and$_.Current.IsEnabled-and-not$_.Current.IsOffscreen-and(Test-ButtonMatch $_.Current.Name)}|ForEach-Object{$_.Key}|Sort-Object)
     if($terminal-ne$fixture.expected.terminal-or$browser-ne$fixture.expected.browser-or($generic-join',')-cne(@($fixture.expected.generic|Sort-Object)-join',')){throw ('Original live decision differs from literal fixture expectation: '+$fixturePath.Name+' terminal='+$terminal+' browser='+$browser+' generic='+($generic-join','))}
+    # 2026-10-26：复用生产动作前复验；完整卡片不变时，目标值或控件身份变化都应拒绝旧批准。
+    if($fixturePath.Name-in@('mcp-one-time.json','read-url-one-time.json')){
+        $targetKind=if($fixturePath.Name-ceq'mcp-one-time.json'){'MCP'}else{'Read URL'}
+        $expectedTarget=@{Id=[string]$fixture.expectedTarget.id;Value=[string]$fixture.expectedTarget.value}
+        $target=$script:replayNodes[[string]$fixture.expectedTarget.key]
+        if(-not(Test-LiveApprovalCard $card $expectedTarget)){throw ($targetKind+' approval rejected original target')}
+        $targetChecks++
+        $originalValue=$target.Value
+        try{$target.Value=if($targetKind-ceq'MCP'){'compiler-fs/other_tool'}else{'127.0.0.2'};if(Test-LiveApprovalCard $card $expectedTarget){throw ($targetKind+' approval accepted changed target value')}}finally{$target.Value=$originalValue}
+        $targetChecks++
+        $originalRuntimeId=$target.RuntimeId
+        try{$target.RuntimeId=[int[]]@(42,2147483647);if(Test-LiveApprovalCard $card $expectedTarget){throw ($targetKind+' approval accepted changed target RuntimeId')}}finally{$target.RuntimeId=$originalRuntimeId}
+        $targetChecks++
+        Write-Output ('PASS '+$targetKind+' target revalidation: original, changed value, changed RuntimeId')
+    }
+    # 2026-10-26：保留原生 Retry 的屏外状态，另直接调用名称判定，避免靠不可见性掩盖误匹配。
+    if($fixturePath.Name-ceq'agent-error-retry.json'){
+        $retry=@($script:replayNodes.Values|Where-Object{$_.Current.ControlType-eq[Windows.Automation.ControlType]::Button-and$_.Current.Name-ceq'Retry'})
+        if($retry.Count-ne1-or-not$retry[0].Current.IsOffscreen){throw 'Native Retry fixture visibility changed'}
+        if(Test-ButtonMatch $retry[0].Current.Name){throw 'Native Retry name matched an approval'}
+        $retryChecks++;Write-Output 'PASS native Retry name exclusion independent of visibility'
+    }
     $snapshot=[pscustomobject]@{ButtonNames=[string[]]@($script:replayNodes.Values|Where-Object{$_.Current.ControlType-eq[Windows.Automation.ControlType]::Button}|ForEach-Object{$_.Current.Name});HasRadio=@($script:replayNodes.Values|Where-Object{$_.Current.ControlType-eq[Windows.Automation.ControlType]::RadioButton}).Count-gt0}
     $flags=Get-DiscoveryFlags $snapshot
     if(($terminal-and-not$flags.Terminal)-or($browser-and-not$flags.Browser)-or($generic.Count-gt0-and-not$flags.Generic)){throw ('Discovery dropped a live candidate: '+$fixturePath.Name)}
     $checks++;Write-Output ('PASS UIA decision replay: '+$fixturePath.BaseName+' provenance='+$fixture.provenance)
 }
-if($checks-ne6){throw 'Incomplete six-layout replay set'}
+if($checks-ne9){throw 'Incomplete nine-layout replay set'}
+if($targetChecks-ne6-or$retryChecks-ne1){throw 'Incomplete target and Retry replay checks'} # 2026-10-26：新增行为断言不能因夹具分支遗漏而静默跳过。
 Write-Output "___SCANNER_REPLAY_TEST_DONE___:passed=$checks"
