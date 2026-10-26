@@ -40,15 +40,20 @@ function Test-ReplayConversation($Node){
     }
     return $false
 }
-# 2026-10-26：逐个冻结九种布局，新增、漏掉或替换任何原夹具都必须失败。
+# 2026-10-27：保留原十份夹具并冻结新增原生通用批准子集，缺失、替换或增加文件都必须失败。
 $fixturePaths=@(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'fixtures\uia') -Filter '*.json' | Sort-Object Name)
-$expectedFixtureNames=@('agent-error-retry.json','browser-narrow.json','browser-wide.json','excluded.json','generic.json','mcp-one-time.json','read-url-one-time.json','terminal-outside-conversation.json','terminal.json')
-if((@($fixturePaths|ForEach-Object{$_.Name})-join',')-cne(@($expectedFixtureNames|Sort-Object)-join',')){throw 'Incomplete nine-layout replay set'}
+$expectedFixtureNames=@('agent-error-retry.json','browser-narrow.json','browser-wide.json','excluded.json','generic.json','mcp-one-time.json','persistent-allow-excluded.json','read-url-one-time.json','stdin-generic-approval.json','terminal-outside-conversation.json','terminal.json')
+if((@($fixturePaths|ForEach-Object{$_.Name})-join',')-cne(@($expectedFixtureNames|Sort-Object)-join',')){throw 'Incomplete eleven-layout replay set'}
 $checks=0
-$targetChecks=0;$retryChecks=0 # 2026-10-26：单独核对动作前目标复验和错误按钮排除的覆盖数量。
+$targetChecks=0;$retryChecks=0;$scopeChecks=0;$nativeGenericChecks=0 # 2026-10-27：保留现有数量门，并冻结原生通用批准与权限范围覆盖。
 foreach($fixturePath in $fixturePaths){
     $fixture=Get-Content -LiteralPath $fixturePath.FullName -Raw -Encoding UTF8|ConvertFrom-Json
     if($fixture.provenance-notin@('native-sanitized','derived-regression')){throw 'Replay provenance missing'}
+    # 2026-10-27：此夹具只演示名称规则；冻结正负例数与来源，避免被误记为原生布局或漏测持久项。
+    if($fixturePath.Name-ceq'persistent-allow-excluded.json'){
+        if($fixture.provenance-cne'derived-regression'-or$null-ne$fixture.card-or$fixture.nodes.Count-ne75-or@($fixture.expected.generic).Count-ne11){throw 'Incomplete persistent permission scope fixture'}
+        $scopeChecks=$fixture.nodes.Count
+    }
     $script:replayNodes=@{}
     foreach($row in $fixture.nodes){
         if($script:replayNodes.ContainsKey($row.key)){throw 'Duplicate replay node'}
@@ -65,6 +70,14 @@ foreach($fixturePath in $fixturePaths){
     $browser=($null-ne$card)-and(Test-ReplayConversation $card)-and(Test-LiveBrowserPermissionCard $card)
     $generic=@($script:replayNodes.Values|Where-Object{$_.Current.ControlType-eq[Windows.Automation.ControlType]::Button-and$_.Current.IsEnabled-and-not$_.Current.IsOffscreen-and(Test-ButtonMatch $_.Current.Name)}|ForEach-Object{$_.Key}|Sort-Object)
     if($terminal-ne$fixture.expected.terminal-or$browser-ne$fixture.expected.browser-or($generic-join',')-cne(@($fixture.expected.generic|Sort-Object)-join',')){throw ('Original live decision differs from literal fixture expectation: '+$fixturePath.Name+' terminal='+$terminal+' browser='+$browser+' generic='+($generic-join','))}
+    # 2026-10-27：真实 Sending input to 卡片走通用 Accept；保留 Reject，并明确不能当作旧 stdin 专用形状。
+    if($fixturePath.Name-ceq'stdin-generic-approval.json'){
+        if($fixture.provenance-cne'native-sanitized'-or$fixture.approvalPath-cne'generic-accept'-or$fixture.nodes.Count-ne22-or$terminal-or$browser-or$generic.Count-ne1-or$script:replayNodes[$generic[0]].Current.Name-cne'Accept'){throw 'Native stdin generic approval changed'}
+        foreach($name in @('Sending input to','Task: Bounded stdin test','Approve?','Reject','Accept','Waiting for user input')){
+            if(@($fixture.nodes|Where-Object{$_.name-ceq$name}).Count-ne1){throw ('Native stdin approval label changed: '+$name)}
+        }
+        $nativeGenericChecks++;Write-Output 'PASS native stdin generic Accept approval and Reject exclusion'
+    }
     # 2026-10-26：复用生产动作前复验；完整卡片不变时，目标值或控件身份变化都应拒绝旧批准。
     if($fixturePath.Name-in@('mcp-one-time.json','read-url-one-time.json')){
         $targetKind=if($fixturePath.Name-ceq'mcp-one-time.json'){'MCP'}else{'Read URL'}
@@ -92,6 +105,11 @@ foreach($fixturePath in $fixturePaths){
     if(($terminal-and-not$flags.Terminal)-or($browser-and-not$flags.Browser)-or($generic.Count-gt0-and-not$flags.Generic)){throw ('Discovery dropped a live candidate: '+$fixturePath.Name)}
     $checks++;Write-Output ('PASS UIA decision replay: '+$fixturePath.BaseName+' provenance='+$fixture.provenance)
 }
-if($checks-ne9){throw 'Incomplete nine-layout replay set'}
+if($checks-ne11){throw 'Incomplete eleven-layout replay set'}
 if($targetChecks-ne6-or$retryChecks-ne1){throw 'Incomplete target and Retry replay checks'} # 2026-10-26：新增行为断言不能因夹具分支遗漏而静默跳过。
+# 2026-10-27：单独数量门保证新增的正负名称断言确实执行。
+if($scopeChecks-ne75){throw 'Incomplete persistent permission scope replay checks'}
+Write-Output ('PASS persistent permission scope names: '+$scopeChecks+' (11 positive, 64 negative)')
+# 2026-10-27：新增原生子集必须实际执行通用批准断言，不能只增加夹具文件数。
+if($nativeGenericChecks-ne1){throw 'Incomplete native generic approval replay checks'}
 Write-Output "___SCANNER_REPLAY_TEST_DONE___:passed=$checks"

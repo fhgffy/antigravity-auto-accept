@@ -780,6 +780,15 @@ function Test-ButtonMatch([string]$Name) {
     if ($n -match '\b(Reject|Deny|Denied|Cancel|Stop|Abort)\b|拒绝|取消|停止|中止') { return $false }
     # 2026-10-06：本次允许专属于已核验的浏览器卡片，不能由全窗普通按钮回退绕过作用域。
     if ($n -eq 'Allow Once') { return $false }
+    # 2026-10-27：会话、工作区等持久范围必须由用户决定，不能按普通中文批准前缀放行。
+    if ($n -match '^(允许|同意).*(会话|工作区|项目|全局|持久|始终)') { return $false }
+    # 2026-10-27：Allow 后的任意目标可能保存主机名单；仅保留静态标签与无歧义的完整快捷键。
+    if ($n -match '^Allow') {
+        $allowKey = '(?:Alt|Ctrl|Shift|Enter|Cmd|Win)(?:\s*\+\s*(?:Alt|Ctrl|Shift|Enter|Cmd|Win|[A-Za-z0-9]))*'
+        $allowChord = '(?:Alt|Ctrl|Shift|Cmd|Win)(?:\s*\+\s*(?:Alt|Ctrl|Shift|Enter|Cmd|Win|[A-Za-z0-9]))+'
+        # 2026-10-27：组合键或圆括号也可能是主机名；只有方括号键可带分隔空格，其余必须紧贴静态标签。
+        return $n -match ('^Allow(?:' + $allowChord + '|\(' + $allowKey + '\)|\s*\[' + $allowKey + '\])?$')
+    }
     # 2026-10-05：执行后的工具标题也会以 Run 开头，仅静态审批标签和快捷键后缀可点击。
     if ($n -match '^(Run|Execute|Approve|运行|执行|批准)') {
         return $n -match '^(Run|Execute|Approve|Run command|Execute command|Approve command|运行|执行|批准|运行命令|执行命令|批准命令)(\s*[\(\[]?(Alt|Ctrl|Shift|Enter|Cmd|Win)(\s*\+\s*(Alt|Ctrl|Shift|Enter|Cmd|Win|[A-Za-z0-9]))*[\)\]]?)?$'
@@ -1412,7 +1421,7 @@ function Invoke-SelfTest {
         @{ Name = 'Run and Debug'; Expected = $false },
         @{ Name = 'Accept (1)'; Expected = $true },
         @{ Name = 'Accept All'; Expected = $true },
-        @{ Name = 'Allow this conversation'; Expected = $true },
+        @{ Name = 'Allow this conversation'; Expected = $false }, # 2026-10-27：保留原断言，纠正会话持久授权的错误正例。
         @{ Name = 'Apply Changes'; Expected = $false },
         @{ Name = 'Application Settings'; Expected = $false },
         @{ Name = 'Continue'; Expected = $false },
@@ -1425,7 +1434,7 @@ function Invoke-SelfTest {
         @{ Name = 'Run Task (Ctrl+Shift+P)'; Expected = $false },
         @{ Name = 'Runnable'; Expected = $false },
         @{ Name = 'Allow once'; Expected = $false },
-        @{ Name = 'Allow this workspace'; Expected = $true },
+        @{ Name = 'Allow this workspace'; Expected = $false }, # 2026-10-27：工作区授权不属于一次批准。
         @{ Name = 'Accept all'; Expected = $true },
         @{ Name = 'Accept All Changes'; Expected = $true },
         @{ Name = 'Acceptance criteria'; Expected = $false },
@@ -1451,7 +1460,7 @@ function Invoke-SelfTest {
         @{ Name = '全部接受'; Expected = $true },
         @{ Name = '允许'; Expected = $true },
         @{ Name = '允许运行一次'; Expected = $true },
-        @{ Name = '允许本次会话'; Expected = $true },
+        @{ Name = '允许本次会话'; Expected = $false }, # 2026-10-27：中文会话范围同样保持人工决定。
         @{ Name = '同意'; Expected = $true },
         @{ Name = '同意全部'; Expected = $true },
         @{ Name = '全部同意'; Expected = $true },

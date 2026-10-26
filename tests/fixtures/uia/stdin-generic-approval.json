@@ -1,0 +1,570 @@
+{
+  "provenance": "native-sanitized",
+  "basis": "2026-10-27：独立中文 IDE 2.5.5 原生 UIA 快照的通用 Accept 审批子集，保留已捕获的完整祖先链与 Sending input to、Task: Bounded stdin test、Approve?、Reject、Accept、Waiting for user input 及同段图像；仅重映射临时 RuntimeId。实际审批走 generic 路径，不作为旧 sendCommandInput 专用卡；无完整属性的窗口父级仅记录边界，UIA 读取失败的 6681 行不补造节点。",
+  "source": {
+    "capture": "A-g1-stdin-step-pending-01.uia.json",
+    "sha256": "4e0fca4c22b92165513d32314f318a24572210cffbc582d536fe7750263376d1",
+    "subset": "native-sanitized generic approval and captured ancestor chain",
+    "capturedAncestorCount": 15,
+    "approvalRelatedNodeCount": 7,
+    "uncapturedParentBoundary": {
+      "childKey": "1",
+      "sourceParentRuntimeId": "42.67580",
+      "reason": "窗口父级仅见于 parents 摘要，没有完整节点属性行；回放止于最顶层已捕获 Pane。"
+    },
+    "excludedUnreadableRuntimeId": "42.67588.4.4.1.6681"
+  },
+  "approvalPath": "generic-accept",
+  "card": "15",
+  "nodes": [
+    {
+      "key": "1",
+      "parent": null,
+      "name": "workspace - Antigravity IDE",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        1
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 14,
+        "width": 2526,
+        "height": 1521,
+        "x": 21
+      },
+      "patterns": [
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "2",
+      "parent": "1",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        2
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 14,
+        "width": 2526,
+        "height": 1521,
+        "x": 21
+      },
+      "patterns": [
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "3",
+      "parent": "2",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        3
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 14,
+        "width": 2526,
+        "height": 1521,
+        "x": 21
+      },
+      "patterns": [
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "4",
+      "parent": "3",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        4
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 14,
+        "width": 2526,
+        "height": 1521,
+        "x": 21
+      },
+      "patterns": [
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "5",
+      "parent": "4",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        5
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 14,
+        "width": 2526,
+        "height": 1521,
+        "x": 21
+      },
+      "patterns": [
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "6",
+      "parent": "5",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        6
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 14,
+        "width": 2526,
+        "height": 1521,
+        "x": 21
+      },
+      "patterns": [
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "7",
+      "parent": "6",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        7
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 14,
+        "width": 2526,
+        "height": 1521,
+        "x": 21
+      },
+      "patterns": [
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "8",
+      "parent": "7",
+      "name": "workspace - Antigravity IDE",
+      "automationId": "RootWebArea",
+      "type": "Document",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        8
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 14,
+        "width": 2526,
+        "height": 1521,
+        "x": 21
+      },
+      "patterns": [
+        "ValuePatternIdentifiers.Pattern",
+        "ScrollPatternIdentifiers.Pattern",
+        "TextPatternIdentifiers.Pattern",
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "9",
+      "parent": "8",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        9
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 14,
+        "width": 2526,
+        "height": 1521,
+        "x": 21
+      },
+      "patterns": [
+        "InvokePatternIdentifiers.Pattern",
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "10",
+      "parent": "9",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        10
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 14,
+        "width": 2526,
+        "height": 1521,
+        "x": 21
+      },
+      "patterns": [
+        "InvokePatternIdentifiers.Pattern",
+        "ScrollPatternIdentifiers.Pattern",
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "11",
+      "parent": "10",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        11
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 75,
+        "width": 524,
+        "height": 1422,
+        "x": 2022
+      },
+      "patterns": [
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "12",
+      "parent": "11",
+      "name": "Agent Conversation",
+      "automationId": "conversation",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        12
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 137,
+        "width": 524,
+        "height": 1360,
+        "x": 2022
+      },
+      "patterns": [
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "13",
+      "parent": "12",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        13
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 137,
+        "width": 522,
+        "height": 1146,
+        "x": 2022
+      },
+      "patterns": [
+        "InvokePatternIdentifiers.Pattern",
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "14",
+      "parent": "13",
+      "name": "Message history",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        14
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 137,
+        "width": 522,
+        "height": 1146,
+        "x": 2022
+      },
+      "patterns": [
+        "ScrollPatternIdentifiers.Pattern",
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "15",
+      "parent": "14",
+      "name": "Agent response",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        15
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 374,
+        "width": 449,
+        "height": 365,
+        "x": 2050
+      },
+      "patterns": [
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "16",
+      "parent": "15",
+      "name": "Sending input to",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        16
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 565,
+        "width": 169,
+        "height": 32,
+        "x": 2085
+      },
+      "patterns": [
+        "TextPatternIdentifiers.Pattern",
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "17",
+      "parent": "15",
+      "name": "Task: Bounded stdin test",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        17
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 565,
+        "width": 185,
+        "height": 32,
+        "x": 2260
+      },
+      "patterns": [
+        "TextPatternIdentifiers.Pattern",
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "18",
+      "parent": "15",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        18
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 566,
+        "width": 31,
+        "height": 30,
+        "x": 2459
+      },
+      "patterns": [
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "19",
+      "parent": "15",
+      "name": "Approve?",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        19
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 628,
+        "width": 96,
+        "height": 32,
+        "x": 2085
+      },
+      "patterns": [
+        "TextPatternIdentifiers.Pattern",
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "20",
+      "parent": "15",
+      "name": "Reject",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        20
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 616,
+        "width": 99,
+        "height": 57,
+        "x": 2281
+      },
+      "patterns": [
+        "InvokePatternIdentifiers.Pattern",
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "21",
+      "parent": "15",
+      "name": "Accept",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        21
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 616,
+        "width": 106,
+        "height": 57,
+        "x": 2393
+      },
+      "patterns": [
+        "InvokePatternIdentifiers.Pattern",
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    },
+    {
+      "key": "22",
+      "parent": "15",
+      "name": "Waiting for user input",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        22
+      ],
+      "inputText": null,
+      "rect": {
+        "y": 694,
+        "width": 220,
+        "height": 32,
+        "x": 2085
+      },
+      "patterns": [
+        "TextPatternIdentifiers.Pattern",
+        "ScrollItemPatternIdentifiers.Pattern"
+      ]
+    }
+  ],
+  "expected": {
+    "terminal": false,
+    "browser": false,
+    "generic": [
+      "21"
+    ]
+  }
+}

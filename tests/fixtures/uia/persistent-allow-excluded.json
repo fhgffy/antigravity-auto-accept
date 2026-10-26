@@ -1,0 +1,774 @@
+{
+  "provenance": "derived-regression",
+  "basis": "2026-10-27：仅演示一次性允许与持久作用域的规则边界；标签依据 issue #64 与 IDE 2.5.5 权限语义构造，不声称原生界面截图或布局。 2026-10-27：Allow 后有分隔空格的括号键名或组合弦也可能是合法主机名，因此拒绝；仅无分隔空格的快捷键或方括号键名可作英文快捷键正例。",
+  "card": null,
+  "nodes": [
+    {
+      "key": "plainAllow",
+      "parent": null,
+      "name": "Allow",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "allowCtrlParen",
+      "parent": null,
+      "name": "Allow(Ctrl+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "allowAltBracket",
+      "parent": null,
+      "name": "Allow [Alt+Enter]",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "allowEnter",
+      "parent": null,
+      "name": "Allow Enter",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "plainChinese",
+      "parent": null,
+      "name": "允许",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chineseCtrl",
+      "parent": null,
+      "name": "允许(Ctrl+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "oneRunChinese",
+      "parent": null,
+      "name": "允许运行一次",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "plainAgree",
+      "parent": null,
+      "name": "同意",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "agreeAlt",
+      "parent": null,
+      "name": "同意 (Alt+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "oneRunShortcut",
+      "parent": null,
+      "name": "允许运行一次 (Ctrl+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "conversationAllow",
+      "parent": null,
+      "name": "Allow in Conversation",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "thisConversationAllow",
+      "parent": null,
+      "name": "Allow this conversation",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "conversationShortcut",
+      "parent": null,
+      "name": "Allow in Conversation (Ctrl+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "workspaceAllow",
+      "parent": null,
+      "name": "Allow this workspace",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "workspaceInAllow",
+      "parent": null,
+      "name": "Allow in Workspace",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "projectAllow",
+      "parent": null,
+      "name": "Allow this project",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "globalAllow",
+      "parent": null,
+      "name": "Allow globally",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "persistentAllow",
+      "parent": null,
+      "name": "Allow persistently",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "alwaysAllow",
+      "parent": null,
+      "name": "Allow always",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostLocalhost",
+      "parent": null,
+      "name": "Allow localhost",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostIPv4",
+      "parent": null,
+      "name": "Allow 127.0.0.1",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostIPv6Port",
+      "parent": null,
+      "name": "Allow [::1]:8127",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostIPv4Port",
+      "parent": null,
+      "name": "Allow 127.0.0.1:8127",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostDomain",
+      "parent": null,
+      "name": "Allow docs.example.test",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostUrl",
+      "parent": null,
+      "name": "Allow https://example.test",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostLocalShortcut",
+      "parent": null,
+      "name": "Allow localhost (Ctrl+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostDomainShortcut",
+      "parent": null,
+      "name": "Allow docs.example.test [Alt+Enter]",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "unknownPayload",
+      "parent": null,
+      "name": "Allow Anything Else",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "allowOnce",
+      "parent": null,
+      "name": "Allow Once",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "allowOnceShortcut",
+      "parent": null,
+      "name": "Allow once (Ctrl+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "shortcutThenScope",
+      "parent": null,
+      "name": "Allow (Ctrl+Enter) in Conversation",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "unclosedShortcut",
+      "parent": null,
+      "name": "Allow (Ctrl+Enter",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "mismatchedShortcut",
+      "parent": null,
+      "name": "Allow [Alt+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "noModifierShortcut",
+      "parent": null,
+      "name": "Allow (+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "trailingPlusShortcut",
+      "parent": null,
+      "name": "Allow Ctrl+",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "invalidShortcut",
+      "parent": null,
+      "name": "Allow (foo)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "colonShortcut",
+      "parent": null,
+      "name": "Allow: Ctrl+Enter",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chineseThisConversation",
+      "parent": null,
+      "name": "允许本次会话",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chineseConversation",
+      "parent": null,
+      "name": "允许会话",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chineseThisSession",
+      "parent": null,
+      "name": "允许此会话",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chineseWorkspace",
+      "parent": null,
+      "name": "允许此工作区",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chineseProject",
+      "parent": null,
+      "name": "允许项目",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chineseGlobal",
+      "parent": null,
+      "name": "允许全局",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chinesePersistent",
+      "parent": null,
+      "name": "允许持久",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chineseAlways",
+      "parent": null,
+      "name": "允许始终",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chineseShortcutThenScope",
+      "parent": null,
+      "name": "允许 (Ctrl+Enter) 会话",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "agreeConversation",
+      "parent": null,
+      "name": "同意会话",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "agreeThisConversation",
+      "parent": null,
+      "name": "同意本次会话",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "agreeWorkspace",
+      "parent": null,
+      "name": "同意此工作区",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "agreeProject",
+      "parent": null,
+      "name": "同意项目",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "agreeGlobal",
+      "parent": null,
+      "name": "同意全局",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "agreePersistent",
+      "parent": null,
+      "name": "同意持久",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "agreeAlways",
+      "parent": null,
+      "name": "同意始终",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "agreeAlwaysShortcut",
+      "parent": null,
+      "name": "同意始终 (Ctrl+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chineseConversationShortcut",
+      "parent": null,
+      "name": "允许会话 (Ctrl+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "chineseScopeInParens",
+      "parent": null,
+      "name": "允许 (会话)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "allowParenEnter",
+      "parent": null,
+      "name": "Allow (Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "allowBracketEnter",
+      "parent": null,
+      "name": "Allow [Enter]",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "allowUnwrappedChord",
+      "parent": null,
+      "name": "Allow Ctrl+Enter",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostCtrl",
+      "parent": null,
+      "name": "Allow Ctrl",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostAlt",
+      "parent": null,
+      "name": "Allow Alt",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostWin",
+      "parent": null,
+      "name": "Allow Win",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostShift",
+      "parent": null,
+      "name": "Allow Shift",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostCmd",
+      "parent": null,
+      "name": "Allow Cmd",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "allowUnseparatedAltChord",
+      "parent": null,
+      "name": "AllowAlt+Enter",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostSpacedCtrlParen",
+      "parent": null,
+      "name": "Allow (Ctrl+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostLowerCtrlEnter",
+      "parent": null,
+      "name": "Allow ctrl+enter",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostLowerAltEnter",
+      "parent": null,
+      "name": "Allow alt+enter",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostLowerParenEnter",
+      "parent": null,
+      "name": "Allow (enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostLowerParenCtrlEnter",
+      "parent": null,
+      "name": "Allow (ctrl+enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostLowerParenCtrlShiftA",
+      "parent": null,
+      "name": "Allow (ctrl+shift+a)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostSpacedAltEnter",
+      "parent": null,
+      "name": "Allow Alt+Enter",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostSpacedParenCtrlShiftA",
+      "parent": null,
+      "name": "Allow (Ctrl+Shift+A)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostSpacedParenAltEnter",
+      "parent": null,
+      "name": "Allow (Alt+Enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    },
+    {
+      "key": "hostLowerParenAltEnter",
+      "parent": null,
+      "name": "Allow (alt+enter)",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null
+    }
+  ],
+  "expected": {
+    "terminal": false,
+    "browser": false,
+    "generic": [
+      "plainAllow",
+      "allowCtrlParen",
+      "allowAltBracket",
+      "plainChinese",
+      "chineseCtrl",
+      "oneRunChinese",
+      "plainAgree",
+      "agreeAlt",
+      "oneRunShortcut",
+      "allowBracketEnter",
+      "allowUnseparatedAltChord"
+    ]
+  }
+}

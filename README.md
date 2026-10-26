@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.14
+# 🚀 Antigravity Auto Accept v5.3.15
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -154,6 +154,12 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ## 📋 Changelog | 更新日志
 
 这里仅列用户可感知的运行变化；构建、自测和完整历史见[维护记录](docs/verification-2026-10-21-maintenance-archive.md)。
+
+### v5.3.15 — 保留持久授权的人工决定（2026-10-27）
+
+- 通用按钮识别不再接受会话、工作区授权或带主机目标的 `Allow`，避免误选持久权限。
+- 继续通过专用卡片处理已验证的一次允许；新增审批范围回放和 IDE 升级自检说明。
+- Reject persistent conversation, workspace and host Allow actions from generic matching, while preserving verified one-time permission paths.
 
 ### v5.3.14 — 减少扫描开销与等待窗口内存
 
