@@ -1,0 +1,422 @@
+{
+  "provenance": "native-sanitized",
+  "basis": "2026-10-26：源自独立 IDE 配置的原生 UIA ControlView 快照 A-g1-terminal-card.uia.json。提取 Agent 错误信息、Retry 按钮及其已捕获父链，保留真实控件类型和可见性，Retry 原本为 offscreen=true；仅替换临时 RuntimeId 与错误编号。直接名称断言另行验证 Retry 不属于审批，不能靠屏外状态代替语义排除。",
+  "source": {
+    "capture": "A-g1-terminal-card.uia.json",
+    "sha256": "1c8f6421554872d1b015053b27358d58dbd85ad1538e45c1502f5e72c5d2d8e2"
+  },
+  "card": "22",
+  "nodes": [
+    {
+      "key": "1",
+      "parent": null,
+      "name": "workspace - Antigravity IDE",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        1
+      ]
+    },
+    {
+      "key": "2",
+      "parent": "1",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        2
+      ]
+    },
+    {
+      "key": "3",
+      "parent": "2",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        3
+      ]
+    },
+    {
+      "key": "4",
+      "parent": "3",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        4
+      ]
+    },
+    {
+      "key": "5",
+      "parent": "4",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        5
+      ]
+    },
+    {
+      "key": "6",
+      "parent": "5",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        6
+      ]
+    },
+    {
+      "key": "7",
+      "parent": "6",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        7
+      ]
+    },
+    {
+      "key": "8",
+      "parent": "7",
+      "name": "workspace - Antigravity IDE",
+      "automationId": "RootWebArea",
+      "type": "Document",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        8
+      ]
+    },
+    {
+      "key": "9",
+      "parent": "8",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        9
+      ]
+    },
+    {
+      "key": "10",
+      "parent": "9",
+      "name": "",
+      "automationId": "",
+      "type": "Pane",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        10
+      ]
+    },
+    {
+      "key": "11",
+      "parent": "10",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        11
+      ]
+    },
+    {
+      "key": "12",
+      "parent": "11",
+      "name": "Agent Conversation",
+      "automationId": "conversation",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        12
+      ]
+    },
+    {
+      "key": "13",
+      "parent": "12",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        13
+      ]
+    },
+    {
+      "key": "14",
+      "parent": "13",
+      "name": "Message history",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        14
+      ]
+    },
+    {
+      "key": "15",
+      "parent": "14",
+      "name": "Agent response",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        15
+      ]
+    },
+    {
+      "key": "16",
+      "parent": "15",
+      "name": "Worked for 1s",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        16
+      ]
+    },
+    {
+      "key": "17",
+      "parent": "16",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        17
+      ]
+    },
+    {
+      "key": "18",
+      "parent": "15",
+      "name": "Error Agent execution terminated due to error.",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        18
+      ]
+    },
+    {
+      "key": "19",
+      "parent": "18",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        19
+      ]
+    },
+    {
+      "key": "20",
+      "parent": "15",
+      "name": "Error ID: ",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        20
+      ]
+    },
+    {
+      "key": "21",
+      "parent": "15",
+      "name": "fixture-error-id",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        21
+      ]
+    },
+    {
+      "key": "22",
+      "parent": "12",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": false,
+      "value": null,
+      "runtimeId": [
+        42,
+        22
+      ]
+    },
+    {
+      "key": "23",
+      "parent": "22",
+      "name": "Agent terminated due to error",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": true,
+      "value": null,
+      "runtimeId": [
+        42,
+        23
+      ]
+    },
+    {
+      "key": "24",
+      "parent": "23",
+      "name": "",
+      "automationId": "",
+      "type": "Image",
+      "enabled": true,
+      "offscreen": true,
+      "value": null,
+      "runtimeId": [
+        42,
+        24
+      ]
+    },
+    {
+      "key": "25",
+      "parent": "22",
+      "name": "You can prompt the model to try again or start a new conversation if the error persists.",
+      "automationId": "",
+      "type": "Text",
+      "enabled": true,
+      "offscreen": true,
+      "value": null,
+      "runtimeId": [
+        42,
+        25
+      ]
+    },
+    {
+      "key": "26",
+      "parent": "22",
+      "name": "",
+      "automationId": "",
+      "type": "Group",
+      "enabled": true,
+      "offscreen": true,
+      "value": null,
+      "runtimeId": [
+        42,
+        26
+      ]
+    },
+    {
+      "key": "27",
+      "parent": "26",
+      "name": "Dismiss",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": true,
+      "value": null,
+      "runtimeId": [
+        42,
+        27
+      ]
+    },
+    {
+      "key": "28",
+      "parent": "26",
+      "name": "Copy debug info",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": true,
+      "value": null,
+      "runtimeId": [
+        42,
+        28
+      ]
+    },
+    {
+      "key": "29",
+      "parent": "26",
+      "name": "Retry",
+      "automationId": "",
+      "type": "Button",
+      "enabled": true,
+      "offscreen": true,
+      "value": null,
+      "runtimeId": [
+        42,
+        29
+      ]
+    }
+  ],
+  "expected": {
+    "terminal": false,
+    "browser": false,
+    "generic": []
+  }
+}
