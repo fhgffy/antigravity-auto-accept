@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.15
+# 🚀 Antigravity Auto Accept v5.3.16
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -20,7 +20,9 @@ Antigravity's [IDE settings documentation](https://antigravity.google/docs/setti
 
 官方 IDE 设置文档提供终端 **Always Proceed**；原生权限能力因产品、版本和平台而异，不能把 Antigravity 2.0 / CLI 的 Turbo 说明直接当成本机 IDE 2.5.5 已验证的设置。如果当前版本的原生设置已经满足需求，可以直接使用。这个扩展保留的价值是兼容仍显示审批按钮的工作流和旧版 IDE；本次实测的是 IDE 2.5.5 的一次允许审批卡片。
 
-- Installation enables scanning by default; a **trusted workspace, local Windows host, and accessible IDE window** are required. The extension does not change the IDE's permission settings.
+- Installation enables scanning by default; a **trusted workspace, local Windows host, and accessible IDE window** are required. The extension does not edit the IDE's permission settings; a scoped **Allow** it clicks is recorded by Antigravity just as your own click would be.
+- Enabling the extension authorizes it to accept agent approvals for you, including conversation-, workspace- and site-scoped **Allow** buttons such as **Allow in Conversation** and `Allow <host>`; when a card also offers a one-time choice, that choice is used. Plan review **Proceed**, error **Retry**, agent questions, sign-in or payment prompts and workspace trust stay manual.
+- 启用插件即授权它代你批准 agent 的审批，包括会话、工作区和站点范围的 **Allow**（如 **Allow in Conversation**、`Allow <站点>`）；卡片同时提供“仅本次”选项时选它。计划审阅的 **Proceed**、出错后的 **Retry**、agent 的提问、登录或付款以及工作区信任仍由你手动处理。
 - **Strict Mode, explicit denials, enterprise policies, sandbox restrictions, and browser denylist entries remain enforced by Antigravity.** This is not a guarantee that every command can execute.
 - Workspace trust prompts and generic `Save`, `OK`, `Yes`, or `Retry` buttons are not agent approvals and are excluded. English and Chinese approval labels are supported.
 - Command permission cards select **Yes, allow this time** and submit the same card. Browser domain cards select **Allow Once**, including the menu inside **More actions** in a narrow sidebar. Command cards in the conversation or input area keep the same strict form checks; long cards scroll only the verified action control into view. The scanner does not select **Always Allow** or expand historical command records.
@@ -155,7 +157,13 @@ The defaults still work with zero configuration. Advanced users can tune these i
 
 这里仅列用户可感知的运行变化；构建、自测和完整历史见[维护记录](docs/verification-2026-10-21-maintenance-archive.md)。
 
-### v5.3.15 — 保留持久授权的人工决定（2026-10-27）
+### v5.3.16 — 恢复范围类 Allow 的自动批准（2026-10-27）
+
+- 撤销 5.3.15 的收紧：会话、工作区和站点范围的 `Allow`（如 `Allow in Conversation`、`Allow <站点>`、`允许本次会话`）重新自动批准，与 5.3.14 一致，agent 不再因此停下等人点击。
+- Restore automatic approval of conversation-, workspace- and site-scoped `Allow` buttons (for example `Allow in Conversation` and `Allow <host>`), as in 5.3.14. 5.3.15 had left them for manual clicks, which could stall the agent.
+- 计划审阅的 `Proceed`、出错后的 `Retry` 等仍保持手动，与之前相同。
+
+### v5.3.15 — 保留持久授权的人工决定（2026-10-27，已在 5.3.16 撤销）
 
 - 通用按钮识别不再接受会话、工作区授权或带主机目标的 `Allow`，避免误选持久权限。
 - 继续通过专用卡片处理已验证的一次允许；新增审批范围回放和 IDE 升级自检说明。
