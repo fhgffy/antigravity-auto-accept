@@ -42,16 +42,16 @@ function Test-ReplayConversation($Node){
 }
 # 2026-10-27：保留原十份夹具并冻结新增原生通用批准子集，缺失、替换或增加文件都必须失败。
 $fixturePaths=@(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'fixtures\uia') -Filter '*.json' | Sort-Object Name)
-$expectedFixtureNames=@('agent-error-retry.json','browser-narrow.json','browser-wide.json','excluded.json','generic.json','mcp-one-time.json','persistent-allow-excluded.json','read-url-one-time.json','stdin-generic-approval.json','terminal-outside-conversation.json','terminal.json')
+$expectedFixtureNames=@('agent-error-retry.json','browser-narrow.json','browser-wide.json','excluded.json','generic.json','mcp-one-time.json','scoped-allow-names.json','read-url-one-time.json','stdin-generic-approval.json','terminal-outside-conversation.json','terminal.json')
 if((@($fixturePaths|ForEach-Object{$_.Name})-join',')-cne(@($expectedFixtureNames|Sort-Object)-join',')){throw 'Incomplete eleven-layout replay set'}
 $checks=0
 $targetChecks=0;$retryChecks=0;$scopeChecks=0;$nativeGenericChecks=0 # 2026-10-27：保留现有数量门，并冻结原生通用批准与权限范围覆盖。
 foreach($fixturePath in $fixturePaths){
     $fixture=Get-Content -LiteralPath $fixturePath.FullName -Raw -Encoding UTF8|ConvertFrom-Json
     if($fixture.provenance-notin@('native-sanitized','derived-regression')){throw 'Replay provenance missing'}
-    # 2026-10-27：此夹具只演示名称规则；冻结正负例数与来源，避免被误记为原生布局或漏测持久项。
-    if($fixturePath.Name-ceq'persistent-allow-excluded.json'){
-        if($fixture.provenance-cne'derived-regression'-or$null-ne$fixture.card-or$fixture.nodes.Count-ne75-or@($fixture.expected.generic).Count-ne11){throw 'Incomplete persistent permission scope fixture'}
+    # 2026-10-27：此夹具只演示名称规则；冻结正负例数与来源，避免被误记为原生布局，也防止范围类 Allow 再被改成人工决定。
+    if($fixturePath.Name-ceq'scoped-allow-names.json'){
+        if($fixture.provenance-cne'derived-regression'-or$null-ne$fixture.card-or$fixture.nodes.Count-ne75-or@($fixture.expected.generic).Count-ne65){throw 'Incomplete scoped Allow name fixture'}
         $scopeChecks=$fixture.nodes.Count
     }
     $script:replayNodes=@{}
@@ -108,8 +108,8 @@ foreach($fixturePath in $fixturePaths){
 if($checks-ne11){throw 'Incomplete eleven-layout replay set'}
 if($targetChecks-ne6-or$retryChecks-ne1){throw 'Incomplete target and Retry replay checks'} # 2026-10-26：新增行为断言不能因夹具分支遗漏而静默跳过。
 # 2026-10-27：单独数量门保证新增的正负名称断言确实执行。
-if($scopeChecks-ne75){throw 'Incomplete persistent permission scope replay checks'}
-Write-Output ('PASS persistent permission scope names: '+$scopeChecks+' (11 positive, 64 negative)')
+if($scopeChecks-ne75){throw 'Incomplete scoped Allow name replay checks'}
+Write-Output ('PASS scoped Allow names: '+$scopeChecks+' (65 positive, 10 negative)')
 # 2026-10-27：新增原生子集必须实际执行通用批准断言，不能只增加夹具文件数。
 if($nativeGenericChecks-ne1){throw 'Incomplete native generic approval replay checks'}
 Write-Output "___SCANNER_REPLAY_TEST_DONE___:passed=$checks"
