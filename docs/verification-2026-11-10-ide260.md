@@ -1,6 +1,6 @@
 # IDE 2.6.0 兼容维护与原生验证
 
-2026-11-10 至 2026-11-11。候选版本 5.3.17；公开发布状态尚待 PR、main CI 与三渠道原包核对。
+2026-11-10 至 2026-11-11。5.3.17 已合并并在 GitHub Release 公开；main CI 与匿名下载原包均已核对。Marketplace / Open VSX 因缺少发布身份尚未上线。
 
 ## 维护判断与范围
 
@@ -67,3 +67,12 @@ CASE_M 仍为 PID 48904 / HWND 6359514，完整卡 `42.592530.4.25.7.3304`；实
 两个独立测试扫描器均正常停止，两个 IDE 窗口正常关闭；按原 PID 与创建身份复核，两 IDE 根、后端、MCP 子进程和 HTTP 辅助服务均已退出。最终两窗扩展日志按只读共享句柄归档并验证读取时长度稳定。F 盘独占测试目录和失败原件保留，未递归删除或清理日常配置。
 
 版本发布使用同次 main CI 原始 VSIX，公开下载与商店状态另行记录；缺少商店凭据的绿色作业不算商店成功。
+
+## GitHub 发布回执（2026-11-11 19:52）
+
+- **已跑验证**：[PR #70](https://github.com/fhgffy/antigravity-auto-accept/pull/70) 的 head `5529082488dbf43c3ac7ad50c52df4e8ecc7988b` 经两引擎、包与 lint 校验后合并；main `92031c12e8ccd6f2d89caf1a3e5dadfcc7f2dcb7` 的树与该 head 相同。
+- [main CI 43013835548](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/43013835548) 两引擎、32 位扫描器及并发补测、Verified VSIX 和发布作业均成功。CI 观察客户端的首次 EOF 保留，直接查询同一原 run 后继续，没有重新触发构建。
+- [GitHub v5.3.17](https://github.com/fhgffy/antigravity-auto-accept/releases/tag/v5.3.17) 于 2026-11-11T11:46:57Z 公开，非草稿、非预发布；标签指向精确 main CI 提交。Release ID `441621579`，VSIX 资产 `735329241`，同次 CI artifact `13852690843`。
+- 原包 SHA-256：`2a40f7fe7e289acbbff5d51b1c3be18bed20150cae16e07fab2420c523b3c0c3`。同次 CI 原包、匿名公开下载、Release API 摘要和两份校验文件一致，8 文件运行字节校验通过；未重新打包作为分发资产。
+- 两商店公开核验仍未发现 5.3.17，Open VSX 精确版本 API 返回 404。CI 的 credential not configured 是未发布；本机 VSCE 已保存发布者列表为空、当前环境无商店令牌。浏览器发布标签连接失败，原生浏览器入口因无法可靠识别网址由工具停止，未绕过该限制。
+- 已准备原始 VSIX、发布交接和完整回执于本轮证据根；等待本人接入已有发布身份，之后仍须比较两商店实际公开包 SHA。GitHub 已发布不能当作三渠道完成。
