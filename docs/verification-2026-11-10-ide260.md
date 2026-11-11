@@ -1,6 +1,6 @@
 # IDE 2.6.0 兼容维护与原生验证
 
-2026-11-10 至 2026-11-11。5.3.17 已合并并在 GitHub Release 公开；main CI 与匿名下载原包均已核对。Open VSX 已通过已有 fhgffy 网页会话上传同一个原包，管理页显示 5.3.17 / Public，独立匿名下载的公开包 SHA-256 已与 GitHub 原包匹配。Marketplace 本轮仍未发布。双商店 CI 发布凭据被服务拒绝且尚未修复；首次缺凭据、第二次授权失败及后续网页结果分别保留，三渠道验证尚未完成。
+2026-11-10 至 2026-11-11。5.3.17 已合并并在 GitHub Release 公开；main CI 与匿名下载原包均已核对。Open VSX 已通过已有 fhgffy 网页会话上传同一个原包，管理页显示 5.3.17 / Public，独立匿名下载的公开包 SHA-256 已与 GitHub 原包匹配。Marketplace 由维护者完成上传后，于 22:53 取得精确 5.3.17 的公开响应及实际 VSIX，大小与 SHA-256 均匹配同一 GitHub 原包。三渠道公开包核验完成。双商店 CI 发布凭据此前被服务拒绝，尚无修复证据；网页发布不证明自动发布令牌有效，首次失败与未公开回执均保留。
 
 ## 维护判断与范围
 
@@ -88,8 +88,8 @@ CASE_M 仍为 PID 48904 / HWND 6359514，完整卡 `42.592530.4.25.7.3304`；实
 
 - **已跑验证（网页）**：复用已有 fhgffy 登录会话，向 Open VSX 上传同次 main CI 的原始 VSIX；网页显示 PUBLISHED，扩展管理页显示 Latest version 5.3.17、Status Public。截图保留于证据根 `openvsx-5.3.17-published.png`。该网页回执与后续独立匿名公开包核验分列，公开字节结果见下节。
 - **已跑验证（控制恢复）**：恢复浏览器控制时发现 browserId 重映射，原 Chrome 的 3 变为 4，旧 3 已对应 Edge；依据实际 browser family、profile 和保持一致的 extensionInstanceId 前缀 d21e1683 重新核对目标。先前原生 API 因无法可靠识别 URL 而停止的记录保留，未绕过该限制。
-- **已跑验证（连接观察），登录终态未验证**：Marketplace 的 Chrome DOM 登录先在 _MsalSignedInFps / _signedin 路径停白页，正常导航与刷新后读回 chrome-error / ERR_FAILED。Azure DevOps 官方 go.microsoft LinkId307137 入口的连接及截图观察也超时；没有足够页面证据证明登录完成或出现验证码，未将连接现象归因为具体凭据、代理或服务故障。文件名显示或提交动作本身不作为上传回执；Marketplace 本轮仍未发布。
-- **当前完成边界**：GitHub 公开原包已验证；Open VSX 网页发布及匿名公开包 SHA-256 已验证；Marketplace 发布与公开包尚未完成。attempt 2 的 TF400813 / Invalid access token 失败继续保留，双商店自动发布凭据未修复，三渠道验证尚未完成。后续补充公开包证据，不重新打包或重复上传已公开版本。
+- **已跑验证（连接观察），登录终态未验证**：Marketplace 的 Chrome DOM 登录先在 _MsalSignedInFps / _signedin 路径停白页，正常导航与刷新后读回 chrome-error / ERR_FAILED。Azure DevOps 官方 go.microsoft LinkId307137 入口的连接及截图观察也超时；没有足够页面证据证明登录完成或出现验证码，未将连接现象归因为具体凭据、代理或服务故障。文件名显示或提交动作本身不作为上传回执；该时点 Marketplace 尚未发布。
+- **当时完成边界**：GitHub 公开原包已验证；Open VSX 网页发布及匿名公开包 SHA-256 已验证；Marketplace 发布与公开包尚未完成。attempt 2 的 TF400813 / Invalid access token 失败继续保留，双商店自动发布凭据未修复，三渠道验证尚未完成。后续补充公开包证据，不重新打包或重复上传已公开版本。
 
 ## 公开包字节核验（2026-11-11 21:19）
 
@@ -97,4 +97,23 @@ CASE_M 仍为 PID 48904 / HWND 6359514，完整卡 `42.592530.4.25.7.3304`；实
 - 官方 file URL 的实际 302 指向 `https://openvsx.eclipsecontent.org/fhgffy/antigravity-auto-accept/5.3.17/fhgffy.antigravity-auto-accept-5.3.17.vsix`。使用 Python OpenSSL 默认系统信任直接 GET 该实际目标，13:19:52Z 完成 84,540 字节下载，SHA-256 为 `2a40f7fe7e289acbbff5d51b1c3be18bed20150cae16e07fab2420c523b3c0c3`，与同次 main CI / GitHub 原包一致；临时包已清零。
 - 校验入口的生产函数正文与冻结 AST 一致；替代匿名探针保留相同的发布者、精确版本、来源主机和实际包摘要门，没有执行上传主体。回执位于证据根 `agent-public-verify/source-audit.json`、`openvsx-direct-cdn-result.json`，原网络失败未覆盖。
 - Marketplace 单次匿名查询于 13:15:54Z 返回匹配发布者及扩展，版本列表最高 5.3.16，未发现 5.3.17；保留 `agent-public-verify/marketplace-result.json` 与原响应，不反复上传或把旧版本作为新版本证据。
-- **当前渠道状态**：GitHub 和 [Open VSX](https://open-vsx.org/extension/fhgffy/antigravity-auto-accept) 的 5.3.17 公开原包均已匹配；Marketplace 尚未发布。网页上架没有修复两个自动发布令牌，三渠道完成仍未达成。
+- **21:19 渠道状态**：GitHub 和 [Open VSX](https://open-vsx.org/extension/fhgffy/antigravity-auto-accept) 的 5.3.17 公开原包均已匹配；Marketplace 尚未发布。网页上架没有修复两个自动发布令牌，三渠道完成仍未达成。
+
+## 维护者上传后的核验（2026-11-11 22:49）
+
+- 维护者反馈已上传并显示 Verifying；这是本人反馈，尚未作为公开发布或包字节证据。未重复上传。
+- **已跑验证**：14:49:12Z 的匿名 Marketplace API 响应仍列最高 5.3.16，未见精确 5.3.17，因此尚无该版本公开包可下载核对。保留原响应及独立回执于证据根 agent-public-verify/after-user-upload-20261111，不据此断言上传失败或审核原因。
+
+## 三渠道最终核验（2026-11-11 22:53）
+
+**已读源码、已跑验证**：维护者反馈 Verifying 后，14:53:07Z 的匿名 Marketplace API 已返回唯一的 fhgffy / antigravity-auto-accept / 5.3.17；14:53:15Z 完成官方响应所列 VSIX 的实际下载，84,540 字节、SHA-256 `2a40f7fe7e289acbbff5d51b1c3be18bed20150cae16e07fab2420c523b3c0c3`，与同次 main CI / GitHub / Open VSX 原包一致。公开来源为 `https://fhgffy.gallerycdn.vsassets.io/extensions/fhgffy/antigravity-auto-accept/5.3.17/1794408387675/Microsoft.VisualStudio.Services.VSIXPackage`。
+
+| 渠道 | 精确版本及实际包结果 |
+| --- | --- |
+| [GitHub Release](https://github.com/fhgffy/antigravity-auto-accept/releases/tag/v5.3.17) | v5.3.17，Release 原包资产 735329241，匿名下载及摘要均匹配。 |
+| [Open VSX](https://open-vsx.org/extension/fhgffy/antigravity-auto-accept) | 5.3.17，官方实际重定向 CDN 的匿名下载匹配，详见 21:19 记录。 |
+| [Marketplace](https://marketplace.visualstudio.com/items?itemName=fhgffy.antigravity-auto-accept) | 5.3.17，精确发布者与扩展名相符，匿名实际 VSIX 大小和 SHA 均匹配。 |
+
+Marketplace 核验使用 Python OpenSSL 默认 TLS 验证，无发布凭据；回执位于证据根 `agent-public-verify/after-user-upload-20261111-2253/marketplace-result.json`，原响应、实际 URL、时间与下载清理结果均已保留，临时 VSIX 为零。沿用当前生产单函数 AST 合同的发布者、版本、来源主机和摘要门，实际网络请求由匿名 Python 探针完成，没有执行 CI 上传主体。
+
+本次收尾只更新文档与观察器经验，不增加版本、不重新打包、不替换 v5.3.17 标签或资产。运行发行仍对应 main `92031c12e8ccd6f2d89caf1a3e5dadfcc7f2dcb7`；两个自动发布令牌的原失败保持为失败，不影响本次已公开原包的核验结果。MCP 工具执行超时、浏览器站点审批未原生验证的限制仍按前文保留。
