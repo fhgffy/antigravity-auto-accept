@@ -213,14 +213,15 @@ $checks++
 
 # 2026-10-05：执行实际卡片函数，只将外部 UIA 父节点查找替换成可控树，所有点击为计数桩。
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes # 2026-10-07：空树回放不会触发实际 UIA 对象的依赖加载。
-$testFunctions = @('Test-OneTimeApprovalName', 'Test-ApprovalCardShape', 'Test-ApprovalOptionSelected', 'Test-LiveApprovalCard', 'Write-ApprovalDiagnostic', 'Get-ApprovalEventContext', 'Invoke-ApprovalCards', 'Get-ButtonCenter', 'Test-ButtonMatch', 'Test-PrefixBoundary', 'Get-ScannerWindows') # 2026-10-21：尾段仍执行真实窗口入口，空树只替换原生边界。
+$testFunctions = @('Test-OneTimeApprovalName', 'Test-ApprovalCardShape', 'Test-ApprovalOptionSelected', 'Test-LiveApprovalCard', 'Get-ApprovalCard', 'Write-ApprovalDiagnostic', 'Get-ApprovalEventContext', 'Invoke-ApprovalCards', 'Get-ButtonCenter', 'Test-ButtonMatch', 'Test-PrefixBoundary', 'Get-ScannerWindows') # 2026-10-21：尾段仍执行真实窗口入口，空树只替换原生边界。
 foreach ($name in $testFunctions) {
     $definition = $ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     # 2026-10-20：只读旧源码回放允许缺少新增格式函数，仍须由真实旧成功事件触发归属断言红灯。
-    if ($definition.Count -eq 0 -and $name -eq 'Get-ApprovalEventContext' -and -not [string]::IsNullOrWhiteSpace($ScannerSourcePath)) { continue }
+    if ($definition.Count -eq 0 -and $name -in @('Get-ApprovalEventContext', 'Get-ApprovalCard') -and -not [string]::IsNullOrWhiteSpace($ScannerSourcePath)) { continue }
     if ($definition.Count -ne 1) { throw "Missing card function: $name" }
     $functionText = $definition[0].Extent.Text
-    if ($name -eq 'Invoke-ApprovalCards') {
+    # 2026-11-11：新增父链定位函数也只替换原生父查询，完整审批识别逻辑仍从生产源码加载。
+    if ($name -in @('Invoke-ApprovalCards', 'Get-ApprovalCard')) {
         $functionText = $functionText.Replace('[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)', '(Get-TestParent $option)')
         $functionText = $functionText.Replace('[System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($card)', '(Get-TestParent $card)')
         # 2026-10-06：新增归属复核也使用同一可控父链，不在回归中访问真实桌面控件。
@@ -379,6 +380,7 @@ function New-TestApprovalWindow([bool]$HasPermissionTarget, [bool]$InitiallySele
         switch ($condition) { 'edit' { return $this.Edits }; 'radio' { return $this.Radios }; 'button' { return $this.Buttons } }
     }
     $option.Parent = [pscustomobject]@{ Parent = $card }
+    $option.Parent | Add-Member ScriptMethod FindAll { param($scope, $condition) return @() } # 2026-11-11：旧布局的选项组本身不含完整权限目标。
     $submit.Parent = $card
     if ($Mode -eq 'external-mixed-prefix') { $card.Radios[1].Current.AutomationId = 'ask-opt-P0-999-2' }
     if ($Mode -eq 'external-duplicate-submit') { $card.Buttons += [pscustomobject]@{ Current = [pscustomobject]@{ Name = 'Submit' } } }
@@ -405,6 +407,60 @@ foreach ($case in @(
     $checks++
 }
 Write-Output 'PASS permission-card scope, one-time selection, and unreadable selection skip'
+
+# 2026-11-11：原生 IDE 2.6.0 在单选项与权限卡间新增分组；复用真实审批入口验证两端父链、滚动与越界拒绝。
+$nestedCardCases=@(
+    @{Label='native selected';Depth=4;Selected=$true;Mode='';Target=$true;Expected=1},
+    @{Label='native selection';Depth=4;Selected=$false;Mode='';Target=$true;Expected=1},
+    @{Label='native option scroll';Depth=4;Selected=$false;Mode='option-scroll';Target=$true;Expected=1},
+    @{Label='native submit scroll';Depth=4;Selected=$true;Mode='submit-scroll';Target=$true;Expected=1},
+    @{Label='bounded six levels';Depth=6;Selected=$false;Mode='';Target=$true;Expected=1},
+    @{Label='beyond six levels';Depth=7;Selected=$true;Mode='';Target=$true;Expected=0},
+    @{Label='missing permission target';Depth=4;Selected=$true;Mode='';Target=$false;Expected=0},
+    @{Label='mixed questions';Depth=4;Selected=$true;Mode='external-mixed-prefix';Target=$true;Expected=0},
+    @{Label='duplicate submit';Depth=4;Selected=$true;Mode='external-duplicate-submit';Target=$true;Expected=0},
+    @{Label='submit moved after pattern';Depth=4;Selected=$true;Mode='';Target=$true;Expected=0}
+)
+foreach($case in $nestedCardCases){
+    $script:testParentAlive=$true
+    $window=New-TestApprovalWindow $case.Target $case.Selected $true $case.Mode
+    $parent=$window.Card
+    for($depth=1;$depth-lt$case.Depth;$depth++){
+        $group=[pscustomobject]@{Parent=$parent;Key=(9870+$depth)}
+        $group|Add-Member ScriptMethod FindAll {param($scope,$condition) return @()}
+        $group|Add-Member ScriptMethod GetRuntimeId {return @($this.Key)}
+        $parent=$group
+        if($depth-eq($case.Depth-2)){$window.Card.Buttons[0].Parent=$group}
+    }
+    $window.Card.Radios[0].Parent=$parent
+    if($case.Label-eq'submit moved after pattern'){
+        $window.Card.Buttons[0]|Add-Member ScriptMethod GetCurrentPattern {
+            param($pattern)
+            $this.Parent=[pscustomobject]@{Parent=$null;Key=9999}
+            $this.Parent|Add-Member ScriptMethod FindAll {param($scope,$condition) return @()}
+            $this.Parent|Add-Member ScriptMethod GetRuntimeId {return @($this.Key)}
+            return $this
+        } -Force
+    }
+    $actual=Invoke-ApprovalCards $window 123 ([IntPtr]42)
+    if($actual-ne($case.Expected-eq1)-or$window.Card.Buttons[0].Invocations-ne$case.Expected){throw ('Nested permission card mismatch: '+$case.Label+' expected='+$case.Expected+' actual='+$window.Card.Buttons[0].Invocations)}
+    $checks++
+}
+if($nestedCardCases.Count-ne10){throw 'Incomplete nested permission card coverage'}
+Write-Output ('PASS native-derived nested permission cards: '+$nestedCardCases.Count)
+
+# 2026-11-11：文档与窗口节点必须先截断，不能查询边界后代或借上层完整卡片继续提交。
+foreach ($boundary in @([System.Windows.Automation.ControlType]::Document, [System.Windows.Automation.ControlType]::Window)) {
+    $script:testParentAlive = $true
+    $window = New-TestApprovalWindow $true $true $true
+    $boundaryNode = [pscustomobject]@{ Current = [pscustomobject]@{ ControlType = $boundary }; Parent = $window.Card }
+    $boundaryNode | Add-Member ScriptMethod FindAll { throw 'Boundary must never be searched' }
+    $window.Card.Radios[0].Parent = $boundaryNode
+    if ($null -ne (Get-ApprovalCard $window.Card.Radios[0])) { throw 'Escaped control boundary' }
+    if ((Invoke-ApprovalCards $window 123 ([IntPtr]42)) -or $window.Card.Buttons[0].Invocations -ne 0) { throw 'Approved across control boundary' }
+    $checks++
+}
+Write-Output 'PASS permission-card document and window boundaries'
 
 # 2026-10-20：同进程的不同窗口及目标必须产生可归属且不泄漏目标正文的单行成功事件。
 $contextHashes = @('629e03708df0a25747132bce12870c566762445ffa946ee06ca7964ccae787a1', '975defd3a6acf6c99b2de9d4dc56c831580586ba235f9681f43019cf4f986a82')

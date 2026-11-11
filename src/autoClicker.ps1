@@ -903,7 +903,8 @@ function Test-OneTimeApprovalName([string]$Name) {
 # 2026-10-05：权限目标编辑框与同问题的本次、始终、拒绝选项必须在同一卡片内。
 function Test-ApprovalCardShape($EditNames, $OptionIds, $OptionNames, $SubmitNames) {
     if (@($EditNames | Where-Object { $_ -eq 'Edit permission target' }).Count -ne 1) { return $false }
-    if ($OptionIds.Count -lt 3 -or $OptionIds.Count -ne $OptionNames.Count) { return $false }
+    # 2026-10-31：IDE 2.6.0 可过滤持久授权范围，仅本次与拒绝两项也构成完整审批；同卡片和目标门保持不变。
+    if ($OptionIds.Count -lt 2 -or $OptionIds.Count -ne $OptionNames.Count) { return $false }
     $oneTimeIndex = -1
     for ($i = 0; $i -lt $OptionIds.Count; $i++) {
         if ($OptionIds[$i] -match '^ask-opt-(.+)-1$' -and (Test-OneTimeApprovalName $OptionNames[$i])) {
@@ -916,7 +917,8 @@ function Test-ApprovalCardShape($EditNames, $OptionIds, $OptionNames, $SubmitNam
     foreach ($id in $OptionIds) {
         if (-not $id.StartsWith($questionPrefix, [StringComparison]::Ordinal)) { return $false }
     }
-    if (@($OptionNames | Where-Object { $_ -match '\balways allow\b|始终允许|总是允许|始终同意|总是同意' }).Count -eq 0) { return $false }
+    # 2026-10-31：有额外范围时仍需识别授权选项；新版 URL 会话范围标签没有 always，不能据此漏掉本次许可。
+    if ($OptionIds.Count -gt 2 -and @($OptionNames | Where-Object { $_ -match '\balways allow\b|始终允许|总是允许|始终同意|总是同意|^(\d+\s+)?Yes, allow .+ in this conversation$' }).Count -eq 0) { return $false }
     if (@($OptionNames | Where-Object { $_ -match '^(\d+\s+)?No\b|拒绝|不同意|不允许' }).Count -eq 0) { return $false }
     return @($SubmitNames | Where-Object { $_ -match '^(Submit|提交)(\s*[↵⏎])?$' }).Count -eq 1
 }
@@ -945,6 +947,17 @@ function Test-LiveApprovalCard($Card, $ExpectedTarget = $null) {
         if (-not [string]::Equals($value, $ExpectedTarget.Value, [StringComparison]::Ordinal)) { return $false }
     }
     return $true
+}
+
+# 2026-11-11：兼容新版选项分组；最多沿六层父链取最近的完整权限卡，不能越过文档或窗口。
+function Get-ApprovalCard($Element) {
+    $card = $Element
+    for ($depth = 0; $depth -lt 6; $depth++) {
+        $card = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($card)
+        if ($null -eq $card -or $card.Current.ControlType -in @([System.Windows.Automation.ControlType]::Document, [System.Windows.Automation.ControlType]::Window)) { return $null }
+        if (Test-LiveApprovalCard $card) { return $card }
+    }
+    return $null
 }
 
 # 2026-10-06：审批卡片的诊断最多每十秒输出一次，便于排查宿主 UI 变化且避免刷屏。
@@ -1078,6 +1091,34 @@ function Invoke-BrowserPermissionCards($Window, [int]$WindowProcessId, [IntPtr]$
     if ($null -eq $script:deferredBrowserMenus) { $script:deferredBrowserMenus = @{} }
     $deferredWindowKey = $WindowHandle.ToInt64().ToString([Globalization.CultureInfo]::InvariantCulture)
     $conversation = $Window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $conversationCondition)
+    # 2026-10-31：IDE 2.6.0 移除了 conversation；只在内置 Agent 的本地扩展文档中接受唯一 root，不扫描普通预览的同名容器。
+    if ($null -eq $conversation) {
+        $documentCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Document)
+        $agentRootCondition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, 'root')
+        $agentRoots = [Collections.Generic.List[object]]::new()
+        foreach ($frame in $Window.FindAll([System.Windows.Automation.TreeScope]::Descendants, $documentCondition)) {
+            try {
+                if ($frame.Current.AutomationId -ne 'active-frame') { continue }
+                foreach ($document in $frame.FindAll([System.Windows.Automation.TreeScope]::Descendants, $documentCondition)) {
+                    if ($document.Current.AutomationId -ne 'RootWebArea') { continue }
+                    $documentUrl = $document.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value
+                    $agentUri = $null
+                    if (-not [Uri]::TryCreate($documentUrl, [UriKind]::Absolute, [ref]$agentUri) -or $agentUri.Scheme -ne 'http' -or -not $agentUri.IsLoopback) { continue }
+                    # 2026-11-11：原生重载窗口可保留 /c/会话 UUID；只接纳该精确路由和首页，不放行设置或其它子页。
+                    if ($agentUri.AbsolutePath -cne '/' -and $agentUri.AbsolutePath -cnotmatch '^/c/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$') { continue }
+                    # 2026-11-10：内置后端按大小写精确读取查询键；拒绝重复或冲突参数，避免其它页面进入审批扫描。
+                    $extensionViewParameters = [regex]::Matches($agentUri.Query, '(?:^\?|&)extensionView(?:=([^&]*))?(?=&|$)')
+                    $extensionVariantParameters = [regex]::Matches($agentUri.Query, '(?:^\?|&)extensionVariant(?:=([^&]*))?(?=&|$)')
+                    if ($extensionViewParameters.Count -ne 1 -or $extensionViewParameters[0].Groups[1].Value -cne 'true' -or $extensionVariantParameters.Count -ne 1 -or $extensionVariantParameters[0].Groups[1].Value -cne 'vs-code') { continue }
+                    $roots = @($document.FindAll([System.Windows.Automation.TreeScope]::Descendants, $agentRootCondition))
+                    if ($roots.Count -ne 1) { return $false }
+                    $agentRoots.Add($roots[0])
+                }
+            }
+            catch { return $false }
+        }
+        if ($agentRoots.Count -eq 1) { $conversation = $agentRoots[0] }
+    }
     if ($null -eq $conversation) {
         Write-ApprovalDiagnostic "browser conversation missing pid=$WindowProcessId" 'browser-candidate'
         return $false
@@ -1270,9 +1311,8 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
         try {
             if ($option.Current.AutomationId -notmatch '^ask-opt-.+-1$' -or -not (Test-OneTimeApprovalName $option.Current.Name)) { continue }
             if (-not $option.Current.IsEnabled) { continue }
-            $card = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
-            if ($null -eq $card) { continue }
-            $card = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($card)
+            # 2026-11-11：从真实选项定位完整表单，支持新增的单选组包装层。
+            $card = Get-ApprovalCard $option
             if ($null -eq $card -or -not (Test-LiveApprovalCard $card)) {
                 Write-ApprovalDiagnostic 'permission-card shape mismatch'
                 continue
@@ -1307,8 +1347,8 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 $scroll = $option.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
                 if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
-                $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
-                $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
+                # 2026-11-11：动作前重新沿实时父链核对原卡片，不能沿用固定层数或旧归属。
+                $optionCard = Get-ApprovalCard $option
                 if ($null -eq $optionCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not $option.Current.IsEnabled -or -not (Test-OneTimeApprovalName $option.Current.Name)) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
                 $stage = 'option-scroll'
@@ -1329,8 +1369,8 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 }
                 if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
-                $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
-                $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
+                # 2026-11-11：动作前重新沿实时父链核对原卡片，不能沿用固定层数或旧归属。
+                $optionCard = Get-ApprovalCard $option
                 if ($null -eq $optionCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not $option.Current.IsEnabled -or $option.Current.IsOffscreen -or $option.Current.AutomationId -notmatch '^ask-opt-.+-1$' -or -not (Test-OneTimeApprovalName $option.Current.Name)) { continue }
                 if (-not (Test-ParentAlive)) { return $false }
                 $stage = 'selection'
@@ -1363,9 +1403,9 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                     $scroll = $submit.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern)
                     if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                     if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
-                    $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
-                    $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
-                    $submitCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($submit)
+                    # 2026-11-11：动作前重新沿实时父链核对原卡片，不能沿用固定层数或旧归属。
+                    $optionCard = Get-ApprovalCard $option
+                    $submitCard = Get-ApprovalCard $submit
                     if ($null -eq $optionCard -or $null -eq $submitCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or ($submitCard.GetRuntimeId() -join '.') -ne $cardId -or -not (Test-LiveApprovalCard $card $expectedTarget) -or -not $submit.Current.IsEnabled -or $submit.Current.Name -notmatch '^(Submit|提交)(\s*[↵⏎])?$' -or -not $option.Current.IsEnabled -or $option.Current.IsOffscreen -or -not (Test-ApprovalOptionSelected $option)) { continue }
                     if (-not (Test-ParentAlive)) { return $false }
                     $stage = 'submit-scroll'
@@ -1379,9 +1419,9 @@ function Invoke-ApprovalCards($Window, [int]$WindowProcessId, [IntPtr]$WindowHan
                 # 2026-10-06：模式和宿主查询完成后，再核验最终按钮状态及两端控件仍归属原权限表单。
                 if (-not (Get-TargetProcessIds $WindowProcessId).ContainsKey($WindowProcessId)) { continue } # 2026-10-07
                 if ($Window.Current.NativeWindowHandle -ne $WindowHandle.ToInt64() -or $Window.Current.ProcessId -ne $WindowProcessId) { continue }
-                $optionGroup = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($option)
-                $optionCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($optionGroup)
-                $submitCard = [System.Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($submit)
+                # 2026-11-11：动作前重新沿实时父链核对原卡片，不能沿用固定层数或旧归属。
+                $optionCard = Get-ApprovalCard $option
+                $submitCard = Get-ApprovalCard $submit
                 if ($null -eq $optionCard -or $null -eq $submitCard -or ($optionCard.GetRuntimeId() -join '.') -ne $cardId -or ($submitCard.GetRuntimeId() -join '.') -ne $cardId) { continue }
                 if (-not $submit.Current.IsEnabled -or $submit.Current.IsOffscreen -or $submit.Current.Name -notmatch '^(Submit|提交)(\s*[↵⏎])?$') { continue }
                 # 2026-10-05：提交前最后复核本次允许，避免宿主检查期间选项变成始终允许或拒绝。
