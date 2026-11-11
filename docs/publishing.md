@@ -40,6 +40,8 @@ publish 作业只接受本仓库 main 的 push，依赖 validation（两引擎�
 
 1. 由发布者本人准备对应商店的有效发布凭据。Marketplace 当前的 PAT 路径要求 Azure DevOps 中选择 `All accessible organizations` 和 `Marketplace (Manage)`，账号必须能管理已有发布者；仅有其他 Azure 组织权限的令牌不足以发布。Open VSX 使用本人账号的 Access Tokens，先确认账号有 `fhgffy` namespace 发布权。不要把值发到聊天、issue、命令参数或仓库文件。
 2. 打开[本仓库 Actions Secrets](https://github.com/fhgffy/antigravity-auto-accept/settings/secrets/actions)，依次选择 **New repository secret**，分别保存为 `VSCE_PAT` 和 `OVSX_PAT`。值只在 GitHub 的 Secret 输入框中填写；已存在时使用 Update。当前工作流没有关联 GitHub Environment，因此仅配置环境级 Secrets 不会使该作业获得值。[GitHub 官方步骤](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)
+2026-11-11：如果网页入口返回 404，先核对浏览器是否登录仓库管理账号；当前 CLI 有管理权限不代表浏览器会话相同。也可由本人在交互终端依次运行 `gh secret set VSCE_PAT --repo fhgffy/antigravity-auto-accept`、`gh secret set OVSX_PAT --repo fhgffy/antigravity-auto-accept`，按提示输入已有值；不要把令牌写进命令参数或发到聊天。这只保存已有发布身份，不代建令牌。配置后用 `gh secret list --repo fhgffy/antigravity-auto-accept` 核对名称即可。
+
 3. 保持现有 CI 权限和分支规则。后续一个正常运行补丁合并到 main 且测试、打包通过后，publish 作业会使用 GitHub Release 的原包依次核对和发布两个商店。手动 workflow_dispatch 用于测试，不会触发发布。没有用户可感知的运行变更时，不为验证凭据创建空版本。
 4. 在该 main 运行的 summary 中检查两个商店的公开核验结果；`credential not configured`、`uploaded-pending` 和审核中均不是公开成功。若发布阶段失败，保留原运行和原资产，修正本人凭据后重跑同一提交的失败作业；先查精确公开版本，不能重新打包覆盖。
 
