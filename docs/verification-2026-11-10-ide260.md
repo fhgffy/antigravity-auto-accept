@@ -1,6 +1,6 @@
 # IDE 2.6.0 兼容维护与原生验证
 
-2026-11-10 至 2026-11-11。5.3.17 已合并并在 GitHub Release 公开；main CI 与匿名下载原包均已核对。Marketplace / Open VSX 的当前发布凭据被服务拒绝，尚未上线；首次缺凭据与第二次授权失败分别保留。
+2026-11-10 至 2026-11-11。5.3.17 已合并并在 GitHub Release 公开；main CI 与匿名下载原包均已核对。Open VSX 已通过已有 fhgffy 网页会话上传同一个原包，管理页显示 5.3.17 / Public，独立匿名下载的公开包 SHA-256 已与 GitHub 原包匹配。Marketplace 本轮仍未发布。双商店 CI 发布凭据被服务拒绝且尚未修复；首次缺凭据、第二次授权失败及后续网页结果分别保留，三渠道验证尚未完成。
 
 ## 维护判断与范围
 
@@ -68,18 +68,33 @@ CASE_M 仍为 PID 48904 / HWND 6359514，完整卡 `42.592530.4.25.7.3304`；实
 
 版本发布使用同次 main CI 原始 VSIX，公开下载与商店状态另行记录；缺少商店凭据的绿色作业不算商店成功。
 
-## GitHub 发布回执（2026-11-11 19:52）
+## GitHub 发布回执与当时商店状态（2026-11-11 19:52）
 
 - **已跑验证**：[PR #70](https://github.com/fhgffy/antigravity-auto-accept/pull/70) 的 head `5529082488dbf43c3ac7ad50c52df4e8ecc7988b` 经两引擎、包与 lint 校验后合并；main `92031c12e8ccd6f2d89caf1a3e5dadfcc7f2dcb7` 的树与该 head 相同。
-- [main CI 43013835548](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/43013835548) 两引擎、32 位扫描器及并发补测、Verified VSIX 和发布作业均成功。CI 观察客户端的首次 EOF 保留，直接查询同一原 run 后继续，没有重新触发构建。
+- [main CI 43013835548](https://github.com/fhgffy/antigravity-auto-accept/actions/runs/43013835548) 的 attempt 1 中，两引擎、32 位扫描器及并发补测、Verified VSIX 和发布作业均成功；两个商店步骤因缺少凭据未发布。CI 观察客户端的首次 EOF 保留，直接查询同一原 run 后继续，没有重新触发构建。后续 attempt 2 发布失败另记下节。
 - [GitHub v5.3.17](https://github.com/fhgffy/antigravity-auto-accept/releases/tag/v5.3.17) 于 2026-11-11T11:46:57Z 公开，非草稿、非预发布；标签指向精确 main CI 提交。Release ID `441621579`，VSIX 资产 `735329241`，同次 CI artifact `13852690843`。
 - 原包 SHA-256：`2a40f7fe7e289acbbff5d51b1c3be18bed20150cae16e07fab2420c523b3c0c3`。同次 CI 原包、匿名公开下载、Release API 摘要和两份校验文件一致，8 文件运行字节校验通过；未重新打包作为分发资产。
-- 两商店公开核验仍未发现 5.3.17，Open VSX 精确版本 API 返回 404。CI 的 credential not configured 是未发布；本机 VSCE 已保存发布者列表为空、当前环境无商店令牌。浏览器发布标签连接失败，原生浏览器入口因无法可靠识别网址由工具停止，未绕过该限制。
-- 已准备原始 VSIX、发布交接和完整回执于本轮证据根；等待本人接入已有发布身份，之后仍须比较两商店实际公开包 SHA。GitHub 已发布不能当作三渠道完成。
+- 截至 2026-11-11 19:52，当时两商店公开核验尚未发现 5.3.17，Open VSX 精确版本 API 返回 404。CI 的 credential not configured 是未发布；当时本机 VSCE 已保存发布者列表为空、环境无商店令牌。浏览器发布标签连接失败，原生浏览器入口因无法可靠识别网址由工具停止，未绕过该限制。此为历史时点，后续 Open VSX 网页发布结果另记下节。
+- 当时已准备原始 VSIX、发布交接和完整回执于本轮证据根，等待本人接入已有发布身份；商店实际上架后仍须比较公开包 SHA。该时点 GitHub 已发布不能当作三渠道完成。
 
 ## 商店发布重试（2026-11-11 20:13）
 
 - **已跑验证**：仓库已出现 VSCE_PAT / OVSX_PAT 名称；仅查询名称与更新时间，未读取其值。终端账号 fhgffy 具有仓库管理权限，浏览器 Secrets 页面 404 的实际登录态未验证，交互 gh secret set 已作为本人配置替代方式写入发布说明。
 - 原 run `43013835548` 的发布作业重试进入 attempt 2，作业 ID `130513409884`。输入和不可变 Release 原资产校验成功，随后两个商店均拒绝凭据：Marketplace 在 12:10:56Z 返回 TF400813 未授权，Open VSX 在 12:12:36Z 返回 Invalid access token。两者实际 outcome=failure、status=upload-failed；汇总步骤使本次重试失败，不能将外层步骤的 success 或 GitHub 仍公开误记为商店成功。
 - 本机并行公开查询的 TLS 失败另存；随后 curl 的 Open VSX 精确版本查询仍返回 404。这些失败不覆盖此前缺凭据回执，也不倒推出运行代码或原生验收失败。脱敏原日志保存于证据根 main-92031c1-attempt2-release-job.decoded.log。
-- 本人须更新对应商店的有效发布令牌；Secret 名称存在不证明值有效，具体失效、来源或权限原因未验证。相同凭据不反复重试；更新后仍先查询精确公开版本，并复用原 GitHub VSIX。
+- 自动发布凭据仍待本人修正；Secret 名称存在不证明值有效，具体失效、来源或权限原因未验证。本轮未创建或读取令牌，也未再次重跑相同凭据的 CI。后续使用有效身份前仍先查询精确公开版本，并复用原 GitHub VSIX；网页登录 Open VSX 的成功不证明 CI 凭据已经修复。
+
+## 网页发布与连接边界（2026-11-11 后续复核）
+
+- **已跑验证（网页）**：复用已有 fhgffy 登录会话，向 Open VSX 上传同次 main CI 的原始 VSIX；网页显示 PUBLISHED，扩展管理页显示 Latest version 5.3.17、Status Public。截图保留于证据根 `openvsx-5.3.17-published.png`。该网页回执与后续独立匿名公开包核验分列，公开字节结果见下节。
+- **已跑验证（控制恢复）**：恢复浏览器控制时发现 browserId 重映射，原 Chrome 的 3 变为 4，旧 3 已对应 Edge；依据实际 browser family、profile 和保持一致的 extensionInstanceId 前缀 d21e1683 重新核对目标。先前原生 API 因无法可靠识别 URL 而停止的记录保留，未绕过该限制。
+- **已跑验证（连接观察），登录终态未验证**：Marketplace 的 Chrome DOM 登录先在 _MsalSignedInFps / _signedin 路径停白页，正常导航与刷新后读回 chrome-error / ERR_FAILED。Azure DevOps 官方 go.microsoft LinkId307137 入口的连接及截图观察也超时；没有足够页面证据证明登录完成或出现验证码，未将连接现象归因为具体凭据、代理或服务故障。文件名显示或提交动作本身不作为上传回执；Marketplace 本轮仍未发布。
+- **当前完成边界**：GitHub 公开原包已验证；Open VSX 网页发布及匿名公开包 SHA-256 已验证；Marketplace 发布与公开包尚未完成。attempt 2 的 TF400813 / Invalid access token 失败继续保留，双商店自动发布凭据未修复，三渠道验证尚未完成。后续补充公开包证据，不重新打包或重复上传已公开版本。
+
+## 公开包字节核验（2026-11-11 21:19）
+
+- **已跑验证**：独立匿名查询核对 Open VSX namespace=fhgffy、name=antigravity-auto-accept、version=5.3.17、downloadable=true，并取得官方精确版本 file URL。最初 Schannel 请求及默认 TLS 下载的超时均保留；未关闭证书验证或修改代理。
+- 官方 file URL 的实际 302 指向 `https://openvsx.eclipsecontent.org/fhgffy/antigravity-auto-accept/5.3.17/fhgffy.antigravity-auto-accept-5.3.17.vsix`。使用 Python OpenSSL 默认系统信任直接 GET 该实际目标，13:19:52Z 完成 84,540 字节下载，SHA-256 为 `2a40f7fe7e289acbbff5d51b1c3be18bed20150cae16e07fab2420c523b3c0c3`，与同次 main CI / GitHub 原包一致；临时包已清零。
+- 校验入口的生产函数正文与冻结 AST 一致；替代匿名探针保留相同的发布者、精确版本、来源主机和实际包摘要门，没有执行上传主体。回执位于证据根 `agent-public-verify/source-audit.json`、`openvsx-direct-cdn-result.json`，原网络失败未覆盖。
+- Marketplace 单次匿名查询于 13:15:54Z 返回匹配发布者及扩展，版本列表最高 5.3.16，未发现 5.3.17；保留 `agent-public-verify/marketplace-result.json` 与原响应，不反复上传或把旧版本作为新版本证据。
+- **当前渠道状态**：GitHub 和 [Open VSX](https://open-vsx.org/extension/fhgffy/antigravity-auto-accept) 的 5.3.17 公开原包均已匹配；Marketplace 尚未发布。网页上架没有修复两个自动发布令牌，三渠道完成仍未达成。
