@@ -1,4 +1,4 @@
-# 🚀 Antigravity Auto Accept v5.3.16
+# 🚀 Antigravity Auto Accept v5.3.17
 
 **Automatically accept supported agent approval buttons in Antigravity IDE on Windows.**
 **Windows 上自动接受 Antigravity IDE 支持的 Agent 审批按钮，无需调试端口或命令白名单配置。**
@@ -18,7 +18,7 @@
 
 Antigravity's [IDE settings documentation](https://antigravity.google/docs/settings?tab=ide) describes terminal **Always Proceed**, with denylist exceptions. Native permission features differ by product and platform: [Antigravity 2.0 and Antigravity IDE have separate release tracks](https://antigravity.google/docs/changelog). If your installed version's native controls meet your needs, they may be sufficient.
 
-官方 IDE 设置文档提供终端 **Always Proceed**；原生权限能力因产品、版本和平台而异，不能把 Antigravity 2.0 / CLI 的 Turbo 说明直接当成本机 IDE 2.5.5 已验证的设置。如果当前版本的原生设置已经满足需求，可以直接使用。这个扩展保留的价值是兼容仍显示审批按钮的工作流和旧版 IDE；本次实测的是 IDE 2.5.5 的一次允许审批卡片。
+原生 Turbo 已能覆盖不少日常命令和文件访问；如果当前版本的原生设置已经满足需求，可以直接使用。扩展保留的价值是兼容仍显示审批卡片的工作流和旧版 IDE。本轮在 IDE 2.6.0、后端 1.4.10 中，使用独立项目钩子生成真实命令审批，验证了自动提交及命令原始输出。App、CLI 与 IDE 的更新及权限能力分别核对；浏览器站点审批的本轮实测边界见[验证记录](docs/verification-2026-11-10-ide260.md)。
 
 - Installation enables scanning by default; a **trusted workspace, local Windows host, and accessible IDE window** are required. The extension does not edit the IDE's permission settings; a scoped **Allow** it clicks is recorded by Antigravity just as your own click would be.
 - Enabling the extension authorizes it to accept agent approvals for you, including conversation-, workspace- and site-scoped **Allow** buttons such as **Allow in Conversation** and `Allow <host>`; when a card also offers a one-time choice, that choice is used. Plan review **Proceed**, error **Retry**, agent questions, sign-in or payment prompts and workspace trust stay manual.
@@ -156,6 +156,14 @@ The defaults still work with zero configuration. Advanced users can tune these i
 ## 📋 Changelog | 更新日志
 
 这里仅列用户可感知的运行变化；构建、自测和完整历史见[维护记录](docs/verification-2026-10-21-maintenance-archive.md)。
+
+### v5.3.17 — IDE 2.6.0 审批兼容（2026-11-11）
+
+- 兼容仅显示“本次允许＋拒绝”的权限表单，并修复新版分组增加后无法找到完整审批卡的问题。
+- 浏览器审批入口发现适配不再使用旧会话容器的新版 Agent 文档，包含 /c/会话 ID 恢复路径；本轮未取得浏览器站点批准的原生成功证据。
+- 新容器发现继续核对内置 Agent 身份，排除重复或大小写不符的范围参数；已有范围类 Allow 的自动批准保持不变。
+- 规则回归、原生审批与工具执行分别记录，覆盖范围详见[验证记录](docs/verification-2026-11-10-ide260.md)。
+- Find complete permission cards through the nested IDE 2.6.0 option groups, support filtered forms, and discover the updated Agent container while retaining scoped Allow approvals and live target checks.
 
 ### v5.3.16 — 恢复范围类 Allow 的自动批准（2026-10-27）
 
